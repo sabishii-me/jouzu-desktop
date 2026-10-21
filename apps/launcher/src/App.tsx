@@ -6,6 +6,7 @@ import { UpdatePreview } from "./update-preview";
 import { GitBashSection, useGitBash } from "./git-bash-section";
 import { TerminalSection } from "./terminal-section";
 import { CommandEntrySection } from "./command-entry-section";
+import { ComponentSection, useComponent } from "./components/component-row";
 import { ReportSection } from "./report-section";
 import { useJouzuUpdate } from "./use-jouzu-update";
 import { useLauncherUpdate } from "./use-launcher-update";
@@ -35,6 +36,7 @@ import { parseDiagnostics, type Diagnostics } from "./diagnostics";
 import { openReport } from "./report";
 interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Workspace[]; ready: boolean; bash: boolean; bundled_git: boolean }
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
+interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => resolveLocale(localStorage.getItem("jouzu.ui.language") ?? navigator.language));
   const t = messages[locale];
@@ -66,6 +68,7 @@ export function App() {
   });
   const updater = useLauncherUpdate(components?.launcherUpdaterConfigured === true);
   const gitBash = useGitBash();
+  const runtime = useComponent<RuntimeReport>("runtime_report");
   const [settingsTab,setSettingsTab] = useState("providers");
   // Where a header jump lands in the System list: the row that has something waiting.
   const [updateFocus,setUpdateFocus] = useState<number | null>(null);
@@ -330,14 +333,20 @@ export function App() {
             <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
             <div className="flex justify-end pt-1"><Button onClick={async () => { if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
           </div> : onboardingStep === "runtime" ? <div className="space-y-4">
-            <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-5 py-4">
-                <h3 className="font-medium">{t.launcher}</h3>
-                <p className={`mt-1 text-sm ${components?.jouzu ? "text-muted-foreground" : "text-destructive"}`}>{components?.jouzu ? `${t.setupRuntimeReady} ${components.jouzu}` : t.setupRuntimeMissing}</p>
-              </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <ComponentSection
+                title={t.runtime}
+                status={runtime.state ? `${t.setupRuntimeReady} v${runtime.state.version}` : runtime.error ? t.setupRuntimeMissing : t.checking}
+                tone={runtime.state ? "ok" : "missing"}
+                note={runtime.state ? `${t.runtimePath}: ${runtime.state.root}` : undefined}
+                busy={runtime.busy}
+                error={runtime.error}
+                install={runtime.state ? () => void runtime.run(async () => { await invoke("repair_jouzu"); return invoke<RuntimeReport>("runtime_report"); }) : undefined}
+                installLabel={t.runtimeRepair}
+              />
               {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
             </div>
-            <div className="flex justify-between pt-1"><Button variant="outline" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button><Button disabled={!components?.jouzu} onClick={() => setOnboardingStep("model")}>{t.setupContinue}</Button></div>
+            <div className="flex justify-between pt-1"><Button variant="outline" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button><Button disabled={!runtime.state} onClick={() => setOnboardingStep("model")}>{t.setupContinue}</Button></div>
           </div> : <>{!settingsOpen && providerContent}</>}
         </div></ScrollArea>
       </LauncherPage>

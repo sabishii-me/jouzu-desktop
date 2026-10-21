@@ -345,6 +345,30 @@ fn forget_workspace(app: tauri::AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let root = runtime::application_root(&app)?;
+    let managed = runtime::managed_root()?;
+    let app_path = active_app::resolve_app(&root, &managed)?;
+    let metadata: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(app_path.join("node_modules/jouzu/package.json"))
+            .map_err(|_| "Runtime metadata is unavailable")?,
+    )
+    .map_err(|_| "Runtime metadata is invalid")?;
+    let version = metadata
+        .get("version")
+        .and_then(|value| value.as_str())
+        .ok_or("Runtime version is missing")?;
+    Ok(serde_json::json!({
+        "version": version,
+        "root": root.to_string_lossy(),
+        "app": app_path.to_string_lossy(),
+        "node": root.join("runtime/node/node.exe").is_file(),
+        "git": root.join("runtime/git").exists(),
+        "terminal": root.join("runtime/terminal").exists(),
+    }))
+}
+
+#[tauri::command]
 fn component_versions(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let root = runtime::application_root(&app)?;
     // Component health must not disable the independent Launcher repair channel.
@@ -516,6 +540,7 @@ fn main() {
             forget_workspace,
             add_workspaces,
             component_versions,
+            runtime_report,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,
