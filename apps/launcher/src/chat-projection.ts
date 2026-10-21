@@ -16,10 +16,18 @@ export interface ChatProjection {
 }
 export function emptyProjection(): ChatProjection { return { messages: [], activeMessage: null, tools: {}, flowReports: [], running: false, turnStartedAt: undefined, compatibility: [] }; }
 export function object(value: unknown): value is WireObject { return !!value && typeof value === "object" && !Array.isArray(value); }
+function contentShape(value: unknown): string {
+  if (!Array.isArray(value)) return value === null ? "null" : typeof value;
+  return `[${value.slice(0, 8).map(block => object(block) ? `type=${String(block.type)} keys=${Object.keys(block).join(",")}` : typeof block).join("; ")}]`;
+}
 export function parseMessage(value: unknown): ChatMessage {
   if (!object(value) || typeof value.role !== "string") throw new Error("Invalid runtime message");
-  const content = typeof value.content === "string" ? [{ type: "text", text: value.content }] : value.content;
-  if (!Array.isArray(content) || !content.every(block => object(block) && typeof block.type === "string")) throw new Error("Invalid runtime message content");
+  const content = typeof value.content === "string"
+    ? [{ type: "text", text: value.content }]
+    : value.content === undefined && value.role === "compactionSummary"
+      ? []
+      : value.content;
+  if (!Array.isArray(content) || !content.every(block => object(block) && typeof block.type === "string")) throw new Error(`Invalid runtime message content (${String(value.role)}: ${contentShape(content)})`);
   return { ...value, role: value.role, content: content as ChatBlock[] };
 }
 export function historyProjection(messages: unknown): ChatProjection {

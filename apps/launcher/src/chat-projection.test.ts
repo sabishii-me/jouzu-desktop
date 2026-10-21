@@ -86,6 +86,10 @@ describe("released runtime event projection", () => {
     expect(state.running).toBe(true);
     expect(state.compatibility).toEqual(["future_event"]);
   });
+  it("accepts internal history entries without content", () => {
+    const state = historyProjection([{ role: "compactionSummary", summary: "Older turns compacted" }]);
+    expect(state.messages[0]).toMatchObject({ role: "compactionSummary", content: [] });
+  });
   it("rejects invalid history, orphan deltas and unbounded sparse indices", () => {
     expect(() => historyProjection({})).toThrow();
     expect(() => historyProjection([{ role: "assistant", content: 3 }])).toThrow();
