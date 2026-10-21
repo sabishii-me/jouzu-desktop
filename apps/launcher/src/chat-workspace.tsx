@@ -429,6 +429,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   }, [workspaces, sessions, search, sort, showArchived]);
   const selectedSession = normalizedPath(openedSession ?? snapshot.sessionFile ?? "");
   const selectedTitle = sessions.find(session => normalizedPath(session.path) === selectedSession)?.title;
+  const hasArchived = sessions.some(session => session.archived);
   const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === selectedSession)?.workspace;
   useEffect(() => { if (openedSession) selectedRowRef.current?.scrollIntoView({ block: "nearest" }); }, [openedSession]);
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
@@ -456,7 +457,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workspaces</h2>
         <div className="flex items-center gap-1">
           <Button variant="ghost" className="size-7 p-0" aria-label="Search workspaces" aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setSearch(""); }}><Search className="size-3.5" /></Button>
-          <Button variant="ghost" className="size-7 p-0" aria-label={showArchived ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchived} onClick={() => setShowArchived(value => !value)}><Archive className="size-3.5" /></Button>
+          {(hasArchived || showArchived) && <Button variant="ghost" className="size-7 p-0" aria-label={showArchived ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchived} onClick={() => setShowArchived(value => !value)}><Archive className="size-3.5" /></Button>}
           <Button variant="ghost" className="size-7 p-0" aria-label={sort === "recent" ? "Sort by name" : "Sort by recent"} onClick={() => setSort(value => value === "recent" ? "name" : "recent")}><ArrowUpDown className="size-3.5" /></Button>
           <Button variant="ghost" className="size-7 p-0" aria-label="Add folder" onClick={onAddFolder}><FolderPlus className="size-3.5" /></Button>
         </div>
