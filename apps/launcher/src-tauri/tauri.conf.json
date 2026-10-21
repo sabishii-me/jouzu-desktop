@@ -46,6 +46,8 @@
     "copyright": "Copyright © Shisa, Inc.",
     "windows": {
       "nsis": {
+        "template": "../../../packaging/launcher/installer.nsi",
+        "installerHooks": "../../../packaging/launcher/desktop-installer-hooks.nsh",
         "languages": [
           "English",
           "Japanese",

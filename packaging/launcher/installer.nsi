@@ -8,6 +8,9 @@ ManifestDPIAware true
 ; https://github.com/tauri-apps/tauri/pull/10106
 ManifestDPIAwareness PerMonitorV2
 
+!ifndef JOUZU_HOOK_DIRECTORY
+!define JOUZU_HOOK_DIRECTORY "${__FILEDIR__}"
+!endif
 !if "{{compression}}" == "none"
   SetCompress off
 !else
@@ -172,7 +175,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; Define registry key to store installer language
 !define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
-!define JOUZU_PREFERENCES_KEY "Software\Shisa.ai\Jouzu\Preferences"
+!define JOUZU_PREFERENCES_KEY "Software\Shisa.ai\JouzuDesktop\Preferences"
 !define MUI_LANGDLL_REGISTRY_KEY "${JOUZU_PREFERENCES_KEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Installer Language"
 
@@ -491,8 +494,6 @@ FunctionEnd
   !include "{{this}}"
 {{/each}}
 
-!include "${JOUZU_HOOK_DIRECTORY}\installer-messages.nsh"
-
 Function .onInit
   ; Hold the handle for this process lifetime, including language selection.
   System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\${BUNDLEID}-installer") p .r0 ?e'
@@ -546,7 +547,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\Shisa.ai\Jouzu"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Shisa.ai\JouzuDesktop"
     !endif
 
     Call RestorePreviousInstallLocation
@@ -822,8 +823,8 @@ Section Uninstall
 
   ; Downloaded program versions are not user settings. Keep during upgrade only.
   ${If} $UpdateMode <> 1
-      RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\Jouzu\updates"
-    ${If} ${FileExists} "$LOCALAPPDATA\Shisa.ai\Jouzu\updates"
+      RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\JouzuDesktop\updates"
+    ${If} ${FileExists} "$LOCALAPPDATA\Shisa.ai\JouzuDesktop\updates"
       SetErrorLevel 1
       IfSilent +2
       MessageBox MB_OK|MB_ICONSTOP "$(jouzuRemoveFailed)"
@@ -836,12 +837,12 @@ Section Uninstall
     ; Preferences and credentials are removed only by explicit opt-in.
     ${If} $DeleteAppDataCheckboxState = 1
     ${AndIf} $UpdateMode <> 1
-      Delete "$LOCALAPPDATA\Shisa.ai\Jouzu\recent.json"
-      RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\Jouzu\data"
+      Delete "$LOCALAPPDATA\Shisa.ai\JouzuDesktop\recent.json"
+      RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\JouzuDesktop\data"
       RmDir /r "\\?\$APPDATA\${BUNDLEID}"
       RmDir /r "\\?\$LOCALAPPDATA\${BUNDLEID}"
-      ${If} ${FileExists} "$LOCALAPPDATA\Shisa.ai\Jouzu\data"
-      ${OrIf} ${FileExists} "$LOCALAPPDATA\Shisa.ai\Jouzu\recent.json"
+      ${If} ${FileExists} "$LOCALAPPDATA\Shisa.ai\JouzuDesktop\data"
+      ${OrIf} ${FileExists} "$LOCALAPPDATA\Shisa.ai\JouzuDesktop\recent.json"
       ${OrIf} ${FileExists} "$APPDATA\${BUNDLEID}"
       ${OrIf} ${FileExists} "$LOCALAPPDATA\${BUNDLEID}"
         SetErrorLevel 1
@@ -955,10 +956,10 @@ Section Uninstall
     ${EndIf}
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"
     SetShellVarContext current
-    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\Jouzu\cache"
-    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\Jouzu\tools"
-    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\Jouzu\logs"
-    RmDir "$LOCALAPPDATA\Shisa.ai\Jouzu"
+    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\JouzuDesktop\cache"
+    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\JouzuDesktop\tools"
+    RmDir /r "\\?\$LOCALAPPDATA\Shisa.ai\JouzuDesktop\logs"
+    RmDir "$LOCALAPPDATA\Shisa.ai\JouzuDesktop"
     RmDir "$LOCALAPPDATA\Shisa.ai"
   ${EndIf}
 
@@ -1054,3 +1055,4 @@ Function CreateOrUpdateDesktopShortcut
   CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
 FunctionEnd
+
