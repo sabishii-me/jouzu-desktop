@@ -426,10 +426,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       <div className="mt-1 border-t border-border pt-1"><Button type="button" variant="ghost" className="w-full justify-start" onClick={() => { setPickerOpen(false); onAddFolder(); }}><Plus className="size-4" />Add folder</Button></div>
     </div>}
   </div>;
-  const connectionState = !snapshot.connected && <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-    <span>{snapshot.error ? "The workspace could not connect." : `Starting ${name}…`}</span>
-    {snapshot.error && <><span className="min-w-0 truncate" title={snapshot.error}>{snapshot.error}</span><Button variant="outline" className="ml-auto h-7 px-2" onClick={onRetry}>Retry</Button></>}
-  </div>;
+  const workspaceError = !snapshot.connected ? snapshot.error : null;
   return <div ref={chatRoot} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
     {sidebar && <aside aria-label="Workspaces" className="absolute inset-y-0 left-0 z-20 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:static md:z-auto md:shadow-none">
@@ -485,7 +482,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {hero ? <div className="flex items-center px-2 py-1.5"><Button variant="ghost" className="size-8 shrink-0 p-0" aria-label={sidebar ? "Hide workspaces" : "Show workspaces"} title="Workspaces" aria-expanded={sidebar} onClick={() => setSidebar(value => !value)}><PanelLeft className="size-4" /></Button></div> : <div className="flex items-center gap-1 border-b border-border px-2 py-2 sm:px-3">
         <Button variant="ghost" className="size-8 shrink-0 p-0" aria-label={sidebar ? "Hide workspaces" : "Show workspaces"} title="Workspaces" aria-expanded={sidebar} onClick={() => setSidebar(value => !value)}><PanelLeft className="size-4" /></Button>
-        <div className="min-w-0 flex-1 px-1"><h2 className="truncate text-sm font-semibold" title={path}>{name}</h2><p className="truncate text-xs text-muted-foreground" title={path}>{snapshot.model ?? path}</p></div>
+        <div className="min-w-0 flex-1 px-1"><h2 className="truncate text-sm font-semibold" title={path}>{name}</h2><p className="truncate text-xs text-muted-foreground" title={path}>{snapshot.connected ? snapshot.model ?? path : workspaceError ? "Could not connect" : `Starting ${name}…`}</p></div>
         <span className="hidden h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs text-muted-foreground sm:inline-flex">Standard mode</span>
         <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
         <BackgroundMenu jobs={flow.background} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
@@ -494,8 +491,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <FlowMenu key={openedSession ?? snapshot.sessionFile ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === normalizedPath(openedSession ?? snapshot.sessionFile ?? "") ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
         {onTerminal && <Button variant="ghost" className="h-7 shrink-0 gap-1.5 px-2 text-xs" aria-label="Open in terminal" title="Open this session's workspace in a terminal" onClick={() => onTerminal(path)}><SquareTerminal className="size-3.5" /><span className="hidden sm:inline">Terminal</span></Button>}
       </div>}
-      {connectionState}
-      {notification && <div role="status" className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs"><span className="min-w-0 truncate">{notification}</span><Button variant="ghost" className="h-7 px-2" onClick={() => setNotification("")}>Dismiss</Button></div>}
+      {(notification || workspaceError) && <div role={workspaceError && !notification ? "alert" : "status"} aria-live="polite" className="fixed right-4 top-16 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover p-3 text-xs shadow-xl">
+        <span className="min-w-0 flex-1 break-words">{notification || workspaceError}</span>
+        {workspaceError && !notification ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button> : <Button variant="ghost" className="h-7 shrink-0 px-2" onClick={() => setNotification("")}>Dismiss</Button>}
+      </div>}
       {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title}</h3>{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
         <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? dialog.options.map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>}
       {hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
