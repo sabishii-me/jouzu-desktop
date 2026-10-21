@@ -15,6 +15,7 @@ const MAX_TITLE_CHARS: usize = 80;
 struct SessionPreference {
     pinned: bool,
     archived: bool,
+    title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +51,7 @@ pub fn chat_session_update(
     session_path: String,
     pinned: Option<bool>,
     archived: Option<bool>,
+    title: Option<String>,
 ) -> Result<Vec<SessionSummary>, String> {
     let path = validated_session_path(&session_path)?;
     let home = crate::runtime::effective_home()?;
@@ -61,6 +63,14 @@ pub fn chat_session_update(
     }
     if let Some(value) = archived {
         preference.archived = value;
+    }
+    if let Some(value) = title {
+        let value = value.trim();
+        preference.title = if value.is_empty() {
+            None
+        } else {
+            Some(value.chars().take(MAX_TITLE_CHARS).collect())
+        };
     }
     write_preferences(&home, &preferences)?;
     Ok(list_sessions_with_preferences(
@@ -352,7 +362,11 @@ fn list_sessions_with_preferences(
         let preference = preferences.get(&key.to_string_lossy().into_owned());
         sessions.push(SessionSummary {
             path: path.to_string_lossy().into_owned(),
-            title,
+            title: preference
+                .and_then(|value| value.title.as_deref())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .unwrap_or(title),
             workspace,
             updated,
             pinned: preference.is_some_and(|value| value.pinned),
@@ -419,7 +433,7 @@ mod tests {
         write_session(&newer, r"C:\Work\Two", "Newer");
         let key = fs::canonicalize(&older).unwrap().to_string_lossy().into_owned();
         let mut preferences = HashMap::new();
-        preferences.insert(key, SessionPreference { pinned: true, archived: true });
+        preferences.insert(key, SessionPreference { pinned: true, archived: true, title: None });
         let sessions = list_sessions_with_preferences(&sessions_dir, &preferences);
         assert_eq!(sessions[0].path, older.to_string_lossy());
         assert!(sessions[0].pinned);

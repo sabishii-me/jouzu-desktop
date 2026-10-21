@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, FolderOpen, FolderPlus, MessageSquare, PanelLeft, Pin, Plug, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
+import { ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plug, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -77,6 +77,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [sessionMenu, setSessionMenu] = useState<string | null>(null);
   const [sort, setSort] = useState<"recent" | "name">("recent");
   const [pickerOpen, setPickerOpen] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
@@ -149,10 +150,31 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     try { setSessions(await invoke<SessionSummary[]>("chat_sessions")); }
     catch { /* Session history is ancillary; chat remains usable. */ }
   }
-  async function updateSession(sessionPath: string, change: { pinned?: boolean; archived?: boolean }) {
+  async function updateSession(sessionPath: string, change: { pinned?: boolean; archived?: boolean; title?: string }) {
     try { setSessions(await invoke<SessionSummary[]>("chat_session_update", { sessionPath, ...change })); }
     catch (error) { setNotification(String(error)); }
   }
+  async function renameSession(session: SessionSummary) {
+    const title = window.prompt("Rename session", session.title);
+    if (title !== null) { await updateSession(session.path, { title }); setSessionMenu(null); }
+  }
+  async function copySessionId(session: SessionSummary) {
+    const id = session.path.split(/[\\/]/u).at(-1)?.replace(/\.jsonl$/u, "") ?? session.path;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(id);
+      else { const area = document.createElement("textarea"); area.value = id; area.style.position = "fixed"; area.style.opacity = "0"; document.body.appendChild(area); area.select(); document.execCommand("copy"); area.remove(); }
+      setNotification("Session ID copied.");
+      setSessionMenu(null);
+    } catch (error) { setNotification(String(error)); }
+  }
+  useEffect(() => {
+    if (!sessionMenu) return;
+    const close = (event: MouseEvent) => { if (!(event.target as Element).closest("[data-session-menu]")) setSessionMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSessionMenu(null); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
+  }, [sessionMenu]);
   useEffect(() => { void refreshSessions(); }, [path, revision]);
   useEffect(() => {
     if (!snapshot.connected || snapshot.projection.messages.length === 0) return;
@@ -421,13 +443,20 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
               <Button variant="ghost" className="mr-1 size-6 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Remove ${group.path}`} onClick={() => { const workspace = workspaces.find(item => normalizedPath(item.path) === normalizedPath(group.path)); if (workspace) onRemove(workspace.id); }}><X className="size-3" /></Button>
             </div>
             {open && <div className="ml-4 border-l border-border pl-1.5">
-              {group.sessions.map(session => <div key={session.path} className={`group/session flex items-center rounded-md text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
+              {group.sessions.map(session => <div key={session.path} className={`group/session relative flex items-center rounded-md text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
                 <button type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
                   {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
                 </button>
-                <div className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100">
+                <div className={`relative flex shrink-0 items-center gap-0.5 pr-1 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100 ${sessionMenu === session.path ? "opacity-100" : "opacity-0"}`} data-session-menu>
                   <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label={session.pinned ? "Unpin session" : "Pin session"} title={session.pinned ? "Unpin session" : "Pin session"} onClick={() => void updateSession(session.path, { pinned: !session.pinned })}><Pin className={`size-3.5 ${session.pinned ? "text-primary" : "text-muted-foreground"}`} /></button>
-                  <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label={session.archived ? "Restore session" : "Archive session"} title={session.archived ? "Restore session" : "Archive session"} onClick={() => void updateSession(session.path, { archived: !session.archived })}>{session.archived ? <ArchiveRestore className="size-3.5 text-muted-foreground" /> : <Archive className="size-3.5 text-muted-foreground" />}</button>
+                  <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label="Session actions" title="Session actions" aria-haspopup="menu" aria-expanded={sessionMenu === session.path} onClick={() => setSessionMenu(value => value === session.path ? null : session.path)}><MoreHorizontal className="size-4 text-muted-foreground" /></button>
+                  {sessionMenu === session.path && <div role="menu" aria-label={`Actions for ${session.title}`} className="absolute right-0 top-full z-40 mt-1 w-52 rounded-xl border border-border bg-popover p-1 text-sm shadow-xl">
+                    <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent" onClick={() => { void updateSession(session.path, { pinned: !session.pinned }); setSessionMenu(null); }}><Pin className="size-4 text-muted-foreground" />{session.pinned ? "Unpin session" : "Pin session"}</button>
+                    <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent" onClick={() => void renameSession(session)}><Pencil className="size-4 text-muted-foreground" />Rename</button>
+                    <button type="button" role="menuitem" disabled title="Fork is not available in the runtime yet" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"><GitFork className="size-4 text-muted-foreground" />Fork session</button>
+                    <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent" onClick={() => { void updateSession(session.path, { archived: !session.archived }); setSessionMenu(null); }}>{session.archived ? <ArchiveRestore className="size-4 text-muted-foreground" /> : <Archive className="size-4 text-muted-foreground" />}{session.archived ? "Restore session" : "Archive session"}</button>
+                    <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent" onClick={() => void copySessionId(session)}><Copy className="size-4 text-muted-foreground" />Copy Session ID</button>
+                  </div>}
                 </div>
               </div>)}
               {!group.sessions.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">No sessions yet</p>}
