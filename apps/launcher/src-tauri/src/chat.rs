@@ -179,6 +179,8 @@ fn validate(request: &Value) -> Result<(), String> {
         | "get_available_models" | "get_available_thinking_levels" | "compact" | "get_session_stats" => &["type", "id"],
         "prompt" | "steer" => &["type", "id", "message", "images"],
         "switch_session" => &["type", "id", "sessionPath"],
+        "fork" => &["type", "id", "entryId"],
+        "get_fork_messages" => &["type", "id"],
         "export_html" => &["type", "id", "outputPath"],
         "set_model" => &["type", "id", "provider", "modelId"],
         "set_thinking_level" => &["type", "id", "level"],
@@ -913,6 +915,9 @@ mod tests {
         }
         assert!(validate(&serde_json::json!({"type":"prompt","id":"1","message":"hi"})).is_ok());
         assert!(validate(&serde_json::json!({"type":"get_session_stats","id":"1"})).is_ok());
+        assert!(validate(&serde_json::json!({"type":"get_fork_messages","id":"1"})).is_ok());
+        assert!(validate(&serde_json::json!({"type":"fork","id":"1","entryId":"entry-a"})).is_ok());
+        assert!(validate(&serde_json::json!({"type":"fork","id":"1","entryId":"entry-a","extra":true})).is_err());
         assert!(validate(
             &serde_json::json!({"type":"extension_ui_response","id":"a","cancelled":true})
         )

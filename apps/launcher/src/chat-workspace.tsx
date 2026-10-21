@@ -353,6 +353,22 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { sessionChange.current = false; setSwitching(false); }
   }
+  async function forkTurn(prompt: string) {
+    const client = connection.current;
+    if (!client || !prompt.trim()) return;
+    sessionChange.current = true;
+    setSwitching(true);
+    try {
+      const messages = await client.getForkMessages();
+      const match = [...messages].reverse().find(item => item.text.trim() === prompt.trim());
+      if (!match) throw new Error("Could not identify the turn to fork.");
+      if (!await client.fork(match.entryId)) return;
+      setOpenedSession(null);
+      await refreshSessions();
+      setNotification("Branched into a new conversation.");
+    } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    finally { sessionChange.current = false; setSwitching(false); }
+  }
   function prefetchSession(sessionPath: string) {
     if (historyCache.current.has(sessionPath)) return;
     void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 40 }).then(messages => {
@@ -518,7 +534,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
       </div> : <>
-        <ChatConversation key={openedSession ?? snapshot.sessionFile ?? path} projection={snapshot.projection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching} />
+        <ChatConversation key={openedSession ?? snapshot.sessionFile ?? path} projection={snapshot.projection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching} onFork={prompt => void forkTurn(prompt)} />
         <Composer connected={snapshot.connected} pending={snapshot.pending || switching} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}

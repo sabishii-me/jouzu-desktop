@@ -12,6 +12,15 @@ function messagePreview(message: ChatMessage) {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text || "Turn";
 }
 
+function turnStart(messages: ChatMessage[], end: number) {
+  let start = end;
+  while (start >= 0 && messages[start].role !== "user") start--;
+  return start;
+}
+function turnPrompt(messages: ChatMessage[], end: number) {
+  const start = turnStart(messages, end);
+  return (messages[start]?.content ?? []).filter(block => block.type === "text").map(block => block.text ?? "").join("\n").trim();
+}
 function turnUsageAt(messages: ChatMessage[], end: number) {
   let start = end;
   while (start >= 0 && messages[start].role !== "user") start--;
@@ -27,9 +36,9 @@ function turnUsageAt(messages: ChatMessage[], end: number) {
   }
   return { usage, startedAt: messages[start]?.timestamp };
 }
-function FinalTurnFooter({ messages, index, message }: { messages: ChatMessage[]; index: number; message: ChatMessage }) {
+function FinalTurnFooter({ messages, index, message, onFork }: { messages: ChatMessage[]; index: number; message: ChatMessage; onFork?: (prompt: string) => void }) {
   const metrics = turnUsageAt(messages, index);
-  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} />;
+  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index)) : undefined} />;
 }
 function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const preview = thinking.split(/\r?\n/).find(line => line.trim())?.replace(/\s+/g, " ").trim() ?? "";
@@ -45,7 +54,7 @@ function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boo
   </details>;
 }
 
-function ChatConversationView({ projection, pending = false, startedAt, opening = false }: { projection: ChatProjection; pending?: boolean; startedAt?: number; opening?: boolean }) {
+function ChatConversationView({ projection, pending = false, startedAt, opening = false, onFork }: { projection: ChatProjection; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string) => void }) {
   const scroll = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
@@ -117,7 +126,7 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
         <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
         {message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : block.type === "thinking" ? <ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} /> : block.type === "toolCall" ? projection.tools[block.id ?? ""] ? <ToolRenderer key={position} tool={projection.tools[block.id!]} /> : <p key={position} className="text-xs text-muted-foreground">{block.name ?? "Tool call"}</p> : block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "") ? <img key={position} className="my-2 max-h-80 rounded-lg" src={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" /> : <p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>)}
         {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
-        {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <FinalTurnFooter messages={projection.messages} index={index} message={message} />}
+        {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} />}
       </article>)}
         {showWorking && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><JouzuLoader className="jouzu-loader-sm" /><span>{opening ? "Opening session…" : "Working…"}</span>{!opening && elapsed !== null && <span className="tabular-nums">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>}</div>}
       </div>

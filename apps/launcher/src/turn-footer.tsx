@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, Database, Share2 } from "lucide-react";
+import { Check, Copy, Database, GitFork } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { StatCard, StatPopover, StatRow } from "./components/stat-popover";
 import type { ChatMessage } from "./chat-projection";
@@ -28,8 +28,8 @@ function duration(ms: number) {
 function messageText(message: ChatMessage) {
   return message.content.filter(block => block.type === "text").map(block => block.text ?? "").join("\n").trim();
 }
-/** End-of-turn actions: copy/share and the turn's own usage. Feedback is intentionally omitted. */
-export function TurnFooter({ message, usage, startedAt }: { message: ChatMessage; usage?: ChatMessage["usage"]; startedAt?: number }) {
+/** End-of-turn actions: copy, fork and the turn's own usage. Feedback is intentionally omitted. */
+export function TurnFooter({ message, usage, startedAt, onFork }: { message: ChatMessage; usage?: ChatMessage["usage"]; startedAt?: number; onFork?: () => void }) {
   const [copied, setCopied] = useState(false);
   const text = messageText(message);
   const turnUsage = usage ?? message.usage;
@@ -38,17 +38,16 @@ export function TurnFooter({ message, usage, startedAt }: { message: ChatMessage
   const cacheHit = prompt > 0 ? (turnUsage!.cacheRead ?? 0) / prompt * 100 : null;
   const elapsed = message.endedAt && startedAt ? message.endedAt - startedAt : undefined;
   if (!text) return null;
-  const copy = async (share: boolean) => {
+  const copy = async () => {
     try {
-      if (share && typeof navigator.share === "function") await navigator.share({ text });
-      else await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch { /* Clipboard or share unavailable; leave the transcript unchanged. */ }
+    } catch { /* Clipboard unavailable; leave the transcript unchanged. */ }
   };
   return <div role="group" aria-label="Turn actions" className="mt-2 flex items-center gap-1 text-muted-foreground">
-    <Button type="button" variant="ghost" className="size-7 p-0" aria-label="Copy response" title="Copy response" onClick={() => void copy(false)}>{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</Button>
-    <Button type="button" variant="ghost" className="size-7 p-0" aria-label="Share response" title="Share response" onClick={() => void copy(true)}><Share2 className="size-3.5" /></Button>
+    <Button type="button" variant="ghost" className="size-7 p-0" aria-label="Copy response" title="Copy response" onClick={() => void copy()}>{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</Button>
+    {onFork && <Button type="button" variant="ghost" className="size-7 p-0" aria-label="Branch into a new conversation" title="Branch into a new conversation" onClick={onFork}><GitFork className="size-3.5" /></Button>}
     {!!total && <span className="ml-2"><StatPopover label={<><Database className="size-3.5" aria-hidden="true" />Usage {compact(total)} tok{elapsed !== undefined && elapsed >= 0 ? ` · ${duration(elapsed)}` : ""}</>}>
       <StatCard title="Turn usage" value={`${exact(total)} tok`}>
         <StatRow label="Provider / model" value={`${providerLabel(message.provider)} / ${message.model ?? "—"}`} />
