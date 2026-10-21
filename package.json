@@ -1,0 +1,8 @@
+{
+  "name": "@shisa-ai/jouzu-desktop-repo",
+  "version": "0.2.1",
+  "private": true,
+  "scripts": {
+    "test:node": "node scripts/run-tests.mjs"
+  }
+}

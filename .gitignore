@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+test-results/
+tmp-profile/
+.env
+.env.*
+*.log
