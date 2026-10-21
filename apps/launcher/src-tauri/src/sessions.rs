@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -9,6 +10,13 @@ const MAX_PREFIX_BYTES: u64 = 512 * 1024;
 const MAX_LINES: usize = 400;
 const MAX_TITLE_CHARS: usize = 80;
 
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionPreference {
+    pinned: bool,
+    archived: bool,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
@@ -16,6 +24,8 @@ pub struct SessionSummary {
     title: String,
     workspace: String,
     updated: u64,
+    pinned: bool,
+    archived: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,7 +38,59 @@ pub struct FlowReportRecord {
 #[tauri::command]
 pub fn chat_sessions() -> Result<Vec<SessionSummary>, String> {
     let home = crate::runtime::effective_home()?;
-    Ok(list_sessions(&home.join("state/sessions")))
+    let preferences = read_preferences(&home)?;
+    Ok(list_sessions_with_preferences(
+        &home.join("state/sessions"),
+        &preferences,
+    ))
+}
+
+#[tauri::command]
+pub fn chat_session_update(
+    session_path: String,
+    pinned: Option<bool>,
+    archived: Option<bool>,
+) -> Result<Vec<SessionSummary>, String> {
+    let path = validated_session_path(&session_path)?;
+    let home = crate::runtime::effective_home()?;
+    let key = path.to_string_lossy().into_owned();
+    let mut preferences = read_preferences(&home)?;
+    let preference = preferences.entry(key).or_default();
+    if let Some(value) = pinned {
+        preference.pinned = value;
+    }
+    if let Some(value) = archived {
+        preference.archived = value;
+    }
+    write_preferences(&home, &preferences)?;
+    Ok(list_sessions_with_preferences(
+        &home.join("state/sessions"),
+        &preferences,
+    ))
+}
+
+fn preferences_path(home: &Path) -> std::path::PathBuf {
+    home.join("state/session-preferences.json")
+}
+
+fn read_preferences(home: &Path) -> Result<HashMap<String, SessionPreference>, String> {
+    let path = preferences_path(home);
+    let Ok(bytes) = fs::read(&path) else {
+        return Ok(HashMap::new());
+    };
+    serde_json::from_slice(&bytes).map_err(|_| "Session preferences are invalid".into())
+}
+
+fn write_preferences(
+    home: &Path,
+    preferences: &HashMap<String, SessionPreference>,
+) -> Result<(), String> {
+    let path = preferences_path(home);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let bytes = serde_json::to_vec_pretty(preferences).map_err(|error| error.to_string())?;
+    fs::write(&path, &bytes).map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Serialize)]
@@ -257,6 +319,13 @@ fn session_header(path: &Path) -> (String, String) {
 }
 
 fn list_sessions(directory: &Path) -> Vec<SessionSummary> {
+    list_sessions_with_preferences(directory, &HashMap::new())
+}
+
+fn list_sessions_with_preferences(
+    directory: &Path,
+    preferences: &HashMap<String, SessionPreference>,
+) -> Vec<SessionSummary> {
     let Ok(entries) = fs::read_dir(directory) else {
         return Vec::new();
     };
@@ -279,14 +348,23 @@ fn list_sessions(directory: &Path) -> Vec<SessionSummary> {
         if title.is_empty() || workspace.is_empty() {
             continue;
         }
+        let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let preference = preferences.get(&key.to_string_lossy().into_owned());
         sessions.push(SessionSummary {
             path: path.to_string_lossy().into_owned(),
             title,
             workspace,
             updated,
+            pinned: preference.is_some_and(|value| value.pinned),
+            archived: preference.is_some_and(|value| value.archived),
         });
     }
-    sessions.sort_by(|left, right| right.updated.cmp(&left.updated));
+    sessions.sort_by(|left, right| {
+        right
+            .pinned
+            .cmp(&left.pinned)
+            .then_with(|| right.updated.cmp(&left.updated))
+    });
     sessions.truncate(MAX_SESSIONS);
     sessions
 }
@@ -328,6 +406,28 @@ mod tests {
         assert_eq!(sessions[1].path, older.to_string_lossy());
         assert_eq!(sessions[1].workspace, r"C:\Work\One");
         assert_eq!(sessions[1].title, "Fix the parser");
+    }
+
+    #[test]
+    fn pinned_sessions_sort_first_and_preferences_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let sessions_dir = directory.path().join("state/sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let older = sessions_dir.join("older.jsonl");
+        let newer = sessions_dir.join("newer.jsonl");
+        write_session(&older, r"C:\Work\One", "Older");
+        write_session(&newer, r"C:\Work\Two", "Newer");
+        let key = fs::canonicalize(&older).unwrap().to_string_lossy().into_owned();
+        let mut preferences = HashMap::new();
+        preferences.insert(key, SessionPreference { pinned: true, archived: true });
+        let sessions = list_sessions_with_preferences(&sessions_dir, &preferences);
+        assert_eq!(sessions[0].path, older.to_string_lossy());
+        assert!(sessions[0].pinned);
+        assert!(sessions[0].archived);
+        assert!(!sessions[1].pinned);
+        write_preferences(directory.path(), &preferences).unwrap();
+        let read = read_preferences(directory.path()).unwrap();
+        assert!(read.get(&fs::canonicalize(&older).unwrap().to_string_lossy().into_owned()).unwrap().pinned);
     }
 
     #[test]

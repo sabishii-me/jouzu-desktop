@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpDown, ChevronDown, ChevronRight, FolderOpen, FolderPlus, MessageSquare, PanelLeft, Plug, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
+import { ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, FolderOpen, FolderPlus, MessageSquare, PanelLeft, Pin, Plug, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -16,7 +16,7 @@ import { SessionStatsBar } from "./session-stats-bar";
 import type { SessionTiming } from "./chat-connection";
 
 interface WorkspaceItem { id: string; path: string }
-interface SessionSummary { path: string; title: string; workspace: string; updated: number }
+interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
 export interface ChatWorkspaceProps {
   path: string;
   revision?: number;
@@ -76,6 +76,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [sort, setSort] = useState<"recent" | "name">("recent");
   const [pickerOpen, setPickerOpen] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
@@ -147,6 +148,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   async function refreshSessions() {
     try { setSessions(await invoke<SessionSummary[]>("chat_sessions")); }
     catch { /* Session history is ancillary; chat remains usable. */ }
+  }
+  async function updateSession(sessionPath: string, change: { pinned?: boolean; archived?: boolean }) {
+    try { setSessions(await invoke<SessionSummary[]>("chat_session_update", { sessionPath, ...change })); }
+    catch (error) { setNotification(String(error)); }
   }
   useEffect(() => { void refreshSessions(); }, [path, revision]);
   useEffect(() => {
@@ -348,6 +353,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     const map = new Map<string, { id: string; path: string; name: string; sessions: SessionSummary[] }>();
     for (const workspace of workspaces) map.set(normalizedPath(workspace.path), { id: workspace.id, path: workspace.path, name: workspaceLabel(workspace.path), sessions: [] });
     for (const session of sessions) {
+      if (session.archived && !showArchived) continue;
       const key = normalizedPath(session.workspace);
       if (!map.has(key)) map.set(key, { id: key, path: session.workspace, name: workspaceLabel(session.workspace), sessions: [] });
       map.get(key)!.sessions.push(session);
@@ -364,7 +370,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     if (sort === "name") result.sort((left, right) => left.name.localeCompare(right.name));
     else result.sort((left, right) => (right.sessions[0]?.updated ?? 0) - (left.sessions[0]?.updated ?? 0));
     return result;
-  }, [workspaces, sessions, search, sort]);
+  }, [workspaces, sessions, search, sort, showArchived]);
   const selectedSession = normalizedPath(snapshot.sessionFile ?? "");
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
@@ -397,6 +403,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workspaces</h2>
         <div className="flex items-center gap-1">
           <Button variant="ghost" className="size-7 p-0" aria-label="Search workspaces" aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setSearch(""); }}><Search className="size-3.5" /></Button>
+          <Button variant="ghost" className="size-7 p-0" aria-label={showArchived ? "Hide archived sessions" : "Show archived sessions"} aria-pressed={showArchived} onClick={() => setShowArchived(value => !value)}><Archive className="size-3.5" /></Button>
           <Button variant="ghost" className="size-7 p-0" aria-label={sort === "recent" ? "Sort by name" : "Sort by recent"} onClick={() => setSort(value => value === "recent" ? "name" : "recent")}><ArrowUpDown className="size-3.5" /></Button>
           <Button variant="ghost" className="size-7 p-0" aria-label="Add folder" onClick={onAddFolder}><FolderPlus className="size-3.5" /></Button>
         </div>
@@ -414,9 +421,15 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
               <Button variant="ghost" className="mr-1 size-6 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Remove ${group.path}`} onClick={() => { const workspace = workspaces.find(item => normalizedPath(item.path) === normalizedPath(group.path)); if (workspace) onRemove(workspace.id); }}><X className="size-3" /></Button>
             </div>
             {open && <div className="ml-4 border-l border-border pl-1.5">
-              {group.sessions.map(session => <button key={session.path} type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent" : "hover:bg-muted/60"}`}>
-                <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
-              </button>)}
+              {group.sessions.map(session => <div key={session.path} className={`group/session flex items-center rounded-md text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
+                <button type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
+                  {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
+                </button>
+                <div className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100">
+                  <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label={session.pinned ? "Unpin session" : "Pin session"} title={session.pinned ? "Unpin session" : "Pin session"} onClick={() => void updateSession(session.path, { pinned: !session.pinned })}><Pin className={`size-3.5 ${session.pinned ? "text-primary" : "text-muted-foreground"}`} /></button>
+                  <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label={session.archived ? "Restore session" : "Archive session"} title={session.archived ? "Restore session" : "Archive session"} onClick={() => void updateSession(session.path, { archived: !session.archived })}>{session.archived ? <ArchiveRestore className="size-3.5 text-muted-foreground" /> : <Archive className="size-3.5 text-muted-foreground" />}</button>
+                </div>
+              </div>)}
               {!group.sessions.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">No sessions yet</p>}
             </div>}
           </section>;
