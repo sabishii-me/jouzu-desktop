@@ -36,9 +36,9 @@ function turnUsageAt(messages: ChatMessage[], end: number) {
   }
   return { usage, startedAt: messages[start]?.timestamp };
 }
-function FinalTurnFooter({ messages, index, message, onFork }: { messages: ChatMessage[]; index: number; message: ChatMessage; onFork?: (prompt: string) => void }) {
+function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = false }: { messages: ChatMessage[]; index: number; message: ChatMessage; onFork?: (prompt: string) => void; forkDisabled?: boolean }) {
   const metrics = turnUsageAt(messages, index);
-  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index)) : undefined} />;
+  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index)) : undefined} forkDisabled={forkDisabled} />;
 }
 function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const preview = thinking.split(/\r?\n/).find(line => line.trim())?.replace(/\s+/g, " ").trim() ?? "";
@@ -126,7 +126,7 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
         <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
         {message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : block.type === "thinking" ? <ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} /> : block.type === "toolCall" ? projection.tools[block.id ?? ""] ? <ToolRenderer key={position} tool={projection.tools[block.id!]} /> : <p key={position} className="text-xs text-muted-foreground">{block.name ?? "Tool call"}</p> : block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "") ? <img key={position} className="my-2 max-h-80 rounded-lg" src={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" /> : <p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>)}
         {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
-        {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} />}
+        {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} />}
       </article>)}
         {showWorking && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><JouzuLoader className="jouzu-loader-sm" /><span>{opening ? "Opening session…" : "Working…"}</span>{!opening && elapsed !== null && <span className="tabular-nums">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>}</div>}
       </div>

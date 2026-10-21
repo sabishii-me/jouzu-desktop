@@ -356,6 +356,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   async function forkTurn(prompt: string) {
     const client = connection.current;
     if (!client || !prompt.trim()) return;
+    if (switching || snapshot.pending || !snapshot.connected) { setNotification("Wait for the session to finish loading."); return; }
     sessionChange.current = true;
     setSwitching(true);
     try {
