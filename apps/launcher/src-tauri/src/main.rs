@@ -377,31 +377,29 @@ fn mcp_config() -> Result<serde_json::Value, String> {
     let servers = value
         .get("mcpServers")
         .and_then(serde_json::Value::as_object)
-        .map(|entries| entries.keys().cloned().collect::<Vec<_>>())
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(name, config)| {
+                    let url = config.get("url").and_then(serde_json::Value::as_str);
+                    let command = config.get("command").and_then(serde_json::Value::as_str);
+                    let target = url.or(command).unwrap_or("Unknown target");
+                    serde_json::json!({
+                        "name": name,
+                        "transport": if url.is_some() { "HTTP" } else if command.is_some() { "Local" } else { "Unknown" },
+                        "target": target,
+                        "description": config.get("description").and_then(serde_json::Value::as_str),
+                        "exposure": config.get("exposure").and_then(serde_json::Value::as_str).unwrap_or("deferred"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     Ok(serde_json::json!({
         "path": path.to_string_lossy(),
         "exists": path.is_file(),
-        "text": if text.trim().is_empty() { "{\n  \"mcpServers\": {}\n}\n" } else { text.as_str() },
         "servers": servers,
     }))
-}
-
-#[tauri::command]
-fn mcp_config_save(text: String) -> Result<(), String> {
-    let value = serde_json::from_str::<serde_json::Value>(&text)
-        .map_err(|_| "MCP configuration is not valid JSON")?;
-    if !value
-        .get("mcpServers")
-        .is_some_and(serde_json::Value::is_object)
-    {
-        return Err("MCP configuration must contain an mcpServers object".into());
-    }
-    let path = runtime::effective_home()?.join("agent/mcp.json");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    std::fs::write(path, text).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -579,7 +577,6 @@ fn main() {
             component_versions,
             runtime_report,
             mcp_config,
-            mcp_config_save,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,

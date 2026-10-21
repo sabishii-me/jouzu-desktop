@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plug, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
+import { ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
+import { McpMenu } from "./mcp-menu";
 import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
@@ -18,7 +18,6 @@ import type { SessionTiming } from "./chat-connection";
 
 interface WorkspaceItem { id: string; path: string }
 interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
-interface McpConfig { path: string; exists: boolean; text: string; servers: string[] }
 export interface ChatWorkspaceProps {
   path: string;
   revision?: number;
@@ -66,11 +65,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const dialog = dialogs.items[0] ?? null;
   const [answer, setAnswer] = useState("");
   const [notification, setNotification] = useState("");
-  const [mcpOpen, setMcpOpen] = useState(false);
-  const [mcpConfig, setMcpConfig] = useState<McpConfig | null>(null);
-  const [mcpText, setMcpText] = useState("");
-  const [mcpBusy, setMcpBusy] = useState(false);
-  const [mcpError, setMcpError] = useState("");
   const [flowNotice, setFlowNotice] = useState("");
   const [dropActive, setDropActive] = useState(false);
   const chatRoot = useRef<HTMLDivElement>(null);
@@ -302,28 +296,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
   }
-  async function openMcp() {
-    setMcpOpen(true);
-    setMcpBusy(true);
-    setMcpError("");
-    try {
-      const config = await invoke<McpConfig>("mcp_config");
-      setMcpConfig(config);
-      setMcpText(config.text);
-    } catch (error) { setMcpError(String(error)); }
-    finally { setMcpBusy(false); }
-  }
-  async function saveMcp() {
-    setMcpBusy(true);
-    setMcpError("");
-    try {
-      await invoke("mcp_config_save", { text: mcpText });
-      setMcpOpen(false);
-      setNotification("MCP configuration saved.");
-      try { await reloadSession(); } catch { /* reload reports its own error */ }
-    } catch (error) { setMcpError(String(error)); }
-    finally { setMcpBusy(false); }
-  }
   async function openSession(sessionPath: string) {
     const client = connection.current;
     if (!client) return;
@@ -513,7 +485,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
         <BackgroundMenu jobs={flow.background} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
         <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Reload session" title="Reload session (extensions, skills, MCP and catalogs)" disabled={commandBusy || !snapshot.sessionFile || snapshot.pending || snapshot.projection.running} onClick={() => void reloadSession()}><RefreshCw className="size-3.5" /></Button>
-        <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="MCP" title="MCP servers and tools" disabled={commandBusy || snapshot.pending || snapshot.projection.running} onClick={() => void openMcp()}><Plug className="size-3.5" /></Button>
+        <McpMenu onReload={() => void reloadSession()} onAsk={() => setDraft("Add an MCP server to this workspace. Ask me for the name, transport, target, and any required environment variables.")} />
         <FlowMenu key={openedSession ?? snapshot.sessionFile ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === normalizedPath(openedSession ?? snapshot.sessionFile ?? "") ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
         {onTerminal && <Button variant="ghost" className="h-7 shrink-0 gap-1.5 px-2 text-xs" aria-label="Open in terminal" title="Open this session's workspace in a terminal" onClick={() => onTerminal(path)}><SquareTerminal className="size-3.5" /><span className="hidden sm:inline">Terminal</span></Button>}
       </div>}
@@ -540,19 +512,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}
     </section>
-    <Dialog open={mcpOpen} onOpenChange={open => { setMcpOpen(open); if (!open) setMcpError(""); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogTitle>MCP servers</DialogTitle>
-        <DialogDescription>Edit the user-level MCP configuration. Saving reloads this session.</DialogDescription>
-        <div className="space-y-3">
-          {mcpConfig?.path && <p className="break-all text-xs text-muted-foreground">{mcpConfig.path}</p>}
-          {mcpConfig && <p className="text-xs text-muted-foreground">{mcpConfig.servers.length ? `${mcpConfig.servers.length} server${mcpConfig.servers.length === 1 ? "" : "s"} configured` : "No MCP servers configured yet."}</p>}
-          <textarea aria-label="MCP configuration JSON" spellCheck={false} value={mcpText} onChange={event => setMcpText(event.target.value)} disabled={mcpBusy} className="min-h-64 w-full resize-y rounded-lg border border-border bg-background p-3 font-mono text-xs" />
-          {mcpError && <p role="alert" className="text-xs text-destructive">{mcpError}</p>}
-          <div className="flex justify-end gap-2"><Button variant="outline" disabled={mcpBusy} onClick={() => setMcpOpen(false)}>Cancel</Button><Button disabled={mcpBusy || !mcpConfig} onClick={() => void saveMcp()}>{mcpBusy ? "Saving…" : "Save and reload"}</Button></div>
-        </div>
-      </DialogContent>
-    </Dialog>
   </div>;
 }
 
