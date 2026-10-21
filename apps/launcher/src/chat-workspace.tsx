@@ -341,7 +341,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       const session = sessions.find(item => normalizedPath(item.path) === normalizedPath(sessionPath));
       if (session) localStorage.setItem("jouzu.chat.workspace", session.workspace);
       void refreshSessions();
-    } catch (error) { if (connection.current === client) { setOpenedSession(null); setNotification(String(error).replace(/^Error:\s*/u, "")); } }
+    } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { sessionChange.current = false; setSwitching(false); }
   }
   function prefetchSession(sessionPath: string) {
@@ -402,6 +402,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     return result;
   }, [workspaces, sessions, search, sort, showArchived]);
   const selectedSession = normalizedPath(openedSession ?? snapshot.sessionFile ?? "");
+  const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === selectedSession)?.workspace;
   useEffect(() => { if (openedSession) selectedRowRef.current?.scrollIntoView({ block: "nearest" }); }, [openedSession]);
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
@@ -441,7 +442,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         {groups.map(group => {
           const open = !!search.trim() || !collapsed.has(group.id);
           return <section key={group.id} className="mb-1">
-            <div className={`group flex items-center gap-1 rounded-lg ${normalizedPath(group.path) === normalizedPath(path) ? "bg-accent/70" : "hover:bg-muted/60"}`}>
+            <div className={`group flex items-center gap-1 rounded-lg ${(selectedWorkspace ? normalizedPath(selectedWorkspace) === normalizedPath(group.path) : !selectedSession && normalizedPath(group.path) === normalizedPath(path)) ? "bg-accent/70" : "hover:bg-muted/60"}`}>
               <button type="button" aria-label={`${open ? "Collapse" : "Expand"} ${group.name}`} onClick={() => setCollapsed(current => { const next = new Set(current); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })} className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left">
                 {open ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
                 <FolderOpen className="size-4 shrink-0 text-muted-foreground" /><span className="truncate text-sm">{group.name}</span>
