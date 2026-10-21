@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Bot, LoaderCircle, RefreshCw } from "lucide-react";
 import { Button } from "./components/ui/button";
 
+interface AgentModel { provider: string; id: string; name?: string }
 interface AgentRole {
   id: string;
   description: string;
@@ -20,11 +21,19 @@ interface AgentRolesResponse {
   maxConcurrent: number;
   workspaceWriters: string;
   revision: string;
+  models: AgentModel[];
   error?: string;
 }
 
+function modelLabel(role: AgentRole, models: AgentModel[], sessionModel?: string) {
+  if (role.model === "same") return sessionModel ? `Same as session · ${sessionModel}` : "Same as session · none selected";
+  const match = models.find(model => `${model.provider}/${model.id}` === role.model || model.id === role.model);
+  if (match) return match.name || role.model;
+  return `${role.model} · unavailable`;
+}
+
 /** Read-only projection of the runtime's effective agent roles. */
-export function AgentsView() {
+export function AgentsView({ sessionModel }: { sessionModel?: string }) {
   const [data, setData] = useState<AgentRolesResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -52,7 +61,7 @@ export function AgentsView() {
       {loading && !data && <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading agents…</div>}
       {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
       {data && <>
-        <p className="mb-3 text-xs text-muted-foreground">Concurrency {data.maxConcurrent} · Child writers {data.workspaceWriters}</p>
+        <p className="mb-3 text-xs text-muted-foreground">Session model {sessionModel ?? "not selected"} · Concurrency {data.maxConcurrent} · Child writers {data.workspaceWriters}</p>
         <div className="grid gap-3 sm:grid-cols-2">
           {data.roles.map(role => <article key={role.id} className="rounded-xl border border-border bg-card p-3">
             <div className="flex items-start gap-2">
@@ -63,7 +72,7 @@ export function AgentsView() {
               <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{role.placement}</span>
             </div>
             <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-[11px]">
-              <dt className="text-muted-foreground">Model</dt><dd className="truncate font-mono">{role.model}</dd>
+              <dt className="text-muted-foreground">Role model</dt><dd className="truncate" title={role.model}>{modelLabel(role, data.models, sessionModel)}</dd>
               <dt className="text-muted-foreground">Thinking</dt><dd>{role.thinking}</dd>
               <dt className="text-muted-foreground">Limits</dt><dd>{role.timeoutSeconds}s · {role.maxTurns} turns</dd>
               <dt className="text-muted-foreground">Tools</dt><dd className="truncate" title={role.tools.join(", ")}>{role.tools.length} enabled</dd>
