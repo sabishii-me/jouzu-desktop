@@ -65,12 +65,26 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
   const visible = projection.messages.flatMap((message, index) => message.role === "user" || message.role === "assistant" ? [{ message, index }] : []);
   const shown = visible.slice(-limit);
   const lastAssistantIndex = visible.filter(item => item.message.role === "assistant").at(-1)?.index;
-  const turnMarkers = visible.filter(item => item.message.role === "user");
+  const turnMarkers = visible.flatMap((item, position) => {
+    if (item.message.role !== "user") return [];
+    const nextUser = visible.findIndex((candidate, candidatePosition) => candidatePosition > position && candidate.message.role === "user");
+    const response = visible.slice(position + 1, nextUser < 0 ? visible.length : nextUser).find(candidate => candidate.message.role === "assistant");
+    return [{ index: item.index, prompt: messagePreview(item.message), response: response ? messagePreview(response.message) : "" }];
+  });
+  const loadedIndexes = new Set(shown.map(item => item.index));
   const lastTurn = Math.max(0, turnMarkers.length - 1);
   const [activeTurn, setActiveTurn] = useState(0);
   const articleRefs = useRef(new Map<number, HTMLElement>());
+  const railRef = useRef<HTMLElement>(null);
   const pendingJump = useRef<number | null>(null);
   useEffect(() => { if (following.current) setActiveTurn(lastTurn); }, [lastTurn]);
+  useEffect(() => {
+    const rail = railRef.current;
+    const mark = rail?.querySelector<HTMLElement>(`[data-turn-index="${activeTurn}"]`);
+    if (!rail || !mark) return;
+    if (mark.offsetTop < rail.scrollTop) rail.scrollTop = mark.offsetTop;
+    else if (mark.offsetTop + mark.offsetHeight > rail.scrollTop + rail.clientHeight) rail.scrollTop = mark.offsetTop + mark.offsetHeight - rail.clientHeight;
+  }, [activeTurn]);
   useEffect(() => {
     if (pendingJump.current === null) return;
     const element = articleRefs.current.get(pendingJump.current);
@@ -109,8 +123,14 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
       </div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}
     </div>
-    {turnMarkers.length > 0 && <nav aria-label="Conversation turns" className="absolute bottom-5 right-4 top-5 z-10 flex w-4 flex-col items-center justify-between gap-0.5">
-      {turnMarkers.map(({ message, index }, position) => <button key={index} type="button" title={`Turn ${position + 1}: ${messagePreview(message)}`} aria-label={`Jump to turn ${position + 1}: ${messagePreview(message)}`} aria-current={position === activeTurn ? "true" : undefined} onClick={() => jumpToTurn(index)} className={`w-3 shrink-0 rounded-full transition-colors ${position === activeTurn ? "h-2 bg-primary" : "h-1 bg-muted-foreground/40 hover:bg-muted-foreground"}`} />)}
+    {turnMarkers.length >= 2 && <nav ref={railRef} aria-label="Conversation turns" className="absolute right-3 top-1/2 z-10 max-h-[min(420px,calc(100%_-_4rem))] w-7 -translate-y-1/2 overflow-y-auto overscroll-contain py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {turnMarkers.map((turn, position) => {
+        const active = position === activeTurn;
+        const loaded = loadedIndexes.has(turn.index);
+        return <button key={turn.index} type="button" data-turn-index={position} title={`Turn ${position + 1}: ${turn.prompt}${turn.response ? `\n${turn.response}` : ""}`} aria-label={`Jump to turn ${position + 1}: ${turn.prompt}`} aria-current={active ? "true" : undefined} onClick={() => jumpToTurn(turn.index)} className="group/turn flex h-2.5 w-7 shrink-0 items-center justify-end">
+          <span className={`block h-0.5 origin-right rounded-sm transition-[transform,background-color,opacity] duration-150 ${active ? "w-5 scale-x-100 bg-foreground" : loaded ? "w-5 scale-x-[.6] bg-border group-hover/turn:scale-x-[.9] group-hover/turn:bg-muted-foreground" : "w-5 scale-x-[.4] bg-border opacity-60"}`} />
+        </button>;
+      })}
     </nav>}
   </section>;
 }
