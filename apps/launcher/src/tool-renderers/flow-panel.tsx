@@ -117,7 +117,7 @@ export function FlowMenu({ flow, widgets, statuses, reports = [], notice, error,
   const hasContent = tasks.length > 0 || flow.waits.length > 0 || reports.length > 0 || !!notice || !!error || flowWidgetEntries(widgets).length > 0 || flowStatusEntries(statuses).length > 0;
   if (!hasContent) return null;
   return <div ref={root} className="relative">
-    <button type="button" onClick={() => setOpen(value => !value)} aria-label="Flow" aria-haspopup="dialog" aria-expanded={open} className={`flex h-7 w-40 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50 sm:w-44 ${live ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+    <button type="button" onClick={() => setOpen(value => !value)} aria-label="Flow" aria-haspopup="dialog" aria-expanded={open} className={`flex h-7 min-w-0 max-w-56 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50 ${live ? "border-primary/40 bg-primary/5" : "border-border"}`}>
       {live ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" /> : <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />}
       <span className="hidden min-w-0 flex-1 truncate sm:inline" aria-live="polite">{summary}</span>
       <span className="flex-1 sm:hidden">{tasks.length ? `${completed}/${tasks.length}` : "Flow"}</span>
