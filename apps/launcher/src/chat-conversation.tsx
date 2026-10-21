@@ -7,6 +7,11 @@ import type { ChatMessage, ChatProjection } from "./chat-projection";
 import { ToolRenderer } from "./tool-renderers";
 import { TurnFooter } from "./turn-footer";
 
+function messagePreview(message: ChatMessage) {
+  const text = message.content.map(block => block.type === "text" ? block.text ?? "" : block.type === "thinking" ? block.thinking ?? "" : "").join(" ").replace(/\s+/g, " ").trim();
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text || "Turn";
+}
+
 function turnUsageAt(messages: ChatMessage[], end: number) {
   let start = end;
   while (start >= 0 && messages[start].role !== "user") start--;
@@ -60,11 +65,41 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
   const visible = projection.messages.flatMap((message, index) => message.role === "user" || message.role === "assistant" ? [{ message, index }] : []);
   const shown = visible.slice(-limit);
   const lastAssistantIndex = visible.filter(item => item.message.role === "assistant").at(-1)?.index;
+  const turnMarkers = visible.filter(item => item.message.role === "user");
+  const lastTurn = Math.max(0, turnMarkers.length - 1);
+  const [activeTurn, setActiveTurn] = useState(0);
+  const articleRefs = useRef(new Map<number, HTMLElement>());
+  const pendingJump = useRef<number | null>(null);
+  useEffect(() => { if (following.current) setActiveTurn(lastTurn); }, [lastTurn]);
+  useEffect(() => {
+    if (pendingJump.current === null) return;
+    const element = articleRefs.current.get(pendingJump.current);
+    if (!element) return;
+    pendingJump.current = null;
+    following.current = false;
+    element.scrollIntoView({ block: "start", behavior: "smooth" });
+    setShowLatest(true);
+  }, [shown]);
+  function jumpToTurn(index: number) {
+    const position = turnMarkers.findIndex(turn => turn.index === index);
+    if (position < 0) return;
+    const element = articleRefs.current.get(index);
+    if (element) {
+      following.current = false;
+      element.scrollIntoView({ block: "start", behavior: "smooth" });
+      setActiveTurn(position);
+      setShowLatest(true);
+      return;
+    }
+    pendingJump.current = index;
+    setActiveTurn(position);
+    setLimit(value => Math.max(value, visible.length - position + 1));
+  }
   return <section aria-label="Conversation" className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-    <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); }}>
+    <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2" : "min-w-0"}`}>
+      <div className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2" : "min-w-0"}`}>
         <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
         {message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : block.type === "thinking" ? <ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} /> : block.type === "toolCall" ? projection.tools[block.id ?? ""] ? <ToolRenderer key={position} tool={projection.tools[block.id!]} /> : <p key={position} className="text-xs text-muted-foreground">{block.name ?? "Tool call"}</p> : block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "") ? <img key={position} className="my-2 max-h-80 rounded-lg" src={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" /> : <p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>)}
         {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
@@ -74,6 +109,9 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
       </div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}
     </div>
+    {turnMarkers.length > 0 && <nav aria-label="Conversation turns" className="absolute bottom-5 right-4 top-5 z-10 flex w-4 flex-col items-center justify-between gap-0.5">
+      {turnMarkers.map(({ message, index }, position) => <button key={index} type="button" title={`Turn ${position + 1}: ${messagePreview(message)}`} aria-label={`Jump to turn ${position + 1}: ${messagePreview(message)}`} aria-current={position === activeTurn ? "true" : undefined} onClick={() => jumpToTurn(index)} className={`w-3 shrink-0 rounded-full transition-colors ${position === activeTurn ? "h-2 bg-primary" : "h-1 bg-muted-foreground/40 hover:bg-muted-foreground"}`} />)}
+    </nav>}
   </section>;
 }
 export const ChatConversation = memo(ChatConversationView);
