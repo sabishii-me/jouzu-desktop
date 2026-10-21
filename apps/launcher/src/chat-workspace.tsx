@@ -57,6 +57,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const [switching, setSwitching] = useState(false);
   const [commandBusy, setCommandBusy] = useState(false);
   const [openedSession, setOpenedSession] = useState<string | null>(null);
+  const selectedRowRef = useRef<HTMLDivElement | null>(null);
   const sessionChange = useRef(false);
   const [dialogs, setDialogs] = useState(emptyDialogQueue);
   const queue = useRef(dialogs);
@@ -401,6 +402,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     return result;
   }, [workspaces, sessions, search, sort, showArchived]);
   const selectedSession = normalizedPath(openedSession ?? snapshot.sessionFile ?? "");
+  useEffect(() => { if (openedSession) selectedRowRef.current?.scrollIntoView({ block: "nearest" }); }, [openedSession]);
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
   const flowError = useMemo(() => latestFlowError(snapshot.projection.messages), [snapshot.projection.messages]);
@@ -447,7 +449,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
               <Button variant="ghost" className="mr-1 size-6 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Remove ${group.path}`} onClick={() => { const workspace = workspaces.find(item => normalizedPath(item.path) === normalizedPath(group.path)); if (workspace) onRemove(workspace.id); }}><X className="size-3" /></Button>
             </div>
             {open && <div className="ml-4 border-l border-border pl-1.5">
-              {group.sessions.map(session => <div key={session.path} className={`group/session relative flex items-center rounded-md text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
+              {group.sessions.map(session => <div key={session.path} ref={node => { if (selectedSession === normalizedPath(session.path)) selectedRowRef.current = node; }} data-session-selected={selectedSession === normalizedPath(session.path) || undefined} className={`group/session relative flex items-center rounded-md text-sm ${selectedSession === normalizedPath(session.path) ? "bg-accent text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
                 <button type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
                   {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
                 </button>
