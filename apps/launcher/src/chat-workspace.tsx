@@ -300,6 +300,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   async function openSession(sessionPath: string) {
     const client = connection.current;
     if (!client || sessionChange.current) return;
+    // The row is selected by the click, not by the runtime acknowledgement.
+    setOpenedSession(sessionPath);
     const cached = historyCache.current.get(sessionPath);
     // A hovered/prefetched session can replace the transcript immediately, even if
     // the runtime is still finishing a New Session request.
@@ -333,7 +335,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       const session = sessions.find(item => normalizedPath(item.path) === normalizedPath(sessionPath));
       if (session) localStorage.setItem("jouzu.chat.workspace", session.workspace);
       void refreshSessions();
-    } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    } catch (error) { if (connection.current === client) { setOpenedSession(null); setNotification(String(error).replace(/^Error:\s*/u, "")); } }
     finally { sessionChange.current = false; setSwitching(false); }
   }
   function prefetchSession(sessionPath: string) {
@@ -393,7 +395,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     else result.sort((left, right) => (right.sessions[0]?.updated ?? 0) - (left.sessions[0]?.updated ?? 0));
     return result;
   }, [workspaces, sessions, search, sort, showArchived]);
-  const selectedSession = normalizedPath(snapshot.sessionFile ?? "");
+  const selectedSession = normalizedPath(openedSession ?? snapshot.sessionFile ?? "");
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
   const flowError = useMemo(() => latestFlowError(snapshot.projection.messages), [snapshot.projection.messages]);
