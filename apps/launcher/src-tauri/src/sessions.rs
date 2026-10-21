@@ -193,9 +193,20 @@ fn read_session_timing(path: &Path) -> SessionTiming {
 }
 
 #[tauri::command]
-pub fn chat_session_messages(session_path: String) -> Result<Vec<Value>, String> {
+pub async fn chat_session_messages(
+    session_path: String,
+    limit: Option<usize>,
+) -> Result<Vec<Value>, String> {
     let path = validated_session_path(&session_path)?;
-    Ok(read_session_messages(&path))
+    let mut messages = tauri::async_runtime::spawn_blocking(move || read_session_messages(&path))
+        .await
+        .map_err(|_| "Session read failed".to_string())?;
+    if let Some(limit) = limit {
+        if messages.len() > limit {
+            messages.drain(..messages.len() - limit);
+        }
+    }
+    Ok(messages)
 }
 
 fn read_session_messages(path: &Path) -> Vec<Value> {

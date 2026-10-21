@@ -330,14 +330,20 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     setDiskReports([]); setReportsSession(""); setTiming(undefined);
     if (!cached) {
       client.previewSession([]);
-      try {
-        const preview = await invoke<unknown[]>("chat_session_messages", { sessionPath });
-        historyCache.current.set(sessionPath, preview);
-        if (connection.current === client) client.previewSession(preview);
-      } catch { /* The runtime's authoritative history still loads below. */ }
+    }
+    // Start the runtime switch immediately. The preview read is independent and must
+    // not delay the switch; a late preview is ignored after the authoritative load.
+    const preview = !cached ? invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 40 }) : null;
+    let resumed = false;
+    if (preview) {
+      void preview.then(messages => {
+        historyCache.current.set(sessionPath, messages);
+        if (!resumed && connection.current === client) client.previewSession(messages);
+      }).catch(() => { /* The runtime's authoritative history still loads below. */ });
     }
     try {
       await client.resumeSession(sessionPath);
+      resumed = true;
       const session = sessions.find(item => normalizedPath(item.path) === normalizedPath(sessionPath));
       if (session) localStorage.setItem("jouzu.chat.workspace", session.workspace);
       void refreshSessions();
@@ -346,7 +352,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   }
   function prefetchSession(sessionPath: string) {
     if (historyCache.current.has(sessionPath)) return;
-    void invoke<unknown[]>("chat_session_messages", { sessionPath }).then(messages => {
+    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 40 }).then(messages => {
       if (Array.isArray(messages)) historyCache.current.set(sessionPath, messages);
     }).catch(() => {});
   }
