@@ -354,8 +354,8 @@ export function App() {
   </main>;
   if (!setup) return connectingScreen;
   if (showSetup) return onboardingScreen;
-  return <main className="flex h-screen w-full flex-col px-5 sm:px-6">
-    <header data-tauri-drag-region className="flex items-center justify-between border-b border-border py-3">
+  return <main className="flex h-screen w-full flex-col">
+    <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-5 py-3 sm:px-6">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
       <div className="pointer-events-none flex items-center gap-3"><img src={jouzuIcon} alt="" draggable={false} className="size-9" /><h1 className="min-w-16 flex-1 text-lg font-semibold tracking-tight">Jouzu</h1></div>
       <div className="pointer-events-none flex items-center gap-1 [&>*]:pointer-events-auto">{(setup || statusError) && <>{state?.platform === "windows" && <Button variant="ghost" aria-label={t.openTerminal} title={t.openTerminal} disabled={busy || !state?.ready} onClick={() => void openTerminal()}><SquareTerminal /></Button>}<Button variant="ghost" aria-label={t.reportTitle} title={t.reportTitle} onClick={() => void openReport()}><Bug /></Button><Dialog open={settingsOpen} onOpenChange={value => { if (!value && device) void invoke("cancel_control"); if (!value) setUpdateFocus(null); setSettingsOpen(value); }}>
