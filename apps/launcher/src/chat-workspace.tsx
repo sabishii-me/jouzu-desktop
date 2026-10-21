@@ -418,9 +418,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
     {sidebar && <aside aria-label="Workspaces" className="absolute inset-y-0 left-0 z-20 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:static md:z-auto md:shadow-none">
       <div className="flex items-center gap-2 px-2 pb-2 pt-3"><Button className="min-w-0 flex-1 justify-start gap-2" onClick={() => void startNewSession()}><Plus className="size-4" />New session</Button><Button variant="ghost" className="size-8 p-0 md:hidden" aria-label="Hide workspaces" onClick={() => setSidebar(false)}><X className="size-4" /></Button></div>
-      <div className="space-y-1 px-2 pb-2">
-        <Button variant="ghost" className="w-full justify-start gap-2" onClick={onSettings}><Settings className="size-4" />Settings</Button>
-      </div>
       <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workspaces</h2>
         <div className="flex items-center gap-1">
@@ -464,6 +461,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
           </section>;
         })}
         {!groups.length && <p className="p-3 text-sm text-muted-foreground">{search ? "No matching sessions" : "No workspaces yet."}</p>}
+      </div>
+      <div className="mt-auto border-t border-border p-2">
+        <Button variant="ghost" className="w-full justify-start gap-2" onClick={onSettings}><Settings className="size-4" />Settings</Button>
       </div>
     </aside>}
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
