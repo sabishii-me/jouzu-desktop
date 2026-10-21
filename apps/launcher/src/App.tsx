@@ -303,6 +303,28 @@ export function App() {
                   {connectionMode === "custom" &&<div className="space-y-3 border-t border-border pt-4"><p className="text-sm text-muted-foreground">{t.customHint}</p><Label>{t.providerId}</Label><Input placeholder={t.providerId} aria-label={t.providerId} disabled={custom.edit} value={custom.provider} onChange={event => setCustom({...custom,provider:event.target.value})} /><Label>{t.endpoint}</Label><Input placeholder={t.endpoint} aria-label={t.endpoint} value={custom.url} onChange={event => setCustom({...custom,url:event.target.value})} /><Label>{t.modelId}</Label><Input placeholder={t.modelId} aria-label={t.modelId} value={custom.model} onChange={event => setCustom({...custom,model:event.target.value})} /><Label>{t.apiKey}</Label><Input type="password" autoComplete="off" aria-label={t.apiKey} placeholder={t.apiKey} value={token} onChange={event=>setToken(event.target.value)}/><div className="flex justify-end pt-1"><Button disabled={busy || !custom.provider || !custom.url || !custom.model} onClick={async () => { if (await configure({action:"custom-provider",...custom})) { setCustom(value=>({...value,edit:true})); if (token.trim() && !await configure({action:"provider-key",provider:custom.provider,token})) return; setToken("");setAddingConnection(false); } }}>{t.save}</Button></div></div>}
                   </div></section>}
 </div>;
+  const errorBanner = error && <div role="alert" className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div><p className="font-medium">{t.error}</p><details className="mt-2 break-all"><summary className="cursor-pointer">{t.details}</summary><p className="mt-2">{error}</p></details></div><button onClick={() => setError(null)} aria-label={t.dismiss}><X className="size-4" /></button></div>;
+  const connectingScreen = <main className="flex h-screen w-full flex-col px-5 sm:px-6">
+    <div data-tauri-drag-region className="h-10 shrink-0" />
+    <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section>
+  </main>;
+  const onboardingScreen = <main className="flex h-screen w-full flex-col px-5 sm:px-6">
+    <div data-tauri-drag-region className="h-10 shrink-0" />
+    {errorBanner}
+    <div className="flex min-h-0 flex-1 flex-col pb-4">
+      <LauncherPage title={setup?.profile ? t.setupConnect : t.setupMake} description={setup?.profile ? t.setupHint : t.setupPreferencesHint}>
+        <ScrollArea className="min-h-0 flex-1"><div className="p-5 sm:p-6">
+          {!setup?.profile ? <div className="space-y-6 pt-2">
+            <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
+            <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
+            <div className="flex justify-end pt-1"><Button onClick={()=>void configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})}>{t.setupContinue}</Button></div>
+          </div> : <>{!settingsOpen && providerContent}</>}
+        </div></ScrollArea>
+      </LauncherPage>
+    </div>
+  </main>;
+  if (!setup) return connectingScreen;
+  if (showSetup) return onboardingScreen;
   return <main className="flex h-screen w-full flex-col px-5 sm:px-6">
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border py-3">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
@@ -393,8 +415,8 @@ export function App() {
           </div>
         </DialogContent>
       </Dialog>
-    {error && <div role="alert" className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div><p className="font-medium">{t.error}</p><details className="mt-2 break-all"><summary className="cursor-pointer">{t.details}</summary><p className="mt-2">{error}</p></details></div><button onClick={() => setError(null)} aria-label={t.dismiss}><X className="size-4" /></button></div>}
-    {activePath && setup && !showSetup && <div className="flex min-h-0 flex-1">
+    {errorBanner}
+    {activePath && <div className="flex min-h-0 flex-1">
       <ChatWorkspace
         path={activePath}
         revision={sessionRevision}
@@ -414,17 +436,9 @@ export function App() {
         onSettings={() => setSettingsOpen(true)}
       />
     </div>}
-    {!setup ? <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section> : showSetup ? <LauncherPage title={setup?.profile ? t.setupConnect : t.setupMake} description={setup?.profile ? t.setupHint : t.setupPreferencesHint}>
-      <ScrollArea className="min-h-0 flex-1"><div className="p-5 sm:p-6">
-        {!setup?.profile ? <div className="space-y-6 pt-2">
-          <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
-          <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-          <div className="flex justify-end pt-1"><Button onClick={()=>void configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})}>{t.setupContinue}</Button></div>
-        </div> : <>{!settingsOpen && providerContent}</>}
-      </div></ScrollArea>
-    </LauncherPage> : !activePath ? <LauncherPage title={t.heading} description={t.intro}>
+    {!activePath && <LauncherPage title={t.heading} description={t.intro}>
       <div className="flex min-h-0 flex-1 items-center justify-center p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button></div>
-    </LauncherPage> : null}
+    </LauncherPage>}
     {(busy || notice || (state && !state.ready)) && <footer className="flex min-h-10 items-center gap-2 border-t border-border py-4 text-xs text-muted-foreground" role="status" aria-live="polite">{busy && <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />}{operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : (notice ? t[notice] : null) ?? (!state ? t.connecting : !state.ready ? t.repair : "")}</footer>}
   </main>;
 }
