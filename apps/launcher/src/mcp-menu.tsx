@@ -6,9 +6,6 @@ import { Button } from "./components/ui/button";
 interface McpServer {
   name: string;
   transport: string;
-  target: string;
-  description?: string;
-  exposure: string;
 }
 interface McpConfig {
   path: string;
@@ -59,16 +56,14 @@ export function McpMenu({ onReload, onAsk }: { onReload: () => void; onAsk?: () 
       {loading && <div role="status" className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading…</div>}
       {error && <p role="alert" className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">{error}</p>}
       {!loading && !error && <div className="max-h-[min(24rem,60vh)] overflow-y-auto px-3 py-2">
-        {!count && <><p className="text-xs text-muted-foreground">No MCP servers configured.</p><p className="mt-1 text-[11px] text-muted-foreground">Ask Jouzu in the conversation to add a server. The configuration stays in your user settings.</p></>}
-        {config?.servers.map(server => <div key={server.name} className="mb-2 rounded-md border border-border px-2.5 py-2 last:mb-0">
-          <div className="flex items-center gap-2"><Circle className="size-2.5 shrink-0 fill-primary text-primary" aria-hidden="true" /><span className="min-w-0 flex-1 truncate text-xs font-medium">{server.name}</span><span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{server.transport}</span></div>
-          <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground" title={server.target}>{server.target}</p>
-          {server.description && <p className="mt-1 text-[11px] text-muted-foreground">{server.description}</p>}
-          <p className="mt-1 text-[10px] text-muted-foreground">Configured · {server.exposure}</p>
+        {!count && <p className="text-xs text-muted-foreground">No servers configured.</p>}
+        {config?.servers.map(server => <div key={server.name} className="flex items-center gap-2 border-b border-border py-1.5 last:border-0">
+          <Circle className="size-2.5 shrink-0 fill-primary text-primary" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-xs">{server.name}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{server.transport}</span>
         </div>)}
       </div>}
-      <div className="flex items-center gap-2 border-t border-border px-2 py-2">
-        <p className="min-w-0 flex-1 text-[10px] text-muted-foreground">{count ? "Ask Jouzu to change a server." : "Ask Jouzu to add a server."}</p>
+      <div className="flex items-center justify-end gap-2 border-t border-border px-2 py-2">
         {onAsk && <Button variant="outline" className="h-7 shrink-0 px-2 text-[11px]" onClick={() => { setOpen(false); onAsk(); }}>Ask Jouzu</Button>}
         <Button variant="outline" className="h-7 shrink-0 gap-1.5 px-2 text-[11px]" onClick={() => { setOpen(false); onReload(); }}><RefreshCw className="size-3" />Reload</Button>
       </div>

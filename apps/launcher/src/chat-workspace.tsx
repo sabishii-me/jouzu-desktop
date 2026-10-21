@@ -65,6 +65,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const dialog = dialogs.items[0] ?? null;
   const [answer, setAnswer] = useState("");
   const [notification, setNotification] = useState("");
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => setNotification(""), 3000);
+    return () => clearTimeout(timer);
+  }, [notification]);
   const [flowNotice, setFlowNotice] = useState("");
   const [dropActive, setDropActive] = useState(false);
   const chatRoot = useRef<HTMLDivElement>(null);
@@ -489,10 +494,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         <FlowMenu key={openedSession ?? snapshot.sessionFile ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === normalizedPath(openedSession ?? snapshot.sessionFile ?? "") ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
         {onTerminal && <Button variant="ghost" className="h-7 shrink-0 gap-1.5 px-2 text-xs" aria-label="Open in terminal" title="Open this session's workspace in a terminal" onClick={() => onTerminal(path)}><SquareTerminal className="size-3.5" /><span className="hidden sm:inline">Terminal</span></Button>}
       </div>}
-      {(notification || workspaceError) && <div role={workspaceError && !notification ? "alert" : "status"} aria-live="polite" className="fixed right-4 top-16 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover p-3 text-xs shadow-xl">
-        <span className="min-w-0 flex-1 break-words">{notification || workspaceError}</span>
-        {workspaceError && !notification ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button> : <Button variant="ghost" className="h-7 shrink-0 px-2" onClick={() => setNotification("")}>Dismiss</Button>}
-      </div>}
+      {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
+      {workspaceError && !notification && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{workspaceError}</span><Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button></div>}
       {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title}</h3>{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
         <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? dialog.options.map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>}
       {hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
