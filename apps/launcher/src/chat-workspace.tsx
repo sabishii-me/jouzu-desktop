@@ -15,6 +15,7 @@ import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, ne
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
 import type { SessionTiming } from "./chat-connection";
+import { AgentsView } from "./agents-view";
 
 interface WorkspaceItem { id: string; path: string }
 interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
@@ -75,6 +76,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const chatRoot = useRef<HTMLDivElement>(null);
   const [sidebar, setSidebar] = useState(true);
   const [hero, setHero] = useState(newSession);
+  const [tab, setTab] = useState<"chat" | "agents">("chat");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [diskReports, setDiskReports] = useState<FlowReportRecord[]>([]);
   const [reportsSession, setReportsSession] = useState("");
@@ -282,6 +284,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const name = workspaceLabel(path);
   async function startNewSession() {
     onNewSession?.();
+    setTab("chat");
     setHero(true);
     setOpenedSession(null);
   }
@@ -306,6 +309,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     if (!client) return;
     // The row is selected by the click, not by the runtime acknowledgement.
     setOpenedSession(sessionPath);
+    setTab("chat");
     if (sessionChange.current) {
       // Keep the latest click and let the active switch finish first.
       queuedSession.current = sessionPath;
@@ -520,11 +524,15 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
           {onTerminal && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Open in terminal" title="Open this session's workspace in a terminal" onClick={() => onTerminal(path)}><SquareTerminal className="size-3.5" /></Button>}
         </div>
       </div>}
+      {!hero && <div role="tablist" aria-label="Workspace views" className="flex shrink-0 gap-5 border-b border-border px-3">
+        <button type="button" role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")} className={`-mb-px border-b-2 px-0 py-2 text-xs ${tab === "chat" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Chat</button>
+        <button type="button" role="tab" aria-selected={tab === "agents"} onClick={() => setTab("agents")} className={`-mb-px border-b-2 px-0 py-2 text-xs ${tab === "agents" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Agents</button>
+      </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
       {workspaceError && !notification && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{workspaceError}</span><Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button></div>}
       {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title}</h3>{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
         <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? dialog.options.map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>}
-      {hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
+      {tab === "agents" ? <AgentsView /> : hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
         <div className="w-full max-w-3xl">
           <div className="mb-7 flex flex-col items-center gap-3 text-center">
             <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-card"><Sparkles className="size-6 text-primary" aria-hidden="true" /></span>
