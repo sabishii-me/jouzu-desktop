@@ -304,11 +304,11 @@ export function App() {
                   </div></section>}
 </div>;
   const errorBanner = error && <div role="alert" className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div><p className="font-medium">{t.error}</p><details className="mt-2 break-all"><summary className="cursor-pointer">{t.details}</summary><p className="mt-2">{error}</p></details></div><button onClick={() => setError(null)} aria-label={t.dismiss}><X className="size-4" /></button></div>;
-  const connectingScreen = <main className="flex h-screen w-full flex-col px-5 sm:px-6">
+  const connectingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
     <div data-tauri-drag-region className="h-10 shrink-0" />
     <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section>
   </main>;
-  const onboardingScreen = <main className="flex h-screen w-full flex-col px-5 sm:px-6">
+  const onboardingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
     <div data-tauri-drag-region className="h-10 shrink-0" />
     {errorBanner}
     <div className="flex min-h-0 flex-1 flex-col pb-4">
