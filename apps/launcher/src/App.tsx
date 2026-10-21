@@ -354,7 +354,8 @@ export function App() {
   </main>;
   if (!setup) return connectingScreen;
   if (showSetup) return onboardingScreen;
-  return <main className="flex h-screen w-full flex-col">
+  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col">
+    <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-5 py-3 sm:px-6">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
       <div className="pointer-events-none flex items-center gap-3"><img src={jouzuIcon} alt="" draggable={false} className="size-9" /><h1 className="min-w-16 flex-1 text-lg font-semibold tracking-tight">Jouzu</h1></div>
@@ -468,6 +469,5 @@ export function App() {
     {!activePath && <LauncherPage title={t.heading} description={t.intro}>
       <div className="flex min-h-0 flex-1 items-center justify-center p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button></div>
     </LauncherPage>}
-    <footer className="flex min-h-10 shrink-0 items-center gap-2 border-t border-border px-5 py-4 text-xs text-muted-foreground sm:px-6" role="status" aria-live="polite">{busy && <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />}{operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : (notice ? t[notice] : null) ?? (!state ? t.connecting : !state.ready ? t.repair : "")}</footer>
-  </main>;
+    </main>;
 }
