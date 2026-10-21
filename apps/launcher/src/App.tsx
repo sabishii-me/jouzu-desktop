@@ -77,9 +77,17 @@ export function App() {
   const [addingConnection, setAddingConnection] = useState(false);
   const [query, setQuery] = useState("");
   const [setup, setSetup] = useState<ControlState | null>(null);
+  type OnboardingStep = "language" | "runtime" | "model";
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("language");
+  const onboardingInitialized = useRef(false);
   const modelReady = setup?.modelReady;
   const needsSetup = modelReady === false;
   const showSetup = needsSetup;
+  useEffect(() => {
+    if (!showSetup || onboardingInitialized.current) return;
+    onboardingInitialized.current = true;
+    setOnboardingStep("language");
+  }, [showSetup]);
   const [device, setDevice] = useState<{url:string;code:string} | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
@@ -308,16 +316,28 @@ export function App() {
     <div data-tauri-drag-region className="h-10 shrink-0" />
     <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section>
   </main>;
+  const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 3;
+  const onboardingTitle = onboardingStep === "language" ? t.setupMake : onboardingStep === "runtime" ? t.setupRuntime : t.setupConnect;
+  const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
   const onboardingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
     <div data-tauri-drag-region className="h-10 shrink-0" />
     {errorBanner}
     <div className="flex min-h-0 flex-1 flex-col pb-4">
-      <LauncherPage title={setup?.profile ? t.setupConnect : t.setupMake} description={setup?.profile ? t.setupHint : t.setupPreferencesHint}>
+      <LauncherPage title={onboardingTitle} description={onboardingDescription} action={<span className="text-xs text-muted-foreground">{onboardingStepNumber} / 3</span>}>
         <ScrollArea className="min-h-0 flex-1"><div className="p-5 sm:p-6">
-          {!setup?.profile ? <div className="space-y-6 pt-2">
+          {onboardingStep === "language" ? <div className="space-y-6 pt-2">
             <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
             <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-            <div className="flex justify-end pt-1"><Button onClick={()=>void configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})}>{t.setupContinue}</Button></div>
+            <div className="flex justify-end pt-1"><Button onClick={async () => { if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
+          </div> : onboardingStep === "runtime" ? <div className="space-y-4">
+            <div className="rounded-lg border border-border">
+              <div className="border-b border-border px-5 py-4">
+                <h3 className="font-medium">{t.launcher}</h3>
+                <p className={`mt-1 text-sm ${components?.jouzu ? "text-muted-foreground" : "text-destructive"}`}>{components?.jouzu ? `${t.setupRuntimeReady} ${components.jouzu}` : t.setupRuntimeMissing}</p>
+              </div>
+              {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
+            </div>
+            <div className="flex justify-between pt-1"><Button variant="outline" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button><Button disabled={!components?.jouzu} onClick={() => setOnboardingStep("model")}>{t.setupContinue}</Button></div>
           </div> : <>{!settingsOpen && providerContent}</>}
         </div></ScrollArea>
       </LauncherPage>
