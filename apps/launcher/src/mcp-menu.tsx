@@ -41,6 +41,7 @@ export function McpMenu({ onReload, onAsk }: { onReload: () => void; onAsk?: () 
   useEffect(() => { if (open) void load(); }, [open]);
 
   const count = config?.servers.length ?? 0;
+  if (!loading && count === 0) return null;
   return <div ref={root} className="relative">
     <button type="button" onClick={() => setOpen(value => !value)} aria-label={`MCP servers (${count})`} aria-haspopup="dialog" aria-expanded={open} className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50 ${count ? "border-primary/40 bg-primary/5" : "border-border"}`}>
       <Plug className="size-3.5 shrink-0" aria-hidden="true" />
@@ -51,12 +52,10 @@ export function McpMenu({ onReload, onAsk }: { onReload: () => void; onAsk?: () 
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Plug className="size-4 shrink-0 text-muted-foreground" />
         <span className="text-xs font-semibold">MCP servers</span>
-        <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{count}</span>
       </div>
       {loading && <div role="status" className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading…</div>}
       {error && <p role="alert" className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">{error}</p>}
       {!loading && !error && <div className="max-h-[min(24rem,60vh)] overflow-y-auto px-3 py-2">
-        {!count && <p className="text-xs text-muted-foreground">No servers configured.</p>}
         {config?.servers.map(server => <div key={server.name} className="flex items-center gap-2 border-b border-border py-1.5 last:border-0">
           <Circle className="size-2.5 shrink-0 fill-primary text-primary" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-xs">{server.name}</span>
