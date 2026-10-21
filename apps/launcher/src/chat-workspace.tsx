@@ -299,9 +299,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   }
   async function openSession(sessionPath: string) {
     const client = connection.current;
-    if (!client || sessionChange.current) return;
+    if (!client) return;
     // The row is selected by the click, not by the runtime acknowledgement.
     setOpenedSession(sessionPath);
+    if (sessionChange.current) {
+      // Keep the latest click and let the active switch finish first.
+      queuedSession.current = sessionPath;
+      return;
+    }
     const cached = historyCache.current.get(sessionPath);
     // A hovered/prefetched session can replace the transcript immediately, even if
     // the runtime is still finishing a New Session request.
