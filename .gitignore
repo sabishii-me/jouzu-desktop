@@ -3,6 +3,7 @@ dist/
 target/
 test-results/
 tmp-profile/
+ci-artifacts/
 .env
 .env.*
 *.log
