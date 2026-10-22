@@ -106,8 +106,8 @@ export function TextGuardBar({ data, open, busy, running, error, historical = fa
       {running && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
       <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>
     </div>
+    {error && <p role="alert" className="border-t border-amber-500/20 px-3 py-1.5 text-xs text-destructive">{error}</p>}
     {open && data && <div className="max-h-[38vh] overflow-y-auto border-t border-amber-500/20 px-3 py-2">
-      {error && <p role="status" className="mb-2 text-xs text-destructive">{error}</p>}
       {!item ? <>
         <div className="space-y-1.5">{items.map(entry => <div key={entry.id} className="rounded-md border border-border p-2">
           <div className="flex items-center gap-2"><ShieldAlert className={`size-3.5 shrink-0 ${entry.withheld ? "text-destructive" : "text-muted-foreground"}`} /><p className="min-w-0 flex-1 truncate text-xs font-medium" title={entry.source}>{entry.source}</p><span className="text-[10px] uppercase text-muted-foreground">{entry.withheld ? "withheld" : "report"}</span></div>

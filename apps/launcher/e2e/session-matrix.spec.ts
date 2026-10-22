@@ -70,7 +70,13 @@ async function setup(page: Page) {
           else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Matrix model" }] });
           else if (request.type === "get_available_thinking_levels") response(request, { levels: [] });
           else if (request.type === "get_session_stats") response(request, { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: { total: 1 } });
-          else if (request.type === "prompt") { w.promptCalls.push(request.message); response(request); }
+          else if (request.type === "prompt") {
+            w.promptCalls.push(request.message);
+            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes("inspect")) {
+              records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify({ ok: true, action: "inspect", sessionId: current || "new", mode: "on", items: [] })}` });
+            }
+            response(request);
+          }
           else response(request);
           return;
         }
@@ -155,6 +161,8 @@ test("matrix: historical TextGuard without a saved review can retry against the 
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
   await bar.getByRole("button", { name: "Review", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  await expect(bar).toContainText("TextGuard withheld content in this session");
+  await expect(bar).not.toContainText("TextGuard completed");
 });
 
 test("matrix: persisted TextGuard review is real, scoped, and does not attach", async ({ page }) => {
