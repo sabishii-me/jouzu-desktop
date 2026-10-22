@@ -73,7 +73,7 @@ export class ChatConnection {
   snapshot: ChatSnapshot = { projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] };
   constructor(private publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {}
   private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) this.publish(this.snapshot); }
-  async start(path: string) {
+  async start(path: string, fresh = false) {
     try {
       const handle = await invoke<string>("chat_start", { path });
       if (this.disposed) { await invoke("chat_stop", { handle }); return; }
@@ -82,6 +82,7 @@ export class ChatConnection {
       this.poll();
       await this.refreshHistory();
       this.update({ connected: true });
+      if (fresh) await this.changeSession("new_session");
       await this.applyPreferredModel();
       void this.loadModels();
       void this.loadStats();

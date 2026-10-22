@@ -94,6 +94,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   const connection = useRef<ChatConnection | null>(null);
   const historyCache = useRef(new Map<string, unknown[]>());
   const previousNewSession = useRef(newSession);
+  const newSessionOnStart = useRef(newSession);
+  newSessionOnStart.current = newSession;
+  const freshOnPath = useRef(false);
   const queuedSession = useRef<string | null>(null);
   function updateDialogs(next: DialogQueue) { queue.current = next; setDialogs(next); }
   function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
@@ -134,7 +137,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       else if (request.method === "set_editor_text") setDraft(String(request.text ?? ""));
     });
     connection.current = client;
-    void client.start(path);
+    void client.start(path, newSessionOnStart.current || freshOnPath.current);
+    freshOnPath.current = false;
     return () => { connection.current = null; void client.close().catch(() => {}); };
   }, [path, revision]);
   useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
@@ -406,7 +410,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   async function switchWorkspace(next: string) {
     if (next === path) { setPickerOpen(false); return; }
     if (snapshot.projection.running && !await confirm("Stop the current run and switch workspace?", { title: "Switch workspace", kind: "warning" })) return;
-    setPickerOpen(false); onSelect(next);
+    freshOnPath.current = true;
+    setOpenedSession(null);
+    setHero(true);
+    onNewSession?.();
+    setPickerOpen(false);
+    onSelect(next);
   }
   const groups = useMemo(() => {
     const map = new Map<string, { id: string; path: string; name: string; sessions: SessionSummary[] }>();
