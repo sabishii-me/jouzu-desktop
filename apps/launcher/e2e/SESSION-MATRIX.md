@@ -156,9 +156,11 @@ content claim.
 
 ```text
 npm test                                        13 files, 81 tests passed
-npx playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts
-                                                6 tests passed
+npm run test:session                            8 tests passed
 ```
+
+`test:session` runs the session matrix, the send-time switch test, and the sampled metrics
+harness.
 
 ## Current known debt
 
