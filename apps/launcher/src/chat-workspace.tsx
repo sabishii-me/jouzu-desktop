@@ -131,12 +131,15 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     previousNewSession.current = newSession;
   }, [newSession]);
   useEffect(() => {
-    queuedSwitch.current = null;
+    const selected = selectedSessionRef.current;
+    const keepPreview = !!selected && !!previewRef.current && normalizedPath(previewRef.current.path) === normalizedPath(selected);
+    queuedSwitch.current = selected;
     switchingRef.current = false;
     previewRequest.current += 1;
-    setPreview(null);
+    if (!keepPreview) setPreview(null);
     setSessionError(null);
     setSwitching(false);
+    if (selected) setHero(false);
     updateDialogs(emptyDialogQueue());
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
     setDraft(""); updateAttachments([]); setAttachmentError(null);
