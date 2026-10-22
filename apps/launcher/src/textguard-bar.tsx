@@ -40,6 +40,28 @@ export function textGuardMode(mode: string | undefined): "on" | "strict" | "off"
   return mode === "strict" ? "strict" : mode === "off" ? "off" : "on";
 }
 
+/** Some reviews snapshot a serialized message envelope. Show the text it carries, not the JSON. */
+export function readableTextGuardSnapshot(body: string | undefined): string {
+  if (!body) return "";
+  let value: unknown;
+  try { value = JSON.parse(body); } catch { return body; }
+  for (let depth = 0; depth < 2; depth += 1) {
+    if (typeof value === "string") { try { value = JSON.parse(value); continue; } catch { return String(value); } }
+    if (value && typeof value === "object") {
+      const record = value as { content?: unknown; text?: unknown };
+      if (Array.isArray(record.content)) {
+        const text = record.content
+          .flatMap(block => block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string" ? [(block as { text: string }).text] : [])
+          .join("\n\n");
+        if (text) return text;
+      }
+      if (typeof record.text === "string") return record.text;
+    }
+    return body;
+  }
+  return body;
+}
+
 /** Sits directly above the composer; it never opens a dialog. */
 export function TextGuardBar({ data, open, busy, running, error, onToggle, onStop, onAction }: {
   data: TextGuardData | null;
@@ -93,7 +115,7 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
           <dt className="text-muted-foreground">Findings</dt><dd>{item.review.severity?.error ?? 0} error · {item.review.severity?.warn ?? 0} warning · {item.review.severity?.info ?? 0} info{item.review.reason ? ` · ${item.review.reason}` : ""}</dd>
         </dl>
         {!!item.review.findings?.length && <ul className="mt-2 space-y-1 text-xs">{item.review.findings.map((finding, index) => <li key={index} className="rounded border border-border px-2 py-1">{finding.kind ?? "finding"}{typeof finding.offset === "number" ? ` · character ${finding.offset}` : ""}</li>)}</ul>}
-        {item.snapshot?.body !== undefined && <div className="mt-2 max-h-40 overflow-auto rounded border border-border bg-background p-2"><ChatMarkdown text={item.snapshot.body} /></div>}
+        {item.snapshot?.body !== undefined && <div className="mt-2 max-h-40 overflow-auto rounded border border-border bg-background p-2"><ChatMarkdown text={readableTextGuardSnapshot(item.snapshot.body)} /></div>}
         <div className="mt-2 flex flex-wrap justify-end gap-2">
           {item.withheld ? <>
             <Button variant="outline" disabled={busy} onClick={() => onAction("approve", item, { persist: false })}>Allow for this session</Button>
