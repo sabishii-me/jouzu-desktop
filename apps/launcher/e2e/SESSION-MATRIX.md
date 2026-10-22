@@ -157,6 +157,8 @@ npx playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts
 
 ## Current known debt
 
+- Preview reads are capped at 4MB / 200 messages. A single giant tool result can therefore
+  produce fewer than 30 visible turns; the UI must not expand the read to compensate.
 - The runtime still reads full history during attach. Opening a session no longer waits
   for it, but attach latency remains unbounded.
 - TextGuard reviews created before desktop persistence existed cannot be recovered.

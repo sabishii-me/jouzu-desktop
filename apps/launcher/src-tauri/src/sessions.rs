@@ -323,7 +323,9 @@ fn read_session_messages(path: &Path, limit: Option<usize>) -> Vec<Value> {
     let Ok(mut file) = File::open(path) else { return Vec::new() };
     let Ok(length) = file.metadata().map(|metadata| metadata.len()) else { return Vec::new() };
     const CHUNK: u64 = 2 * 1024 * 1024;
-    const MAX_TAIL: u64 = 32 * 1024 * 1024;
+    // A preview is a window, not a transcript import. Four megabytes is enough for the
+    // normal recent turns and caps memory/parse work even for a multi-gigabyte session.
+    const MAX_TAIL: u64 = 4 * 1024 * 1024;
     let mut tail = Vec::new();
     let mut start = length;
     let mut messages = Vec::new();
@@ -565,6 +567,19 @@ mod tests {
     }
 
     #[test]
+    fn preview_reads_only_a_bounded_tail_of_a_large_session() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large.jsonl");
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "{}", serde_json::json!({"type":"session","version":3,"id":"s","cwd":"C:/Work"})).unwrap();
+        writeln!(file, "{}", serde_json::json!({"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"x".repeat(5 * 1024 * 1024)}]}})).unwrap();
+        writeln!(file, "{}", serde_json::json!({"type":"message","message":{"role":"user","content":[{"type":"text","text":"recent"}]}})).unwrap();
+        let messages = read_session_messages(&path, Some(200));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"][0]["text"], "recent");
+    }
+
+    #[test]
     fn lists_sessions_newest_first_with_titles_and_normalized_workspaces() {
         let directory = tempfile::tempdir().unwrap();
         let older = directory.path().join("older.jsonl");
@@ -644,7 +659,7 @@ mod tests {
         writeln!(file, "{}", serde_json::json!({"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}})).unwrap();
         writeln!(file, "{}", serde_json::json!({"type":"custom_message","customType":"other","content":[]})).unwrap();
         writeln!(file, "{}", serde_json::json!({"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}})).unwrap();
-        let messages = read_session_messages(&path);
+        let messages = read_session_messages(&path, None);
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[1]["role"], "assistant");
