@@ -354,7 +354,7 @@ export function App() {
   </main>;
   if (!setup) return connectingScreen;
   if (showSetup) return onboardingScreen;
-  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col">
+  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-5 py-3 sm:px-6">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />

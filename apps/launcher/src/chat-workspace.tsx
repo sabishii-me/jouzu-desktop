@@ -463,7 +463,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
         </div>
       </div>
       {searchOpen && <div className="px-2 pb-2"><Input autoFocus aria-label="Search sessions" placeholder="Search sessions" value={search} onChange={event => setSearch(event.target.value)} /></div>}
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-2">
         {groups.map(group => {
           const open = !!search.trim() || !collapsed.has(group.id);
           return <section key={group.id} className="mb-1">
