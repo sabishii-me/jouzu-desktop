@@ -40,7 +40,7 @@ export function McpMenu({ onReload, onAsk }: { onReload: () => void; onAsk?: () 
   }, [open]);
   useEffect(() => { if (open) void load(); }, [open]);
 
-  const count = config?.servers.length ?? 0;
+  const count = config?.servers?.length ?? 0;
   if (!loading && count === 0) return null;
   return <div ref={root} className="relative">
     <button type="button" onClick={() => setOpen(value => !value)} aria-label={`MCP servers (${count})`} aria-haspopup="dialog" aria-expanded={open} className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50 ${count ? "border-primary/40 bg-primary/5" : "border-border"}`}>

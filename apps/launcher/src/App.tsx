@@ -449,7 +449,6 @@ export function App() {
         path={activePath}
         revision={sessionRevision}
         newSession={newSession}
-        onNewSession={() => setNewSession(true)}
         onStartSession={() => setNewSession(false)}
         onRetry={() => setSessionRevision(value => value + 1)}
         onBusyChange={setChatBusy}

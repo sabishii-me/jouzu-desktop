@@ -139,6 +139,31 @@ describe("desktop RPC connection", () => {
     expect(client.snapshot.error).toBeNull();
     await client.close();
   });
+  it("does not project replayed history while a saved session opens", async () => {
+    vi.useFakeTimers();
+    const requests: Record<string, unknown>[] = [];
+    const replied = new Set<unknown>();
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "chat_start") return "saved" as never;
+      if (command === "chat_send") { requests.push((args as { request: Record<string, unknown> }).request); return undefined as never; }
+      if (command === "chat_poll") {
+        const request = requests.find(item => ["get_state", "get_messages"].includes(String(item.type)) && !replied.has(item.id));
+        if (!request) return { records: [], closed: false } as never;
+        replied.add(request.id);
+        const response = { type: "response", id: request.id, command: request.type, success: true, data: request.type === "get_state" ? { sessionId: "saved-id", isStreaming: false } : { messages: [] } };
+        const replayed = request.type === "get_state" ? [{ type: "message_start", message: { role: "user", content: "old prompt" } }, { type: "message_end", message: { role: "user", content: "old prompt" } }] : [];
+        return { records: [...replayed, response], closed: false } as never;
+      }
+      return undefined as never;
+    });
+    const client = new ChatConnection(() => {}, () => {});
+    const starting = client.start("folder");
+    await vi.advanceTimersByTimeAsync(100);
+    await starting;
+    expect(client.snapshot.connected).toBe(true);
+    expect(client.snapshot.projection.messages).toHaveLength(0);
+    await client.close();
+  });
   it("reports an unanswered request after the watchdog without replaying it", async () => {
     vi.useFakeTimers();
     const requests: Record<string, unknown>[] = [];

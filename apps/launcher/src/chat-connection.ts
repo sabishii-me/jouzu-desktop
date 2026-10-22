@@ -74,6 +74,10 @@ export class ChatConnection {
   constructor(private publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {}
   private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) this.publish(this.snapshot); }
   async start(path: string, fresh = false) {
+    // The runtime replays historical messages as ordinary wire events while the
+    // connection attaches. Suppress those events until get_messages has supplied
+    // the authoritative transcript, so opening a saved session never animates it.
+    this.replaying = true;
     try {
       const handle = await invoke<string>("chat_start", { path });
       if (this.disposed) { await invoke("chat_stop", { handle }); return; }
@@ -84,19 +88,20 @@ export class ChatConnection {
       // new_session before this handshake can close Flow before it has attached.
       await this.refreshHistory();
       if (fresh) {
-        this.replaying = true;
-        try {
-          const result = await this.request("new_session");
-          if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the new session.");
-          await this.refreshHistory();
-        } finally { this.replaying = false; }
+        const result = await this.request("new_session");
+        if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the new session.");
+        await this.refreshHistory();
       }
       this.update({ connected: true });
       await this.applyPreferredModel();
+      this.replaying = false;
       void this.loadModels();
       void this.loadStats();
       void this.loadThinkingLevels();
-    } catch (error) { this.fail(error); }
+    } catch (error) {
+      this.replaying = false;
+      this.fail(error);
+    }
   }
   private poll = async () => {
     if (this.disposed || this.failed || !this.handle) return;
@@ -112,8 +117,9 @@ export class ChatConnection {
         }
         // Session replacement replays historical messages as ordinary wire events. The
         // authoritative get_messages response below renders the final transcript once,
-        // instead of animating the old conversation again.
-        if (this.replaying) continue;
+        // instead of animating the old conversation again. Interactions still arrive
+        // during startup and must remain answerable.
+        if (this.replaying && record.type !== "extension_ui_request" && record.type !== "extension_error") continue;
         if (record.type === "response") {
           continue;
         } else if (record.type === "extension_ui_request") {
@@ -250,10 +256,6 @@ export class ChatConnection {
     try { await this.request("prompt", { message: command }); }
     catch (error) { this.update({ error: String(error) }); throw error; }
     finally { this.update({ pending: false }); }
-  }
-  previewSession(messages: unknown) {
-    const projection = historyProjection(messages);
-    this.update({ projection: interruptUnfinishedTools(projection), error: null });
   }
   async sendOrSteer(message: string, images: readonly ChatImage[], running: boolean) {
     if (this.snapshot.pending) throw new Error("Wait for the current request to be accepted.");
