@@ -114,6 +114,27 @@ Raw output: `test-results/session-metrics.json`.
 
 These are fixture numbers; real disk and real runtime attach must be sampled separately.
 
+## Real app sample
+
+Run against the running desktop app and real session files, not the fixture. A unique spacer
+session was opened before each measured row so the header always had to change. Timestamps
+are measured in the page; condition waits use 5ms polling.
+
+| Case | Samples | Selection median | Content median | Settled median | Articles | Scroll gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| short `hi` | 6 | 79.2ms | 81.7ms | 187.2ms | 2 | 0 |
+| short `hello` | 6 | 77.4ms | 80.4ms | 185.8ms | 2 | 0 |
+| TextGuard skill | 6 | 84.9ms | 86.9ms | 199.4ms | 9 | 0 |
+| long heavy (3.92MB) | 6 | 53.2ms | 356.3ms | 466.5ms | 30 | 0 |
+| alternating ×10 | 10 | 78.7ms | 81.1ms | 187.6ms | 2 | 0 |
+
+`settled` includes a 100ms quiet window after content. Raw output:
+`test-results/session-metrics-real.json`.
+
+The fixture numbers above describe the UI harness, not the product. The real app opens a short
+session around 80ms, and a 3.92MB session needs about 356ms to first content. There is no 1ms
+content claim.
+
 ## Regression log
 
 | Regression | Status | Guard |
