@@ -17,7 +17,7 @@ import { SessionStatsBar } from "./session-stats-bar";
 import { parseTextGuardNotice, parseTextGuardResult, TextGuardBar, type TextGuardData, type TextGuardItem } from "./textguard-bar";
 import type { SessionTiming } from "./chat-connection";
 
-type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean; historical?: boolean };
+type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
 const emptyTextGuardView: TextGuardView = { data: null, seen: false, open: false, busy: false, error: null, loading: false };
 
 interface WorkspaceItem { id: string; path: string }
@@ -45,11 +45,6 @@ export interface ChatWorkspaceProps {
 const lastSegment = (path: string) => path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? path;
 const workspaceLabel = (path: string) => lastSegment(path) === "default-workspace" ? "Default workspace" : lastSegment(path);
 const normalizedPath = (path: string) => path.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
-const sessionIdFromPath = (path: string | null | undefined): string => {
-  if (!path) return "";
-  const matches = path.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu);
-  return matches?.at(-1) ?? "";
-};
 function relativeTime(updated: number) {
   const seconds = Math.max(0, Math.round(Date.now() / 1000 - updated));
   if (seconds < 60) return "now";
@@ -129,18 +124,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       return next;
     });
   }
-  function loadSavedTextGuard(sessionPath: string) {
-    const sessionId = sessionIdFromPath(sessionPath);
-    if (!sessionId || textguardRef.current[sessionId]?.data) return;
-    void invoke<TextGuardData | null>("textguard_reviews_read", { sessionId }).then(data => {
-      if (!data?.ok || data.action !== "inspect" || !Array.isArray(data.items) || !data.items.length) return;
-      updateTextGuard(sessionId, { data, seen: true, error: null, loading: false });
-    }).catch(() => { /* Persistence is an enhancement; the live inspect still works. */ });
-  }
-  function saveTextGuard(sessionId: string, data: TextGuardData) {
-    if (!data.items.length) return;
-    void invoke("textguard_reviews_write", { sessionId, review: data }).catch(() => {});
-  }
   useEffect(() => {
     if (newSession && !previousNewSession.current) void startNewSession();
     previousNewSession.current = newSession;
@@ -180,17 +163,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         if (textguard) {
           const id = textguard.sessionId ?? activeSessionIdRef.current;
           if (id && id === activeSessionIdRef.current) {
-            const previous = textguardRef.current[id]?.data;
-            if (!textguard.items.length && previous?.items.length) {
-              updateTextGuard(id, { error: "This review is no longer live in the runtime. Showing the saved review.", loading: false });
-              return;
-            }
-            if (!textguard.items.length && textguardRef.current[id]?.historical) {
-              updateTextGuard(id, { error: "This review is no longer available in the runtime.", loading: false, historical: true });
-              return;
-            }
-            updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false, historical: false });
-            saveTextGuard(id, textguard);
+            updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false });
           }
           return;
         }
@@ -443,7 +416,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       if (action === "approve" || action === "dismiss") {
         const previous = textguardRef.current[sessionId]?.data;
         if (previous) updateTextGuard(sessionId, { data: { ...previous, items: [] }, error: null });
-        void invoke("textguard_reviews_clear", { sessionId }).catch(() => {});
       }
       // Approve and mode replies are delivered before the runtime reloads resources.
       if (action !== "dismiss") await new Promise(resolve => setTimeout(resolve, 300));
@@ -588,7 +560,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSelectedSession(sessionPath);
     setHero(false);
     loadPreview(sessionPath);
-    loadSavedTextGuard(sessionPath);
   }
   async function forkTurn(prompt: string) {
     const client = connection.current;
@@ -690,10 +661,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (!id || !textguardWithheld || switching || hero) return;
     updateTextGuard(id, { seen: true });
   }, [textguardWithheld, snapshot.sessionId, switching, hero]);
-  const previewTextGuard = useMemo(() => Object.values(conversationProjection.tools).some(tool => {
-    const result = JSON.stringify(tool.result ?? "");
-    return tool.phase === "error" && (result.includes("TextGuard withheld") || result.includes("TextGuard advisory"));
-  }), [conversationProjection.tools]);
   const workspacePicker = <div ref={picker} className="relative">
     <Button type="button" variant="outline" className="h-8 max-w-64 gap-2 px-2 text-xs" aria-label="Choose workspace" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>
       <FolderOpen className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{name}</span><ChevronDown className="size-3 shrink-0" aria-hidden="true" />
@@ -708,21 +675,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     </div>}
   </div>;
   const workspaceError = snapshot.error;
-  const selectedTextguardId = sessionIdFromPath(selectedSession);
-  const textguardKey = snapshot.sessionId && selectedKey === activeSession
-    ? snapshot.sessionId
-    : selectedTextguardId && textguardBySession[selectedTextguardId]?.data ? selectedTextguardId : "";
+  const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
-  const historicalTextGuard = !textguardView?.data && previewTextGuard;
-  const textguardBar = textguardView?.seen || historicalTextGuard
-    ? <TextGuardBar data={textguardView?.data ?? null} open={textguardView?.open ?? false} busy={textguardView?.busy ?? false} running={snapshot.projection.running} error={textguardView?.error ?? null} historical={historicalTextGuard} onToggle={() => {
-        if (historicalTextGuard) {
-          if (selectedTextguardId) updateTextGuard(selectedTextguardId, { seen: true, historical: true, loading: true, open: true });
-          void requestTextGuardReview();
-          return;
-        }
+  const textguardBar = textguardView?.seen
+    ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} onToggle={() => {
         if (!textguardKey) return;
-        if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
+        if (!textguardView.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
         updateTextGuard(textguardKey, { open: !textguardView.open });
       }} onStop={() => void connection.current?.abort()} onAction={(action, item, extra) => void runTextGuard(action, item, extra)} />
     : null;

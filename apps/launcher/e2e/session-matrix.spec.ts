@@ -151,27 +151,11 @@ test("matrix: refresh during a session view does not create a second load", asyn
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
 });
 
-test("matrix: historical TextGuard without a saved review can retry against the runtime", async ({ page }) => {
+test("matrix: TextGuard history is hidden while the session is only previewed", async ({ page }) => {
   await setup(page);
-  await page.getByRole("button", { name: /^S7\b/ }).click();
-  const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld content in this session");
-  await expect(bar).toContainText("review cannot be reopened");
-  await expect(bar.getByRole("button", { name: "Review", exact: true })).toBeEnabled();
-  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
-  await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
-  await expect(bar).toContainText("TextGuard withheld content in this session");
-  await expect(bar).not.toContainText("TextGuard completed");
-});
-
-test("matrix: persisted TextGuard review is real, scoped, and does not attach", async ({ page }) => {
-  await setup(page);
-  await page.getByRole("button", { name: /^S2\b/ }).click();
-  const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld 1 item");
-  await expect(bar.getByRole("button", { name: "Review", exact: true })).toBeEnabled();
-  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
-  await page.getByRole("button", { name: /^S1\b/ }).click();
-  await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+  for (const title of ["S2", "S7"]) {
+    await page.getByRole("button", { name: new RegExp(`^${title}\\b`) }).click();
+    await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  }
 });

@@ -63,13 +63,12 @@ export function readableTextGuardSnapshot(body: string | undefined): string {
 }
 
 /** Sits directly above the composer; it never opens a dialog. */
-export function TextGuardBar({ data, open, busy, running, error, historical = false, onToggle, onStop, onAction }: {
+export function TextGuardBar({ data, open, busy, running, error, onToggle, onStop, onAction }: {
   data: TextGuardData | null;
   open: boolean;
   busy: boolean;
   running: boolean;
   error: string | null;
-  historical?: boolean;
   onToggle: () => void;
   onStop: () => void;
   onAction: (action: "approve" | "dismiss" | "mode", item: TextGuardItem | null, extra?: Record<string, unknown>) => void;
@@ -89,16 +88,12 @@ export function TextGuardBar({ data, open, busy, running, error, historical = fa
       : items.length
         ? `TextGuard has ${items.length} finding${items.length === 1 ? "" : "s"} to review`
         : "TextGuard completed for this session"
-    : historical
-      ? "TextGuard withheld content in this session"
-      : "TextGuard withheld content from the model";
-  const subtitle = historical
-    ? "The review was not saved by an older runtime. The transcript is intact, but the review cannot be reopened."
-    : !data
-      ? "Click Review to inspect the current session."
-      : items.length === 0
-        ? "No items are waiting for a decision. You can still change the scanning mode."
-        : "The content was not injected into the model. Review it before retrying.";
+    : "TextGuard withheld content from the model";
+  const subtitle = !data
+    ? "Click Review to inspect the current session."
+    : items.length === 0
+      ? "No items are waiting for a decision. You can still change the scanning mode."
+      : "The content was not injected into the model. Review it before retrying.";
   return <section aria-label="TextGuard" aria-live="polite" className="mb-2 w-full rounded-xl border" style={{ borderColor: accent.border, backgroundColor: accent.background }}>
     <div className="flex items-center gap-2 px-3 py-2">
       <ShieldAlert className="size-4 shrink-0" style={{ color: accent.icon }} />

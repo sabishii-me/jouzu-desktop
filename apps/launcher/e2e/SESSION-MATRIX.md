@@ -13,15 +13,18 @@ history loading, and the session-scoped TextGuard bar.
    extension command.
 4. One user action produces at most one runtime attachment.
 5. A session that never had a TextGuard event never shows the TextGuard bar.
-6. A TextGuard review shown as actionable must come from a real inspect payload that was
-   persisted by the desktop app. Transcript text is never treated as review data.
-7. Opening a session positions the transcript at its newest turn.
+6. TextGuard is scoped to the currently attached session. A previewed or historical session
+   never shows a bar. Only a live inspect payload may be actionable; transcript text is not
+   review data.
+7. TextGuard reviews are not persisted. Switching away removes the bar; a runtime restart
+   discards pending review content. The UI must not promise recovery.
+8. Opening a session positions the transcript at its newest turn.
 
 ## State model
 
 - `selectedSession`: what the user is viewing. Owned by `ChatWorkspace`.
 - `attachedSession`: what the runtime currently owns. Owned by `ChatConnection`.
-- `TextGuard review store`: desktop-owned JSON, keyed by session id.
+- `TextGuard`: in-memory state for the attached session only.
 
 No other component may own or reset those states.
 
@@ -39,9 +42,11 @@ No other component may own or reset those states.
 | image turn | image block | image renders, scroll stays at bottom |
 | failed turn | errorMessage | error visible, transcript intact |
 | recovered | recovered suffix | opens like its source session |
-| TextGuard withheld | persisted review | yellow bar with real item, no fake Review |
-| TextGuard handled | persisted review with zero items | green bar, modes available |
-| clean | no TextGuard event | no bar |
+| TextGuard history in preview | no bar; no runtime attach |
+| live TextGuard inspect with items | yellow bar with item content |
+| live TextGuard inspect with zero items | green bar, modes available |
+| switch away from a TextGuard session | bar hidden; no recovery promise |
+| clean | no bar |
 
 ### B. Switching sequences
 
@@ -61,12 +66,12 @@ No other component may own or reset those states.
 
 | Case | Expected |
 | --- | --- |
-| live inspect with items | persist, yellow bar, item content |
+| live inspect with items | yellow bar, item content |
 | live inspect with zero items | green bar, no item |
-| persisted review, runtime restarted | yellow bar from disk, no runtime attach |
-| Review on persisted review | one attach; if runtime lacks review, keep saved content and mark stale |
-| approve | item removed from store, no stale Review |
-| dismiss | item removed from store |
+| previewed historical event | no bar, no runtime attach |
+| switch away | bar hidden |
+| approve | item removed |
+| dismiss | item removed |
 | mode change | On/Strict/Off inside Review panel |
 | clean session | no bar |
 
@@ -92,7 +97,7 @@ Implement the matrix in this order:
 1. Add a fixture builder that creates deterministic sessions for every shape.
 2. Add `session-matrix.spec.ts` with data-driven shape and sequence tests.
 3. Instrument click-to-selection and click-to-first-message with `performance.now()`.
-4. Add a TextGuard persistence test that survives a page reload.
+4. Add a TextGuard scope test proving a previewed historical event shows no bar.
 5. Keep the old `session-switch.spec.ts` only for the send-time switch path.
 6. Record failures as a regression table in this document before fixing them.
 
@@ -143,7 +148,7 @@ content claim.
 | Empty projection replaced a visible preview | fixed | `matrix: long transcripts open at the newest turn` |
 | Opening showed Working / Sending | fixed | `matrix: every session shape` |
 | Session opened above the newest turn | fixed | bottom-gap assertion |
-| Synthetic TextGuard Review turned green with no content | fixed | persisted-review scope test |
+| Synthetic TextGuard Review turned green with no content | fixed | `matrix: TextGuard history is hidden while the session is only previewed` |
 | Review and Options swapped based on data | fixed | one Review entry, modes inside |
 | Refresh created a second load | fixed | `matrix: refresh during a session view` |
 
@@ -161,6 +166,6 @@ npx playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts
   produce fewer than 30 visible turns; the UI must not expand the read to compensate.
 - The runtime still reads full history during attach. Opening a session no longer waits
   for it, but attach latency remains unbounded.
-- TextGuard reviews created before desktop persistence existed cannot be recovered.
+- TextGuard reviews are memory-only. They disappear on switch or runtime restart by design.
 - Existing e2e fixtures use two tiny sessions; they do not cover long histories, rapid
   switching, refresh, or TextGuard.
