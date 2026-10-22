@@ -26,6 +26,7 @@ mod control;
 mod environment;
 mod runtime;
 mod sessions;
+mod textguard_reviews;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -574,6 +575,9 @@ fn main() {
             sessions::chat_session_messages,
             sessions::chat_session_timing,
             sessions::chat_session_recover,
+    textguard_reviews::textguard_reviews_read,
+    textguard_reviews::textguard_reviews_write,
+    textguard_reviews::textguard_reviews_clear,
             launcher_state,
             launch_jouzu,
             forget_workspace,
