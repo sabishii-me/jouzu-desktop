@@ -45,6 +45,7 @@ async function setup(page: Page) {
     const response = (request: any, data?: any) => records.push({ type: "response", id: request.id, command: request.type, success: true, data });
     const sessionFile = () => current ? `C:/sessions/${current}.jsonl` : "C:/sessions/new.jsonl";
     const review = { ok: true, action: "inspect", sessionId: ids[2], mode: "on", items: [{ id: "matrix-review", withheld: true, ticket: "ticket", source: "SKILL.md", digest: "a".repeat(64), severity: "error", review: { source: "SKILL.md", digest: "a".repeat(64), scanner: "fixture", status: "withheld", severity: { error: 1 }, findings: [{ kind: "yara:command_injection" }] }, snapshot: { body: "reviewed body" } }] };
+    const liveReview = { ...review, sessionId: ids[7], items: [{ ...review.items[0], id: "live-review", source: "LIVE.md" }] };
     w.__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback() {},
@@ -73,7 +74,8 @@ async function setup(page: Page) {
           else if (request.type === "prompt") {
             w.promptCalls.push(request.message);
             if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes("inspect")) {
-              records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify({ ok: true, action: "inspect", sessionId: current || "new", mode: "on", items: [] })}` });
+              const payload = current === ids[7] ? liveReview : { ...review, sessionId: current || "new", items: [] };
+              records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify(payload)}` });
             }
             response(request);
           }
@@ -158,4 +160,20 @@ test("matrix: TextGuard history is hidden while the session is only previewed", 
     await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
   }
+});
+
+test("matrix: TextGuard is visible only for the attached session", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S7\b/ }).click();
+  await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+  await page.getByLabel("Message Jouzu").fill("continue");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  const bar = page.getByRole("region", { name: "TextGuard" });
+  await expect(bar).toContainText("TextGuard withheld content from the model");
+  await bar.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(bar).toContainText("TextGuard withheld 1 item");
+  await expect(bar).toContainText("LIVE.md");
+  await page.getByRole("button", { name: /^S8\b/ }).click();
+  await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
 });

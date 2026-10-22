@@ -6,7 +6,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:session": "playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts e2e/session-metrics.spec.ts"
   },
   "license": "Apache-2.0",
   "type": "module",
