@@ -56,12 +56,26 @@ function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boo
 
 function ChatConversationView({ projection, pending = false, startedAt, opening = false, onFork }: { projection: ChatProjection; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string) => void }) {
   const scroll = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
   const [limit, setLimit] = useState(30);
   const [now, setNow] = useState(() => Date.now());
   const working = projection.running || pending || opening;
-  useEffect(() => { if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }, [projection]);
+  const pinToBottom = () => { if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; };
+  useEffect(() => {
+    // A session mounts with its newest turn visible. Markdown, images, and collapsed
+    // tool output grow after the first layout, so keep pinning until the user scrolls.
+    following.current = true;
+    const target = content.current;
+    if (!target) return;
+    const first = requestAnimationFrame(pinToBottom);
+    const second = requestAnimationFrame(pinToBottom);
+    const observer = new ResizeObserver(() => { if (following.current) requestAnimationFrame(pinToBottom); });
+    observer.observe(target);
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); observer.disconnect(); };
+  }, []);
+  useEffect(() => { pinToBottom(); }, [projection]);
   useEffect(() => {
     if (!working) return;
     setNow(Date.now());
@@ -122,7 +136,7 @@ function ChatConversationView({ projection, pending = false, startedAt, opening 
     <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
+      <div ref={content} className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
         <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
         {message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : block.type === "thinking" ? <ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} /> : block.type === "toolCall" ? projection.tools[block.id ?? ""] ? <ToolRenderer key={position} tool={projection.tools[block.id!]} /> : <p key={position} className="text-xs text-muted-foreground">{block.name ?? "Tool call"}</p> : block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "") ? <img key={position} className="my-2 max-h-80 rounded-lg" src={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" /> : <p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>)}
         {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
