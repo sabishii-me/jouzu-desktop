@@ -189,6 +189,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     while (projectionCache.current.size > 8) projectionCache.current.delete(projectionCache.current.keys().next().value as string);
   }, [snapshot.sessionFile, snapshot.projection]);
   useEffect(() => {
+    const current = previewRef.current;
+    if (!current || normalizedPath(current.path) !== normalizedPath(snapshot.sessionFile ?? "")) return;
+    // Session state is published before history. Never replace a visible transcript with
+    // that empty intermediate projection; wait for the authoritative messages.
+    if (!snapshot.projection.messages.length && current.projection.messages.length) return;
+    setPreview({ path: current.path, projection: snapshot.projection });
+  }, [snapshot.sessionFile, snapshot.projection]);
+  useEffect(() => {
     if (snapshot.connected && snapshot.modelsLoaded === true && (snapshot.models?.length ?? 0) === 0 && canRefreshModels) onModelsMissing?.();
   }, [snapshot.connected, snapshot.models, snapshot.modelsLoaded, canRefreshModels, onModelsMissing]);
   useEffect(() => { setAnswer(dialog?.prefill ?? ""); }, [dialog?.id, dialog?.prefill]);
@@ -448,8 +456,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       }
       await client.resumeSession(target);
       if (connection.current !== client) return;
-      previewRequest.current += 1;
-      setPreview(null);
       const loaded = client.snapshot.sessionFile ?? target;
       // A click that arrived while this switch was running owns the selection.
       if (!queuedSwitch.current && normalizedPath(loaded) !== normalizedPath(selectedSessionRef.current ?? "")) setSelectedSession(loaded);
