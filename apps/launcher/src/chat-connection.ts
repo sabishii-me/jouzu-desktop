@@ -80,9 +80,15 @@ export class ChatConnection {
       this.handle = handle;
       this.update({ transportReady: true });
       this.poll();
+      if (fresh) {
+        this.replaying = true;
+        try {
+          const result = await this.request("new_session");
+          if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the new session.");
+        } finally { this.replaying = false; }
+      }
       await this.refreshHistory();
       this.update({ connected: true });
-      if (fresh) await this.changeSession("new_session");
       await this.applyPreferredModel();
       void this.loadModels();
       void this.loadStats();

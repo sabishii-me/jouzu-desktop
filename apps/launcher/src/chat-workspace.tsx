@@ -102,7 +102,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
   function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
   useEffect(() => {
     setHero(newSession);
-    if (newSession && !previousNewSession.current && connection.current && snapshot.connected && !snapshot.projection.running && !snapshot.pending && snapshot.projection.messages.length > 0) {
+    if (!freshOnPath.current && newSession && !previousNewSession.current && connection.current && snapshot.connected && !snapshot.projection.running && !snapshot.pending && snapshot.projection.messages.length > 0) {
       void connection.current.newSession().catch(() => {});
     }
     previousNewSession.current = newSession;
