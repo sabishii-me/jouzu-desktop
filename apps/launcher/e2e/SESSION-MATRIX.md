@@ -96,6 +96,26 @@ Implement the matrix in this order:
 5. Keep the old `session-switch.spec.ts` only for the send-time switch path.
 6. Record failures as a regression table in this document before fixing them.
 
+## Regression log
+
+| Regression | Status | Guard |
+| --- | --- | --- |
+| Two runtime loads after one click | fixed | `matrix: rapid and repeated switching` |
+| Empty projection replaced a visible preview | fixed | `matrix: long transcripts open at the newest turn` |
+| Opening showed Working / Sending | fixed | `matrix: every session shape` |
+| Session opened above the newest turn | fixed | bottom-gap assertion |
+| Synthetic TextGuard Review turned green with no content | fixed | persisted-review scope test |
+| Review and Options swapped based on data | fixed | one Review entry, modes inside |
+| Refresh created a second load | fixed | `matrix: refresh during a session view` |
+
+## Current run
+
+```text
+npm test                                        13 files, 81 tests passed
+npx playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts
+                                                6 tests passed
+```
+
 ## Current known debt
 
 - The runtime still reads full history during attach. Opening a session no longer waits
