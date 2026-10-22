@@ -165,15 +165,20 @@ test("matrix: TextGuard history is hidden while the session is only previewed", 
 test("matrix: TextGuard is visible only for the attached session", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S7\b/ }).click();
+  const composer = page.getByLabel("Message Jouzu");
+  const before = await composer.boundingBox();
   await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
-  await page.getByLabel("Message Jouzu").fill("continue");
+  await composer.fill("continue");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
   const bar = page.getByRole("region", { name: "TextGuard" });
   await expect(bar).toContainText("TextGuard withheld content from the model");
+  expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
   await bar.getByRole("button", { name: "Review", exact: true }).click();
   await expect(bar).toContainText("TextGuard withheld 1 item");
   await expect(bar).toContainText("LIVE.md");
+  expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
   await page.getByRole("button", { name: /^S8\b/ }).click();
   await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+  expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
 });
