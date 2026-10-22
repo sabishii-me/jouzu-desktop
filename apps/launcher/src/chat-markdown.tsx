@@ -31,9 +31,20 @@ function Code({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
 }
 export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const [error, setError] = useState<string | null>(null);
-  return <div className="select-text break-words text-sm leading-7 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:block [&_table]:overflow-auto [&_td]:border [&_td]:border-border [&_td]:px-3 [&_th]:border [&_th]:border-border [&_th]:px-3">
+  return <div className="select-text break-words text-left text-sm leading-7 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:font-semibold [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:block [&_table]:overflow-auto [&_td]:border [&_td]:border-border [&_td]:px-3 [&_th]:border [&_th]:border-border [&_th]:px-3">
     <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ pre: Code,
-      a: ({ href, children }) => <button className="inline text-primary underline" onClick={() => { if (!href) return; try { const url = new URL(href); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Only public HTTP(S) links can be opened."); void openUrl(url.href).catch(() => setError("Could not open link.")); } catch { setError("This link cannot be opened externally."); } }}>{children}</button>,
+      a: ({ href, children }) => {
+        let safe: string | undefined;
+        try {
+          const url = new URL(href ?? "");
+          if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password) safe = url.href;
+        } catch { /* Leave the link inert. */ }
+        return <a href={safe} className="inline break-all text-left text-primary underline" onClick={event => {
+          event.preventDefault();
+          if (!safe) { setError("This link cannot be opened externally."); return; }
+          void openUrl(safe).catch(() => setError("Could not open link."));
+        }}>{children}</a>;
+      },
       img: ({ alt }) => <span className="text-muted-foreground">[Image: {alt || "remote image not loaded"}]</span>,
     }}>{text}</ReactMarkdown>
     {error && <p role="alert" className="text-destructive">{error}</p>}
