@@ -11,6 +11,7 @@ test("a session opens once and switching replaces it once", async ({ page }) => 
     w.isTauri = true;
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
     w.switchCalls = [];
+    w.promptCalls = [];
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const workspace = "C:/Projects/Example";
     const now = Math.floor(Date.now() / 1000);
@@ -40,6 +41,8 @@ test("a session opens once and switching replaces it once", async ({ page }) => 
         if (command === "control_request") return { schemaVersion: 1, modelReady: true, profile: "core", account: { signedIn: false }, credentials: [], customProviders: [], providers: [], models: [] };
         if (command === "component_versions") return { jouzu: "0.3.8", development: true };
         if (command === "chat_sessions") return sessions;
+        if (command === "chat_session_messages") return histories[String(args.sessionPath)] ?? [];
+        if (command === "textguard_reviews_read") return null;
         if (command === "chat_flow_reports") return [];
         if (command === "chat_session_timing") return { modelMs: 1, toolMs: 1, turns: 1, steps: 1, outputTokens: 1 };
         if (command === "environment_read") return [];
@@ -54,6 +57,7 @@ test("a session opens once and switching replaces it once", async ({ page }) => 
           else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Fixture model" }] });
           else if (request.type === "get_available_thinking_levels") response(request, { levels: [] });
           else if (request.type === "get_session_stats") response(request, { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: { total: 1 } });
+          else if (request.type === "prompt") { w.promptCalls.push(request.message); response(request); }
           else response(request);
           return;
         }
@@ -78,5 +82,12 @@ test("a session opens once and switching replaces it once", async ({ page }) => 
   await page.getByRole("button", { name: /^Beta/ }).click();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("Beta answer");
   await expect(page.getByRole("article", { name: "assistant message" })).toHaveCount(1);
-  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(2);
+  // Opening a saved session reads the local transcript; it must not attach the runtime.
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  await page.getByLabel("Message Jouzu").fill("Continue Beta");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls)).toEqual(["C:/sessions/beta.jsonl"]);
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).promptCalls)).toEqual(["Continue Beta"]);
 });
