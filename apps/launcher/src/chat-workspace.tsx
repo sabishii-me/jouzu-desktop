@@ -10,7 +10,7 @@ import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
 import { readImageAttachment, removeSubmittedImages, validateImageSelection, type ImageAttachment } from "./chat-attachments";
-import { emptyProjection, type FlowReportRecord } from "./chat-projection";
+import { emptyProjection, historyProjection, interruptUnfinishedTools, type ChatProjection, type FlowReportRecord } from "./chat-projection";
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
@@ -62,6 +62,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLDivElement | null>(null);
   const switchingRef = useRef(false);
+  const [preview, setPreview] = useState<{ path: string; projection: ChatProjection } | null>(null);
+  const previewRequest = useRef(0);
+  const projectionCache = useRef(new Map<string, ChatProjection>());
+  const prefetching = useRef(new Set<string>());
+  const selectedSessionRef = useRef<string | null>(null);
+  selectedSessionRef.current = selectedSession;
   const [dialogs, setDialogs] = useState(emptyDialogQueue);
   const queue = useRef(dialogs);
   const dialog = dialogs.items[0] ?? null;
@@ -105,6 +111,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   useEffect(() => {
     queuedSwitch.current = null;
     switchingRef.current = false;
+    previewRequest.current += 1;
+    setPreview(null);
     setSwitching(false);
     updateDialogs(emptyDialogQueue());
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
@@ -139,6 +147,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     return () => { connection.current = null; void client.close().catch(() => {}); };
   }, [path, revision]);
   useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
+  useEffect(() => {
+    const key = normalizedPath(snapshot.sessionFile ?? "");
+    if (!key) return;
+    projectionCache.current.set(key, snapshot.projection);
+    while (projectionCache.current.size > 8) projectionCache.current.delete(projectionCache.current.keys().next().value as string);
+  }, [snapshot.sessionFile, snapshot.projection]);
   useEffect(() => {
     if (snapshot.connected && snapshot.modelsLoaded === true && (snapshot.models?.length ?? 0) === 0 && canRefreshModels) onModelsMissing?.();
   }, [snapshot.connected, snapshot.models, snapshot.modelsLoaded, canRefreshModels, onModelsMissing]);
@@ -292,6 +306,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   async function startNewSession() {
     if (switchingRef.current) {
       queuedSwitch.current = "new";
+      previewRequest.current += 1;
+      setPreview(null);
       setHero(true);
       setSelectedSession(null);
       return;
@@ -308,6 +324,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     }
     setHero(true);
     setSelectedSession(null);
+    previewRequest.current += 1;
+    setPreview(null);
     void switchSession("new");
   }
   async function reloadSession() {
@@ -352,6 +370,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     switchingRef.current = true;
     setSwitching(true);
     if (target === "new") {
+      previewRequest.current += 1;
+      setPreview(null);
       setHero(true);
       setSelectedSession(null);
     }
@@ -366,9 +386,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       }
       await client.resumeSession(target);
       if (connection.current !== client) return;
+      previewRequest.current += 1;
+      setPreview(null);
       const loaded = client.snapshot.sessionFile ?? target;
       // A click that arrived while this switch was running owns the selection.
-      if (!queuedSwitch.current) setSelectedSession(loaded);
+      if (!queuedSwitch.current && normalizedPath(loaded) !== normalizedPath(selectedSessionRef.current ?? "")) setSelectedSession(loaded);
       if (queuedSwitch.current !== "new") setHero(false);
       onStartSession?.();
       setDiskReports([]); setReportsSession(loaded); setTiming(undefined);
@@ -388,12 +410,41 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         setSelectedSession(active);
         setHero(!active);
       }
+      previewRequest.current += 1;
+      setPreview(null);
       setNotification(message);
     } finally {
       switchingRef.current = false;
       setSwitching(false);
       onStartSession?.();
     }
+  }
+  function prefetchSession(sessionPath: string) {
+    const key = normalizedPath(sessionPath);
+    if (projectionCache.current.has(key) || prefetching.current.has(key)) return;
+    prefetching.current.add(key);
+    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 40 }).then(messages => {
+      try {
+        projectionCache.current.set(key, interruptUnfinishedTools(historyProjection(messages)));
+        while (projectionCache.current.size > 8) projectionCache.current.delete(projectionCache.current.keys().next().value as string);
+      } catch { /* A malformed preview is ignored; the runtime still owns the transcript. */ }
+    }).catch(() => {}).finally(() => prefetching.current.delete(key));
+  }
+  function loadPreview(sessionPath: string) {
+    const request = ++previewRequest.current;
+    setPreview(null);
+    const cached = projectionCache.current.get(normalizedPath(sessionPath));
+    if (cached) {
+      setPreview({ path: sessionPath, projection: cached });
+      return;
+    }
+    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 40 }).then(messages => {
+      if (previewRequest.current !== request) return;
+      if (normalizedPath(selectedSessionRef.current ?? "") !== normalizedPath(sessionPath)) return;
+      if (normalizedPath(connection.current?.snapshot.sessionFile ?? "") === normalizedPath(sessionPath)) return;
+      try { setPreview({ path: sessionPath, projection: interruptUnfinishedTools(historyProjection(messages)) }); }
+      catch { /* The runtime's authoritative history still loads below. */ }
+    }).catch(() => { /* Opening still completes through the runtime. */ });
   }
   /** A click only records intent. The runtime load is always the single path below. */
   function openSession(sessionPath: string) {
@@ -402,13 +453,17 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const active = normalizedPath(client.snapshot.sessionFile ?? "");
     if (!switchingRef.current && normalizedPath(sessionPath) === active) {
       queuedSwitch.current = null;
+      previewRequest.current += 1;
+      setPreview(null);
       setSelectedSession(sessionPath);
       setHero(false);
       return;
     }
     setSelectedSession(sessionPath);
+    setHero(false);
+    loadPreview(sessionPath);
     queuedSwitch.current = sessionPath;
-    if (switchingRef.current || !client.snapshot.connected || client.snapshot.pending || client.snapshot.projection.running) return;
+    if (switchingRef.current || !client.snapshot.connected || client.snapshot.pending) return;
     queuedSwitch.current = null;
     void switchSession(sessionPath);
   }
@@ -430,11 +485,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     finally { switchingRef.current = false; setSwitching(false); }
   }
   useEffect(() => {
-    if (switching || !snapshot.connected || snapshot.pending || snapshot.projection.running || !queuedSwitch.current) return;
+    if (switching || !snapshot.connected || snapshot.pending || !queuedSwitch.current) return;
     const target = queuedSwitch.current;
     queuedSwitch.current = null;
     void switchSession(target);
-  }, [switching, snapshot.connected, snapshot.pending, snapshot.projection.running]);
+  }, [switching, snapshot.connected, snapshot.pending]);
   async function compactConversation() {
     const client = connection.current;
     if (!client) return;
@@ -487,9 +542,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   }, [workspaces, sessions, search, sort, showArchived]);
   const activeSession = normalizedPath(snapshot.sessionFile ?? "");
   const selectedKey = normalizedPath(selectedSession ?? snapshot.sessionFile ?? "");
-  const selectedTitle = sessions.find(session => normalizedPath(session.path) === activeSession)?.title;
+  const selectedTitle = sessions.find(session => normalizedPath(session.path) === selectedKey)?.title;
+  const opening = !hero && !!selectedSession && selectedKey !== activeSession;
+  const activePreview = preview && normalizedPath(preview.path) === selectedKey ? preview : null;
+  const conversationProjection = activePreview?.projection ?? snapshot.projection;
+  const conversationKey = selectedSession ?? snapshot.sessionId ?? path;
   const hasArchived = sessions.some(session => session.archived);
-  const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === activeSession)?.workspace;
+  const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === selectedKey)?.workspace;
   useEffect(() => { if (selectedSession) selectedRowRef.current?.scrollIntoView({ block: "nearest" }); }, [selectedSession]);
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
@@ -535,7 +594,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             </div>
             {open && <div className="ml-4 border-l border-border pl-1.5">
               {group.sessions.map(session => <div key={session.path} ref={node => { if (selectedKey === normalizedPath(session.path)) selectedRowRef.current = node; }} data-session-selected={selectedKey === normalizedPath(session.path) || undefined} className={`group/session relative flex items-center rounded-md text-sm ${selectedKey === normalizedPath(session.path) ? "bg-accent text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
-                <button type="button" onClick={() => void openSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
+                <button type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
                   {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
                 </button>
                 <div className={`relative flex shrink-0 items-center gap-0.5 pr-1 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100 ${sessionMenu === session.path ? "opacity-100" : "opacity-0"}`} data-session-menu>
@@ -569,7 +628,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2 className="max-w-60 min-w-0 shrink-0 truncate text-sm font-semibold" title={`${name} · ${path}${snapshot.model ? ` · ${snapshot.model}` : ""}`}>{selectedTitle ?? name}</h2>
           {!snapshot.connected && <span className={`h-7 shrink-0 rounded-md border px-2 text-xs leading-7 ${workspaceError ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}>{workspaceError ? "Offline" : "Starting…"}</span>}
-          {switching && snapshot.connected && <span role="status" className="h-7 shrink-0 rounded-md border border-border px-2 text-xs leading-7 text-muted-foreground">Opening…</span>}
+          {(opening || switching) && snapshot.connected && <span role="status" className="h-7 shrink-0 rounded-md border border-border px-2 text-xs leading-7 text-muted-foreground">Opening…</span>}
           <div className="hidden min-w-0 items-center gap-1.5 md:flex">
             <span className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">Standard mode</span>
             <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
@@ -595,12 +654,15 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <p className="max-w-md text-sm text-muted-foreground">Choose a workspace, then describe the task. Jouzu can explore code, explain it, or make a change.</p>
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
-          <Composer hero connected={snapshot.connected} pending={snapshot.pending || switching} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
+          <Composer hero connected={snapshot.connected} pending={snapshot.pending || switching} opening={false} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
-        <ChatConversation key={snapshot.sessionId} projection={snapshot.projection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching} onFork={prompt => void forkTurn(prompt)} />
-        <Composer connected={snapshot.connected} pending={snapshot.pending || switching} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching || (opening && !activePreview)} onFork={prompt => void forkTurn(prompt)} />
+          {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
+        </div>
+        <Composer connected={snapshot.connected} pending={snapshot.pending || opening || switching} opening={opening || switching} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}
     </section>

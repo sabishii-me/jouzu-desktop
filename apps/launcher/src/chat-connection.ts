@@ -58,12 +58,15 @@ interface Poll { records: WireObject[]; closed: boolean; error?: string }
 // A response watchdog, not a request deadline: the released runtime owns how long a command
 // takes, and a lost answer is only distinguishable from a slow one by waiting a long time.
 const RESPONSE_WATCHDOG = 5 * 60_000;
+const POLL_IDLE_MS = 30;
+const POLL_ACTIVE_MS = 5;
 // A desktop connection, not an agent loop: never retries a prompt or writes history.
 export class ChatConnection {
   private handle?: string;
   private disposed = false;
   private failed = false;
   private timer?: ReturnType<typeof setTimeout>;
+  private polling = false;
   private replaying = false;
   private nextId = 0;
   private dialogs = new Map<string, number | null>();
@@ -104,7 +107,8 @@ export class ChatConnection {
     }
   }
   private poll = async () => {
-    if (this.disposed || this.failed || !this.handle) return;
+    if (this.disposed || this.failed || !this.handle || this.polling) return;
+    this.polling = true;
     try {
       const batch = await invoke<Poll>("chat_poll", { handle: this.handle });
       if (this.disposed || this.failed) return;
@@ -155,15 +159,26 @@ export class ChatConnection {
       if (waitingForUser) for (const pending of this.requests.values()) pending.deadline += now - this.lastPoll;
       this.lastPoll = now;
       for (const pending of this.requests.values()) if (now > pending.deadline) throw new Error("Jouzu did not answer for five minutes. The outcome is uncertain; no work was replayed.");
-      this.timer = setTimeout(this.poll, 30);
-    } catch (error) { this.fail(error); }
+      this.polling = false;
+      this.timer = setTimeout(this.poll, this.requests.size || this.dialogs.size ? POLL_ACTIVE_MS : POLL_IDLE_MS);
+    } catch (error) {
+      this.polling = false;
+      this.fail(error);
+    }
   };
+  private wakePoll() {
+    if (this.disposed || this.failed || !this.handle || this.polling) return;
+    if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+    void this.poll();
+  }
   request(command: string, fields: WireObject = {}): Promise<unknown> {
     if (!this.handle || this.disposed || this.failed) return Promise.reject(new Error("Chat is not connected."));
     const id = `desktop-${++this.nextId}`;
     return new Promise((resolve, reject) => {
       this.requests.set(id, { command, resolve, reject, deadline: Date.now() + RESPONSE_WATCHDOG });
-      void invoke("chat_send", { handle: this.handle, request: { ...fields, type: command, id } }).catch(error => { this.requests.delete(id); reject(new Error(String(error))); });
+      void invoke("chat_send", { handle: this.handle, request: { ...fields, type: command, id } })
+        .then(() => this.wakePoll())
+        .catch(error => { this.requests.delete(id); reject(new Error(String(error))); });
     });
   }
   async refreshHistory() {
