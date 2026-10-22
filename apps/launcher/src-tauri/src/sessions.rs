@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 const MAX_SESSIONS: usize = 200;
@@ -309,18 +309,56 @@ pub async fn chat_session_messages(
     limit: Option<usize>,
 ) -> Result<Vec<Value>, String> {
     let path = validated_session_path(&session_path)?;
-    let mut messages = tauri::async_runtime::spawn_blocking(move || read_session_messages(&path))
+    let messages = tauri::async_runtime::spawn_blocking(move || read_session_messages(&path, limit))
         .await
         .map_err(|_| "Session read failed".to_string())?;
-    if let Some(limit) = limit {
-        if messages.len() > limit {
-            messages.drain(..messages.len() - limit);
-        }
-    }
     Ok(messages)
 }
 
-fn read_session_messages(path: &Path) -> Vec<Value> {
+fn read_session_messages(path: &Path, limit: Option<usize>) -> Vec<Value> {
+    let Some(limit) = limit else { return read_all_session_messages(path) };
+    if limit == 0 {
+        return Vec::new();
+    }
+    let Ok(mut file) = File::open(path) else { return Vec::new() };
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else { return Vec::new() };
+    const CHUNK: u64 = 2 * 1024 * 1024;
+    const MAX_TAIL: u64 = 32 * 1024 * 1024;
+    let mut tail = Vec::new();
+    let mut start = length;
+    let mut messages = Vec::new();
+    while start > 0 && (tail.len() as u64) < MAX_TAIL {
+        let size = CHUNK.min(start);
+        start -= size;
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return Vec::new();
+        }
+        let mut chunk = vec![0; size as usize];
+        if file.read_exact(&mut chunk).is_err() {
+            return Vec::new();
+        }
+        chunk.extend_from_slice(&tail);
+        tail = chunk;
+        let text = String::from_utf8_lossy(&tail);
+        // A chunk boundary can split a JSON line. Drop only that partial first line.
+        let usable = if start > 0 { text.split_once('\n').map_or("", |(_, rest)| rest) } else { text.as_ref() };
+        messages = usable
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|value| value.get("type").and_then(Value::as_str) == Some("message"))
+            .filter_map(|value| value.get("message").cloned())
+            .collect();
+        if messages.len() >= limit {
+            break;
+        }
+    }
+    if messages.len() > limit {
+        messages.drain(..messages.len() - limit);
+    }
+    messages
+}
+
+fn read_all_session_messages(path: &Path) -> Vec<Value> {
     let Ok(file) = File::open(path) else { return Vec::new() };
     let reader = BufReader::new(file.take(32 * 1024 * 1024));
     let mut messages = Vec::new();
