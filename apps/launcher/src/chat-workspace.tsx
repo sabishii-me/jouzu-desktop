@@ -17,7 +17,7 @@ import { SessionStatsBar } from "./session-stats-bar";
 import { parseTextGuardNotice, parseTextGuardResult, TextGuardBar, type TextGuardData, type TextGuardItem } from "./textguard-bar";
 import type { SessionTiming } from "./chat-connection";
 
-type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
+type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean; historical?: boolean };
 const emptyTextGuardView: TextGuardView = { data: null, seen: false, open: false, busy: false, error: null, loading: false };
 
 interface WorkspaceItem { id: string; path: string }
@@ -185,7 +185,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
               updateTextGuard(id, { error: "This review is no longer live in the runtime. Showing the saved review.", loading: false });
               return;
             }
-            updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false });
+            if (!textguard.items.length && textguardRef.current[id]?.historical) {
+              updateTextGuard(id, { error: "This review is no longer available in the runtime.", loading: false, historical: true });
+              return;
+            }
+            updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false, historical: false });
             saveTextGuard(id, textguard);
           }
           return;
@@ -712,7 +716,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const historicalTextGuard = !textguardView?.data && previewTextGuard;
   const textguardBar = textguardView?.seen || historicalTextGuard
     ? <TextGuardBar data={textguardView?.data ?? null} open={textguardView?.open ?? false} busy={textguardView?.busy ?? false} running={snapshot.projection.running} error={textguardView?.error ?? null} historical={historicalTextGuard} onToggle={() => {
-        if (historicalTextGuard) { void requestTextGuardReview(); return; }
+        if (historicalTextGuard) {
+          if (selectedTextguardId) updateTextGuard(selectedTextguardId, { seen: true, historical: true, loading: true, open: true });
+          void requestTextGuardReview();
+          return;
+        }
         if (!textguardKey) return;
         if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
         updateTextGuard(textguardKey, { open: !textguardView.open });
