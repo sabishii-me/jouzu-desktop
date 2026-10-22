@@ -112,7 +112,6 @@ try {
       maxConcurrent: snapshot.config.maxConcurrent,
       workspaceWriters: snapshot.config.workspaceWriters,
       revision: snapshot.revision,
-      models: runtime.getModels().map(model => ({ provider: model.provider, id: model.id, name: model.name })),
     }));
     process.exit(0);
   } else if (request.action !== 'status') throw new Error('Unsupported operation');
