@@ -22,8 +22,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Input } from "./components/ui/input";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { Bug, FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, SquareTerminal, Copy, Check, ArrowUpCircle } from "lucide-react";
-import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from "./components/ui/dialog";
+import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "./components/ui/card";
@@ -33,7 +33,6 @@ import { JouzuLoader } from "./components/ui/jouzu-loader";
 import { messages, locales, resolveLocale, type Locale } from "./i18n";
 import { type Workspace } from "./history";
 import { parseDiagnostics, type Diagnostics } from "./diagnostics";
-import { openReport } from "./report";
 interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Workspace[]; ready: boolean; bash: boolean; bundled_git: boolean }
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
 interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
@@ -128,6 +127,16 @@ export function App() {
   const [provider, setProvider] = useState("");
   const [token, setToken] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+        event.preventDefault();
+        setSettingsOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [notice, setNotice] = useState<"requested" | "removed" | null>(null);
   const busy = operation !== null;
   const busyRef = useRef(busy);
@@ -270,14 +279,6 @@ export function App() {
       await refresh();
     } catch (error) { setError(String(error)); } finally { setOperation(null); }
   }
-  // A terminal in a folder with the environment this installation manages, which is also where jz and
-  // jouzu can be started from. It does not start Jouzu and it asks nothing: the folder the launcher
-  // already works with is used, and the backend opens it in the user's home when there is none.
-  async function openTerminal() {
-    setError(null);
-    try { await invoke("terminal_open", { path: activePath ?? state?.recent[0]?.path ?? null }); }
-    catch (error) { setError(String(error)); }
-  }
   async function chooseFolder() {
     setOperation("choosing"); setError(null);
     try {
@@ -356,13 +357,10 @@ export function App() {
   if (showSetup) return onboardingScreen;
   return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
-    <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-5 py-3 sm:px-6">
+    <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-4 py-2">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
-      <div className="pointer-events-none flex items-center gap-3"><img src={jouzuIcon} alt="" draggable={false} className="size-9" /><h1 className="min-w-16 flex-1 text-lg font-semibold tracking-tight">Jouzu</h1></div>
-      <div className="pointer-events-none flex items-center gap-1 [&>*]:pointer-events-auto">{(setup || statusError) && <>{state?.platform === "windows" && <Button variant="ghost" aria-label={t.openTerminal} title={t.openTerminal} disabled={busy || !state?.ready} onClick={() => void openTerminal()}><SquareTerminal /></Button>}<Button variant="ghost" aria-label={t.reportTitle} title={t.reportTitle} onClick={() => void openReport()}><Bug /></Button><Dialog open={settingsOpen} onOpenChange={value => { if (!value && device) void invoke("cancel_control"); if (!value) setUpdateFocus(null); setSettingsOpen(value); }}>
-        {updater.version || jouzuUpdater.version
-          ? <Button variant="ghost" className="text-primary hover:text-primary" aria-label={t.updateReady} title={t.updateReady} disabled={updater.busy || jouzuUpdater.busy} onClick={openUpdatePanel}><ArrowUpCircle className={(updater.busy || jouzuUpdater.busy) ? "animate-pulse" : undefined} /></Button>
-          : <Button variant="ghost" aria-label={t.checkUpdates} title={t.checkUpdates} disabled={updater.busy || jouzuUpdater.busy} onClick={() => {void jouzuUpdater.check();void updater.refresh();}}><RefreshCw className={(updater.busy || jouzuUpdater.busy) ? "animate-spin" : undefined} /></Button>}<DialogTrigger asChild><Button variant="ghost" aria-label={t.settings} title={t.settings}><Settings /></Button></DialogTrigger>
+      <div className="pointer-events-none flex items-center gap-2"><img src={jouzuIcon} alt="" draggable={false} className="size-7" /><h1 className="min-w-16 flex-1 text-sm font-semibold tracking-tight">Jouzu</h1></div>
+      <div className="pointer-events-none flex items-center gap-1 [&>*]:pointer-events-auto"><Dialog open={settingsOpen} onOpenChange={value => { if (!value && device) void invoke("cancel_control"); if (!value) setUpdateFocus(null); setSettingsOpen(value); }}>
         <DialogContent showCloseButton={false} className="flex h-[min(560px,85dvh)] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl border-border p-0 sm:max-w-3xl">
           {error && <p role="alert" className="border-b border-border bg-red-50 px-4 py-2 text-sm text-red-900">{error}</p>}
           <DialogDescription className="sr-only">{t.preferences}</DialogDescription>
@@ -430,7 +428,7 @@ export function App() {
           </Tabs>
           <DialogClose asChild><Button variant="ghost" className="absolute right-2 top-2 px-3" aria-label={t.dismiss}><X /></Button></DialogClose>
         </DialogContent>
-      </Dialog></>}
+      </Dialog>
       {isTauri() && <><Button variant="ghost" aria-label={t.minimize} onClick={() => getCurrentWindow().minimize().catch(error => setError(String(error)))}><Minus /></Button><Button variant="ghost" aria-label={maximized ? "Restore" : "Maximize"} onClick={() => getCurrentWindow().toggleMaximize().catch(error => setError(String(error)))}>{maximized ? <Minimize2 /> : <Maximize2 />}</Button><Button variant="ghost" aria-label="Hide to tray" title="Hide to tray" onClick={() => getCurrentWindow().close().catch(error => setError(String(error)))}><X /></Button></>}
       </div>
     </header>
@@ -464,6 +462,9 @@ export function App() {
         onRemove={id => { const workspace = state?.recent.find(item => item.id === id); if (workspace) void forget(workspace); }}
         onTerminal={state?.platform === "windows" ? path => void launchTerminal(path) : undefined}
         onSettings={() => setSettingsOpen(true)}
+        onUpdate={openUpdatePanel}
+        updateAvailable={!!(updater.version || jouzuUpdater.version)}
+        updateBusy={updater.busy || jouzuUpdater.busy}
       />
     </div>}
     {!activePath && <LauncherPage title={t.heading} description={t.intro}>
