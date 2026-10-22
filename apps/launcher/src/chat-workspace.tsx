@@ -712,7 +712,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const historicalTextGuard = !textguardView?.data && previewTextGuard;
   const textguardBar = textguardView?.seen || historicalTextGuard
     ? <TextGuardBar data={textguardView?.data ?? null} open={textguardView?.open ?? false} busy={textguardView?.busy ?? false} running={snapshot.projection.running} error={textguardView?.error ?? null} historical={historicalTextGuard} onToggle={() => {
-        if (!textguardKey || historicalTextGuard) return;
+        if (historicalTextGuard) { void requestTextGuardReview(); return; }
+        if (!textguardKey) return;
         if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
         updateTextGuard(textguardKey, { open: !textguardView.open });
       }} onStop={() => void connection.current?.abort()} onAction={(action, item, extra) => void runTextGuard(action, item, extra)} />

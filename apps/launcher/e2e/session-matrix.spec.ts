@@ -145,14 +145,16 @@ test("matrix: refresh during a session view does not create a second load", asyn
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
 });
 
-test("matrix: historical TextGuard without a saved review is visible but not actionable", async ({ page }) => {
+test("matrix: historical TextGuard without a saved review can retry against the runtime", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S7\b/ }).click();
   const bar = page.getByRole("region", { name: "TextGuard" });
   await expect(bar).toContainText("TextGuard withheld content in this session");
   await expect(bar).toContainText("review cannot be reopened");
-  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await expect(bar.getByRole("button", { name: "Review", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  await bar.getByRole("button", { name: "Review", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
 });
 
 test("matrix: persisted TextGuard review is real, scoped, and does not attach", async ({ page }) => {

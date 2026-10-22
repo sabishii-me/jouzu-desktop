@@ -104,7 +104,7 @@ export function TextGuardBar({ data, open, busy, running, error, historical = fa
       <ShieldAlert className="size-4 shrink-0" style={{ color: accent.icon }} />
       <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{label}</p><p className="truncate text-[11px] text-muted-foreground">{subtitle}</p></div>
       {running && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
-      {!historical && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>}
+      <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>
     </div>
     {open && data && <div className="max-h-[38vh] overflow-y-auto border-t border-amber-500/20 px-3 py-2">
       {error && <p role="status" className="mb-2 text-xs text-destructive">{error}</p>}
