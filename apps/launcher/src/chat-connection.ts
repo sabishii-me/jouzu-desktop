@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emptyProjection, historyProjection, object, projectEvent, type ChatProjection, type WireObject } from "./chat-projection";
+import { emptyProjection, historyProjection, interruptUnfinishedTools, object, projectEvent, type ChatProjection, type WireObject } from "./chat-projection";
 
 export interface ChatImage { type: "image"; data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }
 export interface ChatModel { provider: string; id: string; name: string }
@@ -164,12 +164,13 @@ export class ChatConnection {
     if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
     const projection = historyProjection(history.messages);
     projection.running = state.isStreaming;
+    const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
     const detail = object(state.model) ? state.model : undefined;
     const model = detail && typeof detail.name === "string" && detail.name !== "unknown" ? detail.name : undefined;
     const modelProvider = detail && typeof detail.provider === "string" && detail.provider !== "unknown" ? detail.provider : undefined;
     const modelId = detail && typeof detail.id === "string" && detail.id !== "unknown" ? detail.id : undefined;
     this.update({
-      projection,
+      projection: reconciled,
       sessionId: state.sessionId,
       sessionFile: typeof state.sessionFile === "string" ? state.sessionFile : undefined,
       model,
@@ -248,7 +249,8 @@ export class ChatConnection {
     finally { this.update({ pending: false }); }
   }
   previewSession(messages: unknown) {
-    this.update({ projection: historyProjection(messages), error: null });
+    const projection = historyProjection(messages);
+    this.update({ projection: interruptUnfinishedTools(projection), error: null });
   }
   async sendOrSteer(message: string, images: readonly ChatImage[], running: boolean) {
     if (this.snapshot.pending) throw new Error("Wait for the current request to be accepted.");

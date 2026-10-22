@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyProjection, historyProjection, projectEvent } from "./chat-projection";
+import { emptyProjection, historyProjection, interruptUnfinishedTools, projectEvent } from "./chat-projection";
 
 describe("released runtime event projection", () => {
   it("resets populated start blocks before applying released wire deltas", () => {
@@ -13,6 +13,18 @@ describe("released runtime event projection", () => {
     state = projectEvent(state, { type: "agent_end", willRetry: false });
     expect(state.running).toBe(true);
     expect(projectEvent(state, { type: "agent_settled" }).running).toBe(false);
+  });
+  it("marks a tool call without a result interrupted after settlement", () => {
+    const history = historyProjection([{
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "sleep 600" } }],
+      stopReason: "toolUse",
+    }]);
+    expect(history.tools["call-1"].phase).toBe("running");
+    expect(interruptUnfinishedTools({ ...history, running: true }).tools["call-1"].phase).toBe("running");
+    const settled = interruptUnfinishedTools({ ...history, running: false });
+    expect(settled.tools["call-1"]).toMatchObject({ phase: "error", interrupted: true });
+    expect(settled.tools["call-1"].result).toMatchObject({ content: [{ type: "text" }] });
   });
   it("streams thinking deltas into the visible active message", () => {
     let state = projectEvent(emptyProjection(), { type: "agent_start" });
@@ -68,7 +80,8 @@ describe("released runtime event projection", () => {
     expect(state.tools.t1).toMatchObject({ name: "TaskCreateMany", phase: "complete", args: { tasks: [{ subject: "A" }] } });
     expect(state.tools.t1.result).toEqual({ content: [{ type: "text", text: "Created 1 task:\n  #1 A" }] });
   });
-  it("correlates tool lifecycle without promoting partial output to completion", () => {    let state = projectEvent(emptyProjection(), { type: "tool_execution_start", toolCallId: "a", toolName: "read", args: { path: "file" } });
+  it("correlates tool lifecycle without promoting partial output to completion", () => {    let state = projectEvent(emptyProjection(), { type: "agent_start" });
+    state = projectEvent(state, { type: "tool_execution_start", toolCallId: "a", toolName: "read", args: { path: "file" } });
     state = projectEvent(state, { type: "tool_execution_update", toolCallId: "a", toolName: "read", partialResult: { content: [] } });
     expect(state.tools.a.phase).toBe("running");
     state = projectEvent(state, { type: "tool_execution_end", toolCallId: "a", toolName: "read", result: { content: [{ type: "text", text: "done" }] }, isError: true });
@@ -76,10 +89,14 @@ describe("released runtime event projection", () => {
     expect(state.tools.a.args).toEqual({ path: "file" });
   });
   it("recovers a tool update whose start was emitted before a resumed history", () => {
-    let state = projectEvent(emptyProjection(), { type: "tool_execution_update", toolCallId: "late", toolName: "bash", partialResult: { content: [] } });
+    let state = projectEvent({ ...emptyProjection(), running: true }, { type: "tool_execution_update", toolCallId: "late", toolName: "bash", partialResult: { content: [] } });
     expect(state.tools.late).toMatchObject({ name: "bash", phase: "running" });
     state = projectEvent(state, { type: "tool_execution_end", toolCallId: "late", toolName: "bash", result: { content: [{ type: "text", text: "done" }] }, isError: false });
     expect(state.tools.late).toMatchObject({ phase: "complete", result: { content: [{ type: "text", text: "done" }] } });
+  });
+  it("marks a tool event received after the agent settled as interrupted", () => {
+    const state = projectEvent(emptyProjection(), { type: "tool_execution_start", toolCallId: "stale", toolName: "bash", args: { command: "sleep 600" } });
+    expect(state.tools.stale).toMatchObject({ phase: "error", interrupted: true });
   });
   it("retains unknown event names without inferring outcomes", () => {
     const state = projectEvent({ ...emptyProjection(), running: true }, { type: "future_event", text: "completed successfully" });

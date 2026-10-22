@@ -3,7 +3,7 @@
 export type WireObject = Record<string, unknown>;
 export interface ChatBlock { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
 export interface ChatMessage { role: string; content: ChatBlock[]; timestamp?: number; endedAt?: number; stopReason?: string; errorMessage?: string; toolCallId?: string; toolName?: string; isError?: boolean; provider?: string; model?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number; totalTokens?: number } }
-export interface ToolView { id: string; name: string; args: unknown; phase: "running" | "complete" | "error"; result?: unknown }
+export interface ToolView { id: string; name: string; args: unknown; phase: "running" | "complete" | "error"; result?: unknown; interrupted?: boolean }
 export interface FlowReportRecord { kind: string; text: string; timestamp?: number }
 export interface ChatProjection {
   messages: ChatMessage[];
@@ -47,15 +47,34 @@ export function historyProjection(messages: unknown): ChatProjection {
   }
   return { ...emptyProjection(), messages: parsed, tools };
 }
+export function interruptUnfinishedTools(state: ChatProjection): ChatProjection {
+  if (state.running) return state;
+  let changed = false;
+  const tools = Object.fromEntries(Object.entries(state.tools).map(([id, tool]) => {
+    if (tool.phase !== "running") return [id, tool];
+    changed = true;
+    return [id, {
+      ...tool,
+      phase: "error" as const,
+      interrupted: true,
+      result: { content: [{ type: "text", text: "Interrupted: the runtime has no result for this tool call." }] },
+    }];
+  }));
+  return changed ? { ...state, tools } : state;
+}
 function compatibility(state: ChatProjection, type: string): ChatProjection {
   return { ...state, compatibility: [...new Set([...state.compatibility, type])].slice(-32) };
 }
 const passiveEvents = new Set(["turn_start", "turn_end", "agent_end", "queue_update", "entry_appended", "session_info_changed", "thinking_level_changed", "compaction_start", "compaction_end", "auto_retry_start", "auto_retry_end", "summarization_retry_scheduled", "summarization_retry_attempt_start", "summarization_retry_finished"]);
 export function projectEvent(state: ChatProjection, event: WireObject): ChatProjection {
+  const next = projectEventInner(state, event);
+  return next.running ? next : interruptUnfinishedTools(next);
+}
+function projectEventInner(state: ChatProjection, event: WireObject): ChatProjection {
   const type = event.type;
   if (typeof type !== "string") throw new Error("Runtime event has no type");
   if (type === "agent_start") return { ...state, running: true, turnStartedAt: state.turnStartedAt ?? Date.now() };
-  if (type === "agent_settled") return { ...state, running: false, turnStartedAt: undefined };
+  if (type === "agent_settled") return interruptUnfinishedTools({ ...state, running: false, turnStartedAt: undefined });
   if (type === "message_start") {
     const message = parseMessage(event.message);
     return { ...state, messages: [...state.messages, { ...message, timestamp: message.timestamp ?? Date.now() }], activeMessage: state.messages.length };
