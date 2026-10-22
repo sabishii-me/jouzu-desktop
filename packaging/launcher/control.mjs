@@ -104,16 +104,6 @@ try {
     if (!runtime.getModel(request.provider, request.model)) throw new Error('Unknown model');
     settings.setDefaultModelAndProvider(request.provider, request.model);
     await settings.flush();
-  } else if (request.action === 'agent-roles') {
-    const { AgentRoleStore } = await load('subagents/roles');
-    const snapshot = new AgentRoleStore(paths).load();
-    console.log(JSON.stringify({
-      roles: snapshot.config.roles,
-      maxConcurrent: snapshot.config.maxConcurrent,
-      workspaceWriters: snapshot.config.workspaceWriters,
-      revision: snapshot.revision,
-    }));
-    process.exit(0);
   } else if (request.action !== 'status') throw new Error('Unsupported operation');
   if (request.action === "custom-provider") await runtime.refresh({ allowNetwork: false });
   const { ModelConfig } = await pi('model-config');
@@ -141,7 +131,6 @@ try {
     'shisa-login': 'Shisa.AI sign-in did not complete. Refresh its state before retrying.',
     'refresh-catalogs': 'Models could not be refreshed. Sign in to Shisa.AI again or add a provider key.',
     'shisa-logout': 'Shisa.AI sign-out could not be fully confirmed. Refresh its state and check the Shisa.AI dashboard.',
-    'agent-roles': 'Could not read the agent roles. Refresh and retry.',
   };
   console.log(JSON.stringify({ error: messages[action] ?? 'Unsupported configuration operation.' }));
   process.exitCode = 1;
