@@ -55,7 +55,7 @@ export function AgentsView({ sessionModel }: { sessionModel?: string }) {
       <div className="mb-4 flex items-center gap-2">
         <Bot className="size-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Agents</h2>
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">global config · read only</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">read only</span>
         <Button variant="ghost" className="ml-auto size-7 p-0" aria-label="Refresh agents" title="Refresh agents" disabled={loading} onClick={() => void load()}><RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /></Button>
       </div>
       {loading && !data && <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading agents…</div>}
