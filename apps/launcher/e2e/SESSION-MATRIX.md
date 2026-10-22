@@ -96,6 +96,24 @@ Implement the matrix in this order:
 5. Keep the old `session-switch.spec.ts` only for the send-time switch path.
 6. Record failures as a regression table in this document before fixing them.
 
+## Last sampled metrics
+
+Controlled Playwright fixture, 6 samples per shape and 10 alternating switches. Values are
+in-page `performance.now()` milliseconds; driver overhead is excluded.
+
+| Case | Samples | Selection | Content median | Content p95 | Settled | Blank frames | Stale frames | Scroll gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| short | 6 | 0 | 28.2 | 28.5 | 111.4 | 0 | 2 | 0 |
+| textguard | 6 | 0 | 28.6 | 28.7 | 112.0 | 0 | 2 | 0 |
+| long-160 | 6 | 0 | 28.8 | 28.9 | 112.2 | 0 | 2 | 0 |
+| empty | 6 | 0 | 11.8 | 12.3 | 95.1 | 0 | 1 | 0 |
+| alternating | 10 | 0 | 28.6 | 28.8 | 111.8 | 0 | 2 | 0 |
+
+`switchCalls` for all samples: 0. `Settled` includes an 80ms quiet-window guard.
+Raw output: `test-results/session-metrics.json`.
+
+These are fixture numbers; real disk and real runtime attach must be sampled separately.
+
 ## Regression log
 
 | Regression | Status | Guard |
