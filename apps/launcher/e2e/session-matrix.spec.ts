@@ -22,6 +22,11 @@ function history(index: number) {
   ];
   if (index === 5) return [{ role: "user", content: [{ type: "text", text: "failed question" }] }, { role: "assistant", content: [], errorMessage: "fixture failure", stopReason: "error" }];
   if (index === 6) return [{ role: "user", content: [{ type: "text", text: "tool question" }] }, { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "README.md" } }], stopReason: "toolUse" }];
+  if (index === 7) return [
+    { role: "user", content: [{ type: "text", text: "historical TextGuard question" }] },
+    { role: "assistant", content: [{ type: "toolCall", id: "tool-2", name: "read", arguments: { path: "SKILL.md" } }], stopReason: "toolUse" },
+    { role: "toolResult", toolCallId: "tool-2", toolName: "read", isError: true, content: [{ type: "text", text: "TextGuard withheld this result from the model: 1 error-level finding." }] },
+  ];
   return [{ role: "user", content: [{ type: "text", text: `session ${index} question` }] }, { role: "assistant", content: [{ type: "text", text: `session ${index} answer` }], stopReason: "endTurn" }];
 }
 
@@ -104,12 +109,12 @@ test("matrix: every session shape opens without attaching the runtime", async ({
 test("matrix: rapid and repeated switching keeps one final transcript", async ({ page }) => {
   await setup(page);
   const marks: number[] = [];
-  for (const index of [1, 7, 8, 9, 10, 11, 1, 7, 1, 7]) {
+  for (const index of [1, 7, 8, 9, 10, 11, 1, 8, 1, 8]) {
     await page.getByRole("button", { name: new RegExp(`^S${index}\\b`) }).click();
     await page.waitForTimeout(40);
     marks.push(await page.getByRole("article").count());
   }
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 7 answer");
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 8 answer");
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
   expect(marks.every(count => count > 0)).toBe(true);
 });
@@ -131,12 +136,22 @@ test("matrix: long transcripts open at the newest turn and stay bounded", async 
 
 test("matrix: refresh during a session view does not create a second load", async ({ page }) => {
   await setup(page);
-  await page.getByRole("button", { name: /^S7\b/ }).click();
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 7 answer");
+  await page.getByRole("button", { name: /^S8\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 8 answer");
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("Message Jouzu")).toBeVisible();
+  await page.getByRole("button", { name: /^S8\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 8 answer");
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+});
+
+test("matrix: historical TextGuard without a saved review is visible but not actionable", async ({ page }) => {
+  await setup(page);
   await page.getByRole("button", { name: /^S7\b/ }).click();
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("session 7 answer");
+  const bar = page.getByRole("region", { name: "TextGuard" });
+  await expect(bar).toContainText("TextGuard withheld content in this session");
+  await expect(bar).toContainText("review cannot be reopened");
+  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
 });
 

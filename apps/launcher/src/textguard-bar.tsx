@@ -63,12 +63,13 @@ export function readableTextGuardSnapshot(body: string | undefined): string {
 }
 
 /** Sits directly above the composer; it never opens a dialog. */
-export function TextGuardBar({ data, open, busy, running, error, onToggle, onStop, onAction }: {
+export function TextGuardBar({ data, open, busy, running, error, historical = false, onToggle, onStop, onAction }: {
   data: TextGuardData | null;
   open: boolean;
   busy: boolean;
   running: boolean;
   error: string | null;
+  historical?: boolean;
   onToggle: () => void;
   onStop: () => void;
   onAction: (action: "approve" | "dismiss" | "mode", item: TextGuardItem | null, extra?: Record<string, unknown>) => void;
@@ -88,18 +89,22 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
       : items.length
         ? `TextGuard has ${items.length} finding${items.length === 1 ? "" : "s"} to review`
         : "TextGuard completed for this session"
-    : "TextGuard withheld content from the model";
-  const subtitle = !data
-    ? "Click Review to inspect the current session."
-    : items.length === 0
-      ? "No items are waiting for a decision. You can still change the scanning mode."
-      : "The content was not injected into the model. Review it before retrying.";
+    : historical
+      ? "TextGuard withheld content in this session"
+      : "TextGuard withheld content from the model";
+  const subtitle = historical
+    ? "The review was not saved by an older runtime. The transcript is intact, but the review cannot be reopened."
+    : !data
+      ? "Click Review to inspect the current session."
+      : items.length === 0
+        ? "No items are waiting for a decision. You can still change the scanning mode."
+        : "The content was not injected into the model. Review it before retrying.";
   return <section aria-label="TextGuard" aria-live="polite" className="mb-2 w-full rounded-xl border" style={{ borderColor: accent.border, backgroundColor: accent.background }}>
     <div className="flex items-center gap-2 px-3 py-2">
       <ShieldAlert className="size-4 shrink-0" style={{ color: accent.icon }} />
       <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{label}</p><p className="truncate text-[11px] text-muted-foreground">{subtitle}</p></div>
       {running && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
-      <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>
+      {!historical && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>}
     </div>
     {open && data && <div className="max-h-[38vh] overflow-y-auto border-t border-amber-500/20 px-3 py-2">
       {error && <p role="status" className="mb-2 text-xs text-destructive">{error}</p>}
