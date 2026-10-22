@@ -66,6 +66,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLDivElement | null>(null);
   const switchingRef = useRef(false);
+  const switchingTarget = useRef<string | "new" | null>(null);
   const switchPromise = useRef<Promise<void> | null>(null);
   const [preview, setPreview] = useState<{ path: string; projection: ChatProjection } | null>(null);
   const previewRef = useRef<{ path: string; projection: ChatProjection } | null>(null);
@@ -427,6 +428,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       return;
     }
     switchingRef.current = true;
+    switchingTarget.current = target;
     setSwitching(true);
     setSessionError(null);
     if (target === "new") {
@@ -451,6 +453,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const loaded = client.snapshot.sessionFile ?? target;
       // A click that arrived while this switch was running owns the selection.
       if (!queuedSwitch.current && normalizedPath(loaded) !== normalizedPath(selectedSessionRef.current ?? "")) setSelectedSession(loaded);
+      // The same row was clicked again while loading: that is already this load.
+      if (queuedSwitch.current && normalizedPath(queuedSwitch.current) === normalizedPath(loaded)) queuedSwitch.current = null;
       if (queuedSwitch.current !== "new") setHero(false);
       onStartSession?.();
       setDiskReports([]); setReportsSession(loaded); setTiming(undefined);
@@ -480,6 +484,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       setNotification(message);
     } finally {
       switchingRef.current = false;
+      switchingTarget.current = null;
       setSwitching(false);
       onStartSession?.();
     }
@@ -548,6 +553,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSelectedSession(sessionPath);
     setHero(false);
     loadPreview(sessionPath);
+    if (switchingRef.current && normalizedPath(switchingTarget.current ?? "") === normalizedPath(sessionPath)) {
+      queuedSwitch.current = null;
+      return;
+    }
     queuedSwitch.current = sessionPath;
     if (switchingRef.current || !client.snapshot.connected || client.snapshot.pending) return;
     queuedSwitch.current = null;
@@ -574,6 +583,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (switching || !snapshot.connected || snapshot.pending || !queuedSwitch.current) return;
     const target = queuedSwitch.current;
     queuedSwitch.current = null;
+    if (target !== "new" && normalizedPath(target) === normalizedPath(connection.current?.snapshot.sessionFile ?? "")) {
+      setSelectedSession(target);
+      setPreview(null);
+      return;
+    }
     startSwitch(target);
   }, [switching, snapshot.connected, snapshot.pending]);
   async function compactConversation() {
@@ -736,7 +750,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2 className="max-w-60 min-w-0 shrink-0 truncate text-sm font-semibold" title={`${name} · ${path}${snapshot.model ? ` · ${snapshot.model}` : ""}`}>{selectedTitle ?? name}</h2>
           {!snapshot.connected && <span className={`h-7 shrink-0 rounded-md border px-2 text-xs leading-7 ${workspaceError ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}>{workspaceError ? "Offline" : "Starting…"}</span>}
-          {(opening || switching) && !activePreview && snapshot.connected && <span role="status" className="h-7 shrink-0 rounded-md border border-border px-2 text-xs leading-7 text-muted-foreground">Opening…</span>}
           <div className="hidden min-w-0 items-center gap-1.5 md:flex">
             <span className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">Standard mode</span>
             <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
@@ -769,7 +782,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         </div>
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching || (opening && !activePreview)} onFork={prompt => void forkTurn(prompt)} />
+          <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={false} onFork={prompt => void forkTurn(prompt)} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
         {textguardBar && <div className="px-3 sm:px-6"><div className="mx-auto max-w-3xl">{textguardBar}</div></div>}
