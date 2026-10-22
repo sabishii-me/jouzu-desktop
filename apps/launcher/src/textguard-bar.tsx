@@ -82,6 +82,9 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
     ? { border: "rgba(34, 197, 94, 0.72)", background: "rgba(34, 197, 94, 0.10)", icon: "#22c55e" }
     : { border: "rgba(245, 158, 11, 0.72)", background: "rgba(245, 158, 11, 0.11)", icon: "#f59e0b" };
   const mode = textGuardMode(data?.mode);
+  const pending = items.length;
+  const reviewable = !data || pending > 0;
+  const modeButtons = (["on", "strict", "off"] as const).map(value => <Button key={value} variant={mode === value ? "default" : "ghost"} className="h-7 px-2 text-xs" aria-pressed={mode === value} disabled={busy} onClick={() => onAction("mode", null, { mode: value })}>{value === "on" ? "On" : value === "strict" ? "Strict" : "Off"}</Button>);
   const label = data
     ? withheld
       ? `TextGuard withheld ${withheld} item${withheld === 1 ? "" : "s"} from the model`
@@ -98,11 +101,15 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
     <div className="flex items-center gap-2 px-3 py-2">
       <ShieldAlert className="size-4 shrink-0" style={{ color: accent.icon }} />
       <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{label}</p><p className="truncate text-[11px] text-muted-foreground">{subtitle}</p></div>
-      {running && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
-      <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>
+      {running && pending > 0 && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
+      {reviewable && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy && !!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : "Review"}</Button>}
     </div>
+    {data && pending === 0 && <div className="flex items-center gap-1.5 border-t border-border px-3 py-1.5">
+      <span className="mr-auto text-[10px] uppercase tracking-wide text-muted-foreground">Scanning mode</span>
+      {modeButtons}
+    </div>}
     {error && <p role="alert" className="border-t border-amber-500/20 px-3 py-1.5 text-xs text-destructive">{error}</p>}
-    {open && data && <div className="max-h-[38vh] overflow-y-auto border-t border-amber-500/20 px-3 py-2">
+    {open && data && pending > 0 && <div className="max-h-[38vh] overflow-y-auto border-t border-amber-500/20 px-3 py-2">
       {!item ? <>
         <div className="space-y-1.5">{items.map(entry => <div key={entry.id} className="rounded-md border border-border p-2">
           <div className="flex items-center gap-2"><ShieldAlert className={`size-3.5 shrink-0 ${entry.withheld ? "text-destructive" : "text-muted-foreground"}`} /><p className="min-w-0 flex-1 truncate text-xs font-medium" title={entry.source}>{entry.source}</p><span className="text-[10px] uppercase text-muted-foreground">{entry.withheld ? "withheld" : "report"}</span></div>
@@ -111,7 +118,7 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
         </div>)}</div>
         <div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2">
           <span className="mr-auto text-[10px] uppercase tracking-wide text-muted-foreground">Scanning mode</span>
-          {(["on", "strict", "off"] as const).map(value => <Button key={value} variant={mode === value ? "default" : "ghost"} className="h-7 px-2 text-xs" aria-pressed={mode === value} disabled={busy} onClick={() => onAction("mode", null, { mode: value })}>{value === "on" ? "On" : value === "strict" ? "Strict" : "Off"}</Button>)}
+          {modeButtons}
         </div>
       </> : <>
         <div className="mb-2 flex items-center gap-2"><Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => setSelected(null)}>Back</Button><span className="ml-auto text-[10px] uppercase text-muted-foreground">{item.withheld ? "withheld" : "report"}</span></div>

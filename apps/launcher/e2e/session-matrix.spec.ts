@@ -27,6 +27,11 @@ function history(index: number) {
     { role: "assistant", content: [{ type: "toolCall", id: "tool-2", name: "read", arguments: { path: "SKILL.md" } }], stopReason: "toolUse" },
     { role: "toolResult", toolCallId: "tool-2", toolName: "read", isError: true, content: [{ type: "text", text: "TextGuard withheld this result from the model: 1 error-level finding." }] },
   ];
+  if (index === 11) return [
+    { role: "user", content: [{ type: "text", text: "settled TextGuard question" }] },
+    { role: "assistant", content: [{ type: "toolCall", id: "tool-4", name: "read", arguments: { path: "SKILL.md" } }], stopReason: "toolUse" },
+    { role: "toolResult", toolCallId: "tool-4", toolName: "read", isError: true, content: [{ type: "text", text: "TextGuard withheld this result from the model: 1 error-level finding." }] },
+  ];
   return [{ role: "user", content: [{ type: "text", text: `session ${index} question` }] }, { role: "assistant", content: [{ type: "text", text: `session ${index} answer` }], stopReason: "endTurn" }];
 }
 
@@ -181,4 +186,20 @@ test("matrix: TextGuard is visible only for the attached session", async ({ page
   await page.getByRole("button", { name: /^S8\b/ }).click();
   await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
   expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
+});
+
+test("matrix: a settled review leaves no Stop turn or Review", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S11\b/ }).click();
+  const composer = page.getByLabel("Message Jouzu");
+  await composer.fill("continue");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  const bar = page.getByRole("region", { name: "TextGuard" });
+  await expect(bar).toContainText("TextGuard withheld content from the model");
+  await bar.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(bar).toContainText("TextGuard completed for this session");
+  await expect(bar.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
+  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await expect(bar.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
 });
