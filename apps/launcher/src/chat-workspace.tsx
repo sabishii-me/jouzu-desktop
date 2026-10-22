@@ -14,7 +14,11 @@ import { emptyProjection, historyProjection, interruptUnfinishedTools, type Chat
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
+import { parseTextGuardNotice, parseTextGuardResult, TextGuardBar, type TextGuardData, type TextGuardItem } from "./textguard-bar";
 import type { SessionTiming } from "./chat-connection";
+
+type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
+const emptyTextGuardView: TextGuardView = { data: null, seen: false, open: false, busy: false, error: null, loading: false };
 
 interface WorkspaceItem { id: string; path: string }
 interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
@@ -77,6 +81,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const [answer, setAnswer] = useState("");
   const [notification, setNotification] = useState("");
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [textguardBySession, setTextguardBySession] = useState<Record<string, TextGuardView>>({});
+  const textguardRef = useRef(textguardBySession);
+  textguardRef.current = textguardBySession;
+  const textguardInspected = useRef(new Set<string>());
+  const activeSessionIdRef = useRef("");
+  activeSessionIdRef.current = snapshot.sessionId ?? "";
   useEffect(() => {
     if (!notification) return;
     const timer = setTimeout(() => setNotification(""), 3000);
@@ -108,6 +118,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const queuedSwitch = useRef<string | "new" | null>(null);
   function updateDialogs(next: DialogQueue) { queue.current = next; setDialogs(next); }
   function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
+  function updateTextGuard(sessionId: string, change: Partial<TextGuardView>) {
+    setTextguardBySession(current => {
+      const next = { ...current, [sessionId]: { ...(current[sessionId] ?? emptyTextGuardView), ...change } };
+      textguardRef.current = next;
+      return next;
+    });
+  }
   useEffect(() => {
     if (newSession && !previousNewSession.current) void startNewSession();
     previousNewSession.current = newSession;
@@ -140,6 +157,18 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       }
       else if (request.method === "notify") {
         const message = String(request.message ?? "");
+        const textguard = parseTextGuardNotice(message);
+        if (textguard) {
+          const id = textguard.sessionId ?? activeSessionIdRef.current;
+          if (id && id === activeSessionIdRef.current) updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false });
+          return;
+        }
+        const textguardResult = parseTextGuardResult(message);
+        if (textguardResult) {
+          const id = activeSessionIdRef.current;
+          if (id) updateTextGuard(id, { error: textguardResult.ok ? null : textguardResult.error ?? "TextGuard request failed.", loading: false });
+          return;
+        }
         const flow = flowNoticeText(message);
         if (flow) setFlowNotice(flow);
         else setNotification(message);
@@ -350,6 +379,29 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     try { await client.runCommand(command); }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
+  }
+  function inspectTextGuard(sessionId: string) {
+    const client = connection.current;
+    if (!client || !client.snapshot.connected || textguardRef.current[sessionId]?.loading) return;
+    updateTextGuard(sessionId, { loading: true, error: null });
+    void client.runCommand(`/textguard-desktop ${JSON.stringify({ action: "inspect" })}`)
+      .catch(error => updateTextGuard(sessionId, { loading: false, error: String(error).replace(/^Error:\s*/u, "") }));
+  }
+  async function runTextGuard(action: "approve" | "dismiss" | "mode", item: TextGuardItem | null, extra: Record<string, unknown> = {}) {
+    const client = connection.current;
+    const sessionId = activeSessionIdRef.current;
+    if (!client || !sessionId || textguardRef.current[sessionId]?.busy) return;
+    updateTextGuard(sessionId, { busy: true, error: null });
+    try {
+      await client.runCommand(`/textguard-desktop ${JSON.stringify({ action, ...(item ? { id: item.id, ticket: item.ticket } : {}), ...extra })}`);
+      // Approve and mode replies are delivered before the runtime reloads resources.
+      if (action !== "dismiss") await new Promise(resolve => setTimeout(resolve, 300));
+      await client.runCommand(`/textguard-desktop ${JSON.stringify({ action: "inspect" })}`);
+    } catch (error) {
+      updateTextGuard(sessionId, { error: String(error).replace(/^Error:\s*/u, "") });
+    } finally {
+      updateTextGuard(sessionId, { busy: false, loading: false });
+    }
   }
   async function recoverSession(sourcePath?: string): Promise<boolean> {
     const client = connection.current;
@@ -587,6 +639,24 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
   const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
   const flowError = useMemo(() => latestFlowError(snapshot.projection.messages), [snapshot.projection.messages]);
+  const textguardWithheld = useMemo(() => Object.values(snapshot.projection.tools).some(tool => {
+    const result = JSON.stringify(tool.result ?? "");
+    return tool.phase === "error" && (result.includes("TextGuard withheld") || result.includes("TextGuard advisory"));
+  }), [snapshot.projection.tools]);
+  useEffect(() => {
+    const id = snapshot.sessionId;
+    if (!id || !textguardWithheld || switching || hero) return;
+    updateTextGuard(id, { seen: true });
+  }, [textguardWithheld, snapshot.sessionId, switching, hero]);
+  useEffect(() => {
+    const id = snapshot.sessionId;
+    if (!id) return;
+    const view = textguardBySession[id];
+    if (!view?.seen || view.data || view.loading || !snapshot.connected || switching || hero || snapshot.pending || snapshot.projection.running) return;
+    if (textguardInspected.current.has(id)) return;
+    textguardInspected.current.add(id);
+    inspectTextGuard(id);
+  }, [snapshot.sessionId, textguardBySession, snapshot.connected, switching, hero, snapshot.pending, snapshot.projection.running]);
   const workspacePicker = <div ref={picker} className="relative">
     <Button type="button" variant="outline" className="h-8 max-w-64 gap-2 px-2 text-xs" aria-label="Choose workspace" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>
       <FolderOpen className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{name}</span><ChevronDown className="size-3 shrink-0" aria-hidden="true" />
@@ -601,6 +671,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     </div>}
   </div>;
   const workspaceError = snapshot.error;
+  const textguardView = snapshot.sessionId && selectedKey === activeSession ? textguardBySession[snapshot.sessionId] : undefined;
+  const textguardBar = textguardView?.seen
+    ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} onToggle={() => { if (snapshot.sessionId) updateTextGuard(snapshot.sessionId, { open: !textguardView.open }); }} onStop={() => void connection.current?.abort()} onAction={(action, item, extra) => void runTextGuard(action, item, extra)} />
+    : null;
   return <div ref={chatRoot} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
     {sidebar && <aside aria-label="Workspaces" className="absolute inset-y-0 left-0 z-20 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:static md:z-auto md:shadow-none">
@@ -689,6 +763,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <p className="max-w-md text-sm text-muted-foreground">Choose a workspace, then describe the task. Jouzu can explore code, explain it, or make a change.</p>
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
+          {textguardBar}
           <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
@@ -697,6 +772,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching || (opening && !activePreview)} onFork={prompt => void forkTurn(prompt)} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
+        {textguardBar && <div className="px-3 sm:px-6"><div className="mx-auto max-w-3xl">{textguardBar}</div></div>}
         <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}

@@ -362,6 +362,7 @@ pub fn chat_start(
         ("JOUZU_LAUNCHER_BASH", bash.into_os_string()),
         ("JOUZU_NO_UPDATE", "1".into()),
         ("PI_SKIP_VERSION_CHECK", "1".into()),
+        ("JOUZU_TEXTGUARD_DESKTOP", "1".into()),
     ] {
         environment.insert(name.into(), (name.into(), value));
     }
