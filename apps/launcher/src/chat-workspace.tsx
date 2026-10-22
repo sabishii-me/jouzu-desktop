@@ -493,7 +493,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const key = normalizedPath(sessionPath);
     if (projectionCache.current.has(key) || prefetching.current.has(key)) return;
     prefetching.current.add(key);
-    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 30 }).then(messages => {
+    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 60 }).then(messages => {
       try {
         projectionCache.current.set(key, interruptUnfinishedTools(historyProjection(messages)));
         while (projectionCache.current.size > 8) projectionCache.current.delete(projectionCache.current.keys().next().value as string);
@@ -508,7 +508,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       setPreview({ path: sessionPath, projection: cached });
       return;
     }
-    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 30 }).then(messages => {
+    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 60 }).then(messages => {
       if (previewRequest.current !== request) return;
       if (normalizedPath(selectedSessionRef.current ?? "") !== normalizedPath(sessionPath)) return;
       if (normalizedPath(connection.current?.snapshot.sessionFile ?? "") === normalizedPath(sessionPath)) return;
