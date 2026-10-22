@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $deadline = [DateTime]::UtcNow.AddSeconds(30)
-$managed = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Shisa.ai\Jouzu\tools\git' } else { $null }
+$managed = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Shisa.ai\JouzuDesktop\tools\git' } else { $null }
 $bundled = Join-Path $InstallRoot 'runtime\git\installed'
 
 # Returns nothing, or the path and version of a Git for Windows tree that is signed and runs.
