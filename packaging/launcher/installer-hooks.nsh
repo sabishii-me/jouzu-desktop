@@ -1,5 +1,3 @@
-!define JOUZU_HOOK_DIRECTORY "${__FILEDIR__}"
-
 !macro JOUZU_LAUNCHER_ONLY_REPLACE
   InitPluginsDir
   File /oname=$PLUGINSDIR\replace-locked-launcher-files.ps1 "${JOUZU_HOOK_DIRECTORY}\replace-locked-launcher-files.ps1"

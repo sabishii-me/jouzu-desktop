@@ -13,7 +13,7 @@ New-Item -ItemType Directory -Path $Output | Out-Null
 $Output = (Resolve-Path $Output).Path
 $runtime = (Join-Path $Output 'runtime').Replace('\','/')
 New-Item -ItemType Directory -Path "$runtime/git" -Force | Out-Null
-$nodeVersion = '24.19.0'
+$nodeVersion = '24.22.1'
 $archive = "node-v$nodeVersion-win-x64.zip"
 Invoke-WebRequest "https://nodejs.org/dist/v$nodeVersion/SHASUMS256.txt" -OutFile "$Output/node-shasums.txt"
 Invoke-WebRequest "https://nodejs.org/dist/v$nodeVersion/$archive" -OutFile "$Output/$archive"
@@ -22,6 +22,8 @@ if ($record.Count -ne 1) { throw 'Missing Node archive digest' }
 if ((Get-FileHash "$Output/$archive" -Algorithm SHA256).Hash.ToLowerInvariant() -ne ($record[0] -split '\s+')[0]) { throw 'Node archive integrity mismatch' }
 Expand-Archive "$Output/$archive" -DestinationPath $Output
 Move-Item "$Output/node-v$nodeVersion-win-x64" "$runtime/node"
+$bundledNode = & "$runtime/node/node.exe" -p "process.version"
+if ($LASTEXITCODE -ne 0 -or $bundledNode.Trim() -ne "v$nodeVersion") { throw "Bundled Node version mismatch: expected v$nodeVersion, got $bundledNode" }
 Copy-Item $Pnpm "$runtime/pnpm" -Recurse
 $terminalVersion = '1.25.2733.0'
 $terminalArchive = "$runtime/terminal/WindowsTerminal.zip"
