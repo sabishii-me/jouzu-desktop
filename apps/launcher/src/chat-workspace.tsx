@@ -283,7 +283,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       setDraft(current => current === value ? "" : current);
       updateAttachments(removeSubmittedImages(attachmentRef.current, submitted));
       if (wasHero) { setHero(false); onStartSession?.(); }
-    } catch { /* Keep the draft and images available after rejection. */ }
+    } catch (error) {
+      // Keep the draft and images available after rejection, but do not hide why it failed.
+      const message = String(error).replace(/^Error:\s*/u, "");
+      if (connection.current === client && /Flow attachment is closed|Flow session metadata is missing/u.test(message)) {
+        try { if (await recoverSession()) return; } catch (recoveryError) { setNotification(String(recoveryError).replace(/^Error:\s*/u, "")); return; }
+      }
+      if (connection.current === client) setNotification(message);
+    }
   }
   const working = switching || (snapshot.connected && (snapshot.pending || snapshot.projection.running));
   const name = workspaceLabel(path);
@@ -307,6 +314,19 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
     try { await client.runCommand(command); }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
+  }
+  async function recoverSession(sourcePath?: string): Promise<boolean> {
+    const client = connection.current;
+    const source = sourcePath ?? openedSession ?? snapshot.sessionFile;
+    if (!client || !source) return false;
+    const recovered = await invoke<string | null>("chat_session_recover", { sessionPath: source });
+    if (!recovered || recovered === source) return false;
+    setOpenedSession(recovered);
+    await client.resumeSession(recovered);
+    await client.loadModels();
+    void refreshSessions();
+    setNotification("Recovered the session without the interrupted tool call.");
+    return true;
   }
   async function openSession(sessionPath: string) {
     const client = connection.current;
@@ -357,7 +377,15 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       const session = sessions.find(item => normalizedPath(item.path) === normalizedPath(sessionPath));
       if (session) localStorage.setItem("jouzu.chat.workspace", session.workspace);
       void refreshSessions();
-    } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    } catch (error) {
+      if (connection.current !== client) return;
+      const message = String(error).replace(/^Error:\s*/u, "");
+      if (/Flow attachment is closed|Flow session metadata is missing/u.test(message)) {
+        try { if (await recoverSession(sessionPath)) return; }
+        catch (recoveryError) { setNotification(String(recoveryError).replace(/^Error:\s*/u, "")); return; }
+      }
+      setNotification(message);
+    }
     finally { sessionChange.current = false; setSwitching(false); }
   }
   async function forkTurn(prompt: string) {
@@ -460,7 +488,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onNewSess
       <div className="mt-1 border-t border-border pt-1"><Button type="button" variant="ghost" className="w-full justify-start" onClick={() => { setPickerOpen(false); onAddFolder(); }}><Plus className="size-4" />Add folder</Button></div>
     </div>}
   </div>;
-  const workspaceError = !snapshot.connected ? snapshot.error : null;
+  const workspaceError = snapshot.error;
   return <div ref={chatRoot} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
     {sidebar && <aside aria-label="Workspaces" className="absolute inset-y-0 left-0 z-20 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:static md:z-auto md:shadow-none">

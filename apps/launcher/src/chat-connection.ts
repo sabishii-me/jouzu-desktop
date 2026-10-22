@@ -80,14 +80,17 @@ export class ChatConnection {
       this.handle = handle;
       this.update({ transportReady: true });
       this.poll();
+      // Wait for the runtime RPC loop to answer before replacing the session. Sending
+      // new_session before this handshake can close Flow before it has attached.
+      await this.refreshHistory();
       if (fresh) {
         this.replaying = true;
         try {
           const result = await this.request("new_session");
           if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the new session.");
+          await this.refreshHistory();
         } finally { this.replaying = false; }
       }
-      await this.refreshHistory();
       this.update({ connected: true });
       await this.applyPreferredModel();
       void this.loadModels();

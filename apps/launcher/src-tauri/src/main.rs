@@ -573,6 +573,7 @@ fn main() {
             sessions::chat_flow_reports,
             sessions::chat_session_messages,
             sessions::chat_session_timing,
+            sessions::chat_session_recover,
             launcher_state,
             launch_jouzu,
             forget_workspace,

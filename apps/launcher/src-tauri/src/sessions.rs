@@ -119,6 +119,117 @@ pub fn chat_session_timing(session_path: String) -> Result<SessionTiming, String
     Ok(read_session_timing(&path))
 }
 
+/// Create a copy of a session with synthetic interrupted results for every
+/// assistant tool call that has no result. The original file is never changed.
+#[tauri::command]
+pub fn chat_session_recover(session_path: String) -> Result<Option<String>, String> {
+    let path = validated_session_path(&session_path)?;
+    let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
+    let mut entries = Vec::with_capacity(lines.len());
+    for line in &lines {
+        entries.push(serde_json::from_str::<Value>(line).map_err(|_| "Invalid session entry".to_string())?);
+    }
+    let Some(mut repaired) = recover_entries(&entries)? else { return Ok(None); };
+    let directory = path.parent().ok_or("Session directory unavailable")?;
+    let stem = path.file_stem().and_then(|value| value.to_str()).ok_or("Invalid session filename")?;
+    let recovered_prefix = format!("{stem}-recovered-");
+    if let Ok(existing) = fs::read_dir(directory) {
+        for entry in existing.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&recovered_prefix) && name.ends_with(".jsonl") && entry.path().is_file() {
+                return Ok(Some(entry.path().to_string_lossy().into_owned()));
+            }
+        }
+    }
+    let millis = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "Clock unavailable")?.as_millis();
+    let mut destination = directory.join(format!("{stem}-recovered-{millis}.jsonl"));
+    let mut counter = 1;
+    while destination.exists() {
+        destination = directory.join(format!("{stem}-recovered-{millis}-{counter}.jsonl"));
+        counter += 1;
+    }
+    let mut output = String::new();
+    if let Some(header) = repaired.first_mut().and_then(Value::as_object_mut) {
+        header.insert("parentSession".into(), Value::String(path.to_string_lossy().into_owned()));
+    }
+    for entry in repaired {
+        output.push_str(&serde_json::to_string(&entry).map_err(|error| error.to_string())?);
+        output.push('\n');
+    }
+    fs::write(&destination, output).map_err(|error| error.to_string())?;
+    Ok(Some(destination.to_string_lossy().into_owned()))
+}
+
+fn recover_entries(entries: &[Value]) -> Result<Option<Vec<Value>>, String> {
+    let Some(header) = entries.first() else { return Ok(None); };
+    if header.get("type").and_then(Value::as_str) != Some("session") {
+        return Err("Session header is invalid".into());
+    }
+    let mut calls: Vec<(String, String)> = Vec::new();
+    let mut results = std::collections::HashSet::new();
+    for entry in entries {
+        let Some(message) = entry.get("message") else { continue; };
+        match message.get("role").and_then(Value::as_str) {
+            Some("assistant") => {
+                if let Some(content) = message.get("content").and_then(Value::as_array) {
+                    for block in content {
+                        if block.get("type").and_then(Value::as_str) == Some("toolCall") {
+                            if let (Some(id), Some(name)) = (block.get("id").and_then(Value::as_str), block.get("name").and_then(Value::as_str)) {
+                                calls.push((id.to_string(), name.to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+            Some("toolResult") => {
+                if let Some(id) = message.get("toolCallId").and_then(Value::as_str) {
+                    results.insert(id.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    let pending: Vec<&(String, String)> = calls.iter().filter(|(id, _)| !results.contains(id)).collect();
+    if pending.is_empty() { return Ok(None); }
+    let mut repaired = entries.to_vec();
+    let original_id = header.get("id").and_then(Value::as_str).unwrap_or("session");
+    let mut parent = entries.iter().rev().find_map(|entry| entry.get("id").and_then(Value::as_str)).unwrap_or("").to_string();
+    let mut used: std::collections::HashSet<String> = entries.iter().filter_map(|entry| entry.get("id").and_then(Value::as_str).map(str::to_string)).collect();
+    let base = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "Clock unavailable")?.as_millis();
+    for (index, (tool_call_id, tool_name)) in pending.iter().enumerate() {
+        let mut serial = base + index as u128;
+        let mut id = format!("{serial:08x}");
+        while used.contains(&id) { serial += 1; id = format!("{serial:08x}"); }
+        used.insert(id.clone());
+        let timestamp = entries.last().and_then(|entry| entry.get("timestamp")).cloned().unwrap_or(Value::Null);
+        repaired.push(serde_json::json!({
+            "type": "message",
+            "id": id,
+            "parentId": parent,
+            "timestamp": timestamp,
+            "message": {
+                "role": "toolResult",
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+                "content": [{ "type": "text", "text": "Interrupted: this tool call had no result. The recovered copy continued without it." }],
+                "details": {},
+                "isError": true,
+                "durationMs": 0,
+                "timestamp": base as u64
+            }
+        }));
+        parent = id;
+    }
+    let mut new_header = header.clone();
+    if let Some(object) = new_header.as_object_mut() {
+        object.insert("id".into(), Value::String(format!("{original_id}-recovered-{base}")));
+    }
+    repaired[0] = new_header;
+    Ok(Some(repaired))
+}
+
 fn validated_session_path(session_path: &str) -> Result<std::path::PathBuf, String> {
     if session_path.contains('\0') || !Path::new(session_path).is_absolute() {
         return Err("Session path must be absolute".into());
