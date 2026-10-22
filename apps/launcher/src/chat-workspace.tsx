@@ -655,15 +655,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (!id || !textguardWithheld || switching || hero) return;
     updateTextGuard(id, { seen: true });
   }, [textguardWithheld, snapshot.sessionId, switching, hero]);
-  const previewTextGuard = useMemo(() => Object.values(conversationProjection.tools).some(tool => {
-    const result = JSON.stringify(tool.result ?? "");
-    return tool.phase === "error" && (result.includes("TextGuard withheld") || result.includes("TextGuard advisory"));
-  }), [conversationProjection.tools]);
-  const previewTextGuardKey = selectedKey ? `preview:${selectedKey}` : "";
-  useEffect(() => {
-    if (!previewTextGuard || !previewTextGuardKey || textguardRef.current[previewTextGuardKey]) return;
-    updateTextGuard(previewTextGuardKey, { seen: true });
-  }, [previewTextGuard, previewTextGuardKey]);
   const workspacePicker = <div ref={picker} className="relative">
     <Button type="button" variant="outline" className="h-8 max-w-64 gap-2 px-2 text-xs" aria-label="Choose workspace" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>
       <FolderOpen className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{name}</span><ChevronDown className="size-3 shrink-0" aria-hidden="true" />
@@ -678,12 +669,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     </div>}
   </div>;
   const workspaceError = snapshot.error;
-  const textguardKey = snapshot.sessionId && selectedKey === activeSession
-    ? snapshot.sessionId
-    : previewTextGuard ? previewTextGuardKey : "";
-  const textguardView = textguardKey
-    ? textguardBySession[textguardKey] ?? (previewTextGuard ? { ...emptyTextGuardView, seen: true } : undefined)
-    : undefined;
+  const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
+  const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
   const textguardBar = textguardView?.seen
     ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} onToggle={() => {
         if (!textguardView.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
