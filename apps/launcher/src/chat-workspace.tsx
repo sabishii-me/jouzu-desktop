@@ -64,6 +64,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const switchingRef = useRef(false);
   const switchPromise = useRef<Promise<void> | null>(null);
   const [preview, setPreview] = useState<{ path: string; projection: ChatProjection } | null>(null);
+  const previewRef = useRef<{ path: string; projection: ChatProjection } | null>(null);
+  previewRef.current = preview;
   const previewRequest = useRef(0);
   const projectionCache = useRef(new Map<string, ChatProjection>());
   const prefetching = useRef(new Set<string>());
@@ -74,6 +76,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const dialog = dialogs.items[0] ?? null;
   const [answer, setAnswer] = useState("");
   const [notification, setNotification] = useState("");
+  const [sessionError, setSessionError] = useState<string | null>(null);
   useEffect(() => {
     if (!notification) return;
     const timer = setTimeout(() => setNotification(""), 3000);
@@ -114,6 +117,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     switchingRef.current = false;
     previewRequest.current += 1;
     setPreview(null);
+    setSessionError(null);
     setSwitching(false);
     updateDialogs(emptyDialogQueue());
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
@@ -372,6 +376,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     }
     switchingRef.current = true;
     setSwitching(true);
+    setSessionError(null);
     if (target === "new") {
       previewRequest.current += 1;
       setPreview(null);
@@ -398,15 +403,20 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       onStartSession?.();
       setDiskReports([]); setReportsSession(loaded); setTiming(undefined);
       setNotification("");
+      setSessionError(null);
       const session = sessions.find(item => normalizedPath(item.path) === normalizedPath(loaded));
       if (session) localStorage.setItem("jouzu.chat.workspace", session.workspace);
       void refreshSessions();
     } catch (error) {
       if (connection.current !== client) return;
       const message = String(error).replace(/^Error:\s*/u, "");
-      if (/Flow attachment is closed|Flow session metadata is missing/u.test(message)) {
-        try { if (await recoverSession(target === "new" ? undefined : target)) return; }
-        catch (recoveryError) { setNotification(String(recoveryError).replace(/^Error:\s*/u, "")); return; }
+      const readable = previewRef.current && normalizedPath(previewRef.current.path) === normalizedPath(target);
+      if (readable) {
+        // The transcript is already on screen. Never replace a readable session with a blank
+        // view because its runtime attachment failed.
+        setSessionError(message);
+        setNotification("");
+        return;
       }
       if (!queuedSwitch.current) {
         const active = client.snapshot.sessionFile ?? null;
@@ -477,10 +487,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       queuedSwitch.current = null;
       previewRequest.current += 1;
       setPreview(null);
+      setSessionError(null);
       setSelectedSession(sessionPath);
       setHero(false);
       return;
     }
+    setSessionError(null);
     setSelectedSession(sessionPath);
     setHero(false);
     loadPreview(sessionPath);
@@ -666,6 +678,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
       {workspaceError && !notification && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{workspaceError}</span><Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button></div>}
+      {sessionError && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg border border-destructive/30 bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{sessionError} The transcript is still available; this session was not discarded.</span><Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => { if (selectedSession) openSession(selectedSession); }}>Retry</Button></div>}
       {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title}</h3>{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
         <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? dialog.options.map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>}
       {hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
@@ -684,7 +697,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={switching || (opening && !activePreview)} onFork={prompt => void forkTurn(prompt)} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
-        <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
+        <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}
     </section>

@@ -113,6 +113,7 @@ export interface ComposerProps {
   connected: boolean;
   pending: boolean;
   opening?: boolean;
+  unavailable?: boolean;
   running: boolean;
   draft: string;
   onDraft: (value: string) => void;
@@ -134,13 +135,13 @@ export interface ComposerProps {
   thinkingLevels: readonly string[];
   onThinkingLevel: (level: string) => void;
 }
-export function Composer({ hero = false, connected, pending, opening = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const submit = () => { if (connected && !pending && !opening && !readingImages && draft.trim()) onSend(); };
-  const compactDisabled = !connected || pending || opening || running;
-  const exportDisabled = !connected || pending || opening;
+  const submit = () => { if (connected && !pending && !opening && !unavailable && !readingImages && draft.trim()) onSend(); };
+  const compactDisabled = !connected || pending || opening || unavailable || running;
+  const exportDisabled = !connected || pending || opening || unavailable;
   const pasteFiles = (event: ClipboardEvent<HTMLElement>) => {
     if (!onAddImages) return;
     const selected = Array.from(event.clipboardData.files);
@@ -166,10 +167,10 @@ export function Composer({ hero = false, connected, pending, opening = false, ru
           {readingImages && <span role="status" className="text-xs text-muted-foreground">Reading images…</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground sm:inline">{!connected ? "Connecting…" : opening ? "Opening session…" : pending ? "Sending…" : running ? "Enter to steer" : "Enter to send · Shift+Enter for newline"}</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">{!connected ? "Connecting…" : unavailable ? "Session unavailable" : opening ? "Opening session…" : pending ? "Sending…" : running ? "Enter to steer" : "Enter to send · Shift+Enter for newline"}</span>
           <ModelMenu open={modelOpen} onOpenChange={setModelOpen} models={models} model={model} onSelect={onSelectModel} onOpen={onRefreshModels} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} onThinking={onThinkingLevel} />
           {running && <Button type="button" variant="outline" className="h-8 px-2" onClick={onStop}><Square className="size-3.5" />Stop</Button>}
-          <Button type="submit" className="h-8 px-2" disabled={!connected || pending || opening || readingImages || !draft.trim()}><Send className="size-3.5" />{running ? "Steer" : "Send"}</Button>
+          <Button type="submit" className="h-8 px-2" disabled={!connected || pending || opening || unavailable || readingImages || !draft.trim()}><Send className="size-3.5" />{running ? "Steer" : "Send"}</Button>
         </div>
       </div>
     </form>
