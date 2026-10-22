@@ -73,7 +73,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   previewRef.current = preview;
   const previewRequest = useRef(0);
   const projectionCache = useRef(new Map<string, ChatProjection>());
-  const prefetching = useRef(new Set<string>());
   const selectedSessionRef = useRef<string | null>(null);
   selectedSessionRef.current = selectedSession;
   const [dialogs, setDialogs] = useState(emptyDialogQueue);
@@ -85,7 +84,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const [textguardBySession, setTextguardBySession] = useState<Record<string, TextGuardView>>({});
   const textguardRef = useRef(textguardBySession);
   textguardRef.current = textguardBySession;
-  const textguardInspected = useRef(new Set<string>());
   const activeSessionIdRef = useRef("");
   activeSessionIdRef.current = snapshot.sessionId ?? "";
   useEffect(() => {
@@ -498,20 +496,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       onStartSession?.();
     }
   }
-  function prefetchSession(sessionPath: string) {
-    const key = normalizedPath(sessionPath);
-    if (projectionCache.current.has(key) || prefetching.current.has(key)) return;
-    prefetching.current.add(key);
-    void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 200 }).then(messages => {
-      try {
-        projectionCache.current.set(key, interruptUnfinishedTools(historyProjection(messages)));
-        while (projectionCache.current.size > 8) projectionCache.current.delete(projectionCache.current.keys().next().value as string);
-      } catch { /* A malformed preview is ignored; the runtime still owns the transcript. */ }
-    }).catch(() => {}).finally(() => prefetching.current.delete(key));
-  }
   function loadPreview(sessionPath: string) {
     const request = ++previewRequest.current;
-    setPreview(null);
     const cached = projectionCache.current.get(normalizedPath(sessionPath));
     if (cached) {
       setPreview({ path: sessionPath, projection: cached });
@@ -520,7 +506,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     void invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 200 }).then(messages => {
       if (previewRequest.current !== request) return;
       if (normalizedPath(selectedSessionRef.current ?? "") !== normalizedPath(sessionPath)) return;
-      if (normalizedPath(connection.current?.snapshot.sessionFile ?? "") === normalizedPath(sessionPath)) return;
       try { setPreview({ path: sessionPath, projection: interruptUnfinishedTools(historyProjection(messages)) }); }
       catch { /* The runtime's authoritative history still loads below. */ }
     }).catch(() => { /* Opening still completes through the runtime. */ });
@@ -562,14 +547,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSelectedSession(sessionPath);
     setHero(false);
     loadPreview(sessionPath);
-    if (switchingRef.current && normalizedPath(switchingTarget.current ?? "") === normalizedPath(sessionPath)) {
-      queuedSwitch.current = null;
-      return;
-    }
-    queuedSwitch.current = sessionPath;
-    if (switchingRef.current || !client.snapshot.connected || client.snapshot.pending) return;
-    queuedSwitch.current = null;
-    startSwitch(sessionPath);
   }
   async function forkTurn(prompt: string) {
     const client = connection.current;
@@ -652,8 +629,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const activeSession = normalizedPath(snapshot.sessionFile ?? "");
   const selectedKey = normalizedPath(selectedSession ?? snapshot.sessionFile ?? "");
   const selectedTitle = sessions.find(session => normalizedPath(session.path) === selectedKey)?.title;
-  const opening = !hero && !!selectedSession && selectedKey !== activeSession;
   const activePreview = preview && normalizedPath(preview.path) === selectedKey ? preview : null;
+  const opening = !hero && !!selectedSession && selectedKey !== activeSession && !activePreview;
   const conversationProjection = activePreview?.projection ?? snapshot.projection;
   const conversationKey = selectedSession ?? snapshot.sessionId ?? path;
   const hasArchived = sessions.some(session => session.archived);
@@ -671,15 +648,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (!id || !textguardWithheld || switching || hero) return;
     updateTextGuard(id, { seen: true });
   }, [textguardWithheld, snapshot.sessionId, switching, hero]);
-  useEffect(() => {
-    const id = snapshot.sessionId;
-    if (!id) return;
-    const view = textguardBySession[id];
-    if (!view?.seen || view.data || view.loading || !snapshot.connected || switching || hero || snapshot.pending || snapshot.projection.running) return;
-    if (textguardInspected.current.has(id)) return;
-    textguardInspected.current.add(id);
-    inspectTextGuard(id);
-  }, [snapshot.sessionId, textguardBySession, snapshot.connected, switching, hero, snapshot.pending, snapshot.projection.running]);
   const workspacePicker = <div ref={picker} className="relative">
     <Button type="button" variant="outline" className="h-8 max-w-64 gap-2 px-2 text-xs" aria-label="Choose workspace" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>
       <FolderOpen className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{name}</span><ChevronDown className="size-3 shrink-0" aria-hidden="true" />
@@ -725,7 +693,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             </div>
             {open && <div className="ml-4 border-l border-border pl-1.5">
               {group.sessions.map(session => <div key={session.path} ref={node => { if (selectedKey === normalizedPath(session.path)) selectedRowRef.current = node; }} data-session-selected={selectedKey === normalizedPath(session.path) || undefined} className={`group/session relative flex items-center rounded-md text-sm ${selectedKey === normalizedPath(session.path) ? "bg-accent text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
-                <button type="button" onClick={() => void openSession(session.path)} onPointerEnter={() => prefetchSession(session.path)} onFocus={() => prefetchSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
+                <button type="button" onClick={() => void openSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
                   {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span><span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
                 </button>
                 <div className={`relative flex shrink-0 items-center gap-0.5 pr-1 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100 ${sessionMenu === session.path ? "opacity-100" : "opacity-0"}`} data-session-menu>
