@@ -77,6 +77,10 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
   const items = data?.items ?? [];
   const item = selected ? items.find(entry => entry.id === selected) : undefined;
   const withheld = items.filter(entry => entry.withheld).length;
+  const clear = !!data && items.length === 0;
+  const accent = clear
+    ? { border: "rgba(34, 197, 94, 0.72)", background: "rgba(34, 197, 94, 0.10)", icon: "#22c55e" }
+    : { border: "rgba(245, 158, 11, 0.72)", background: "rgba(245, 158, 11, 0.11)", icon: "#f59e0b" };
   const mode = textGuardMode(data?.mode);
   const label = data
     ? withheld
@@ -88,9 +92,9 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
   const subtitle = data && items.length === 0
     ? "No items are waiting for a decision. You can still change the scanning mode."
     : "The content was not injected into the model. Review it before retrying.";
-  return <section aria-label="TextGuard" aria-live="polite" className="mb-2 w-full rounded-xl border" style={{ borderColor: "rgba(245, 158, 11, 0.72)", backgroundColor: "rgba(245, 158, 11, 0.11)" }}>
+  return <section aria-label="TextGuard" aria-live="polite" className="mb-2 w-full rounded-xl border" style={{ borderColor: accent.border, backgroundColor: accent.background }}>
     <div className="flex items-center gap-2 px-3 py-2">
-      <ShieldAlert className="size-4 shrink-0" style={{ color: "#f59e0b" }} />
+      <ShieldAlert className="size-4 shrink-0" style={{ color: accent.icon }} />
       <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{label}</p><p className="truncate text-[11px] text-muted-foreground">{subtitle}</p></div>
       {running && <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.55)" }} onClick={onStop}>Stop turn</Button>}
       <Button variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={!data} onClick={onToggle}>{open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}{open ? "Hide" : items.length ? "Review" : "Options"}</Button>
