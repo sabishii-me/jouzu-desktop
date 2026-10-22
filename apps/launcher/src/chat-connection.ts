@@ -148,7 +148,14 @@ export class ChatConnection {
             this.dialog(record);
           }
         }
-        else if (record.type === "extension_error") this.update({ error: typeof record.error === "string" ? record.error : "A runtime extension failed." });
+        else if (record.type === "extension_error") {
+        const error = typeof record.error === "string" ? record.error : "A runtime extension failed.";
+        // A replaced session can leave one extension holding its previous context. That
+        // lifecycle race cannot change the transcript or the current session, so do not
+        // surface it as a workspace failure and ask the user to retry a completed switch.
+        if (/extension ctx is stale/iu.test(error)) return;
+        this.update({ error });
+      }
         else this.update({ projection: projectEvent(this.snapshot.projection, record) });
       }
       if (batch.closed) throw new Error(batch.error || "Runtime disconnected. The outcome may be incomplete; no work was replayed.");
