@@ -43,6 +43,7 @@ async function setup(page: Page) {
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
     w.switchCalls = [];
     w.promptCalls = [];
+    w.forkCalls = [];
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const sessions = ids.map((id: string, index: number) => ({ path: paths[index], title: `S${index}`, workspace: "C:/Projects/Matrix", updated: 100 - index, pinned: false, archived: false }));
     let current = "";
@@ -84,6 +85,13 @@ async function setup(page: Page) {
             }
             response(request);
           }
+          else if (request.type === "get_fork_messages") {
+            const messages = (histories[sessionFile()] ?? [])
+              .filter(item => item.role === "user")
+              .map((item, index) => ({ entryId: `${sessionFile()}#${index}`, text: item.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n").trim() }));
+            response(request, { messages });
+          }
+          else if (request.type === "fork") { w.forkCalls.push(request.entryId); response(request, { cancelled: false }); }
           else response(request);
           return;
         }
@@ -202,4 +210,29 @@ test("matrix: a settled review leaves no Stop turn or Review", async ({ page }) 
   await expect(bar.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
   await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
   await expect(bar.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
+});
+
+test("matrix: fork from a preview attaches once before forking", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  await page.getByRole("button", { name: "Branch into a new conversation" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
+  await expect(page.getByText("Branched into a new conversation.")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).forkCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl#0"]);
+});
+
+test("matrix: fork on the attached session adds no second switch", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  const composer = page.getByLabel("Message Jouzu");
+  await composer.fill("continue");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  await page.getByRole("button", { name: "Branch into a new conversation" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(1);
 });

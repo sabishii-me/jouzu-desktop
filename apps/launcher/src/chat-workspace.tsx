@@ -565,9 +565,24 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const client = connection.current;
     if (!client || !prompt.trim()) return;
     if (switchingRef.current || snapshot.pending || !snapshot.connected) { setNotification("Wait for the session to finish loading."); return; }
+    // Fork is an explicit action on the selected session: attach it first, the same
+    // way Review does, so the runtime looks up this session's turn and not another.
+    const target = selectedSessionRef.current;
+    const attach = !!target && normalizedPath(target) !== normalizedPath(client.snapshot.sessionFile ?? "");
+    if (attach) startSwitch(target);
     switchingRef.current = true;
     setSwitching(true);
     try {
+      if (attach) {
+        await switchPromise.current;
+        if (connection.current !== client || normalizedPath(target ?? "") !== normalizedPath(client.snapshot.sessionFile ?? "")) {
+          setNotification("Could not attach this session for forking.");
+          return;
+        }
+        // switchSession's finally clears the guard; keep fork single-flight while it runs.
+        switchingRef.current = true;
+        setSwitching(true);
+      }
       const messages = await client.getForkMessages();
       const match = [...messages].reverse().find(item => item.text.trim() === prompt.trim());
       if (!match) throw new Error("Could not identify the turn to fork.");
