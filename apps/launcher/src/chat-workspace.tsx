@@ -380,8 +380,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const client = connection.current;
     if (!client || commandBusy) return;
     setCommandBusy(true);
-    try { await client.reloadSession(); setNotification("Session reloaded."); }
-    catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    try {
+      if (!await attachSelectedSession(client)) { setNotification("Could not attach this session for reloading."); return; }
+      await client.reloadSession();
+      setNotification("Session reloaded.");
+    } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
   }
   async function runExtensionCommand(command: string) {
@@ -542,6 +545,20 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     }
     return normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "");
   }
+  /**
+   * Attach the selected session before a runtime action that has no session target.
+   * Callers own their busy guard so two clicks cannot race into two switches.
+   */
+  async function attachSelectedSession(client: ChatConnection): Promise<boolean> {
+    const target = selectedSessionRef.current;
+    if (!target) return true;
+    if (normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "")) return true;
+    if (switchingRef.current) return false;
+    startSwitch(target);
+    await switchPromise.current;
+    if (connection.current !== client) return false;
+    return normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "");
+  }
   /** A click only records intent. The runtime load is always the single path below. */
   function openSession(sessionPath: string) {
     const client = connection.current;
@@ -606,21 +623,27 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   }, [switching, snapshot.connected, snapshot.pending]);
   async function compactConversation() {
     const client = connection.current;
-    if (!client) return;
+    if (!client || commandBusy) return;
+    setCommandBusy(true);
     try {
+      if (!await attachSelectedSession(client)) { setNotification("Could not attach this session for compacting."); return; }
       await client.compact();
       if (connection.current === client) setNotification("Earlier conversation compacted.");
     } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    finally { setCommandBusy(false); }
   }
   async function exportConversation() {
     const client = connection.current;
-    if (!client || !snapshot.connected) return;
+    if (!client || !snapshot.connected || commandBusy) return;
     const selected = await save({ title: "Export conversation", defaultPath: `${name}-conversation.html`, filters: [{ name: "HTML", extensions: ["html"] }] });
     if (typeof selected !== "string" || connection.current !== client) return;
+    setCommandBusy(true);
     try {
+      if (!await attachSelectedSession(client)) { setNotification("Could not attach this session for export."); return; }
       await client.exportHtml(selected);
       if (connection.current === client) setNotification(`Conversation exported to ${selected}`);
     } catch (error) { if (connection.current === client) setNotification(String(error)); }
+    finally { setCommandBusy(false); }
   }
   async function switchWorkspace(next: string) {
     if (next === path) { setPickerOpen(false); return; }

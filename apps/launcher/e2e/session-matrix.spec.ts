@@ -44,6 +44,8 @@ async function setup(page: Page) {
     w.switchCalls = [];
     w.promptCalls = [];
     w.forkCalls = [];
+    w.compactCalls = [];
+    w.exportCalls = [];
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const sessions = ids.map((id: string, index: number) => ({ path: paths[index], title: `S${index}`, workspace: "C:/Projects/Matrix", updated: 100 - index, pinned: false, archived: false }));
     let current = "";
@@ -66,6 +68,7 @@ async function setup(page: Page) {
         if (command === "chat_flow_reports") return [];
         if (command === "chat_session_timing") return { modelMs: 1, toolMs: 1, turns: 1, steps: 1, outputTokens: 1 };
         if (command === "environment_read") return [];
+        if (command === "plugin:dialog|save") return "C:/tmp/export.html";
         if (command === "chat_start") return "matrix-test";
         if (command === "chat_poll") return { records: records.splice(0), closed: false };
         if (command === "chat_send") {
@@ -92,6 +95,8 @@ async function setup(page: Page) {
             response(request, { messages });
           }
           else if (request.type === "fork") { w.forkCalls.push(request.entryId); response(request, { cancelled: false }); }
+          else if (request.type === "compact") { w.compactCalls.push(current); response(request, {}); }
+          else if (request.type === "export_html") { w.exportCalls.push({ session: current, path: request.outputPath }); response(request, { path: request.outputPath }); }
           else response(request);
           return;
         }
@@ -235,4 +240,44 @@ test("matrix: fork on the attached session adds no second switch", async ({ page
   await page.getByRole("button", { name: "Branch into a new conversation" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
   expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(1);
+});
+
+test("matrix: compact from a preview attaches that session first", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  await page.getByRole("button", { name: "Add files or run commands" }).click();
+  await page.getByRole("menuitem", { name: /Compact/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).compactCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
+  expect(await page.evaluate(() => (window as any).compactCalls))
+    .toEqual(["00000000-0000-4000-8000-000000000002"]);
+});
+
+test("matrix: export from a preview attaches before exporting", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Add files or run commands" }).click();
+  await page.getByRole("menuitem", { name: /Export conversation/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).exportCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
+  expect(await page.evaluate(() => (window as any).exportCalls))
+    .toEqual([{ session: "00000000-0000-4000-8000-000000000002", path: "C:/tmp/export.html" }]);
+});
+
+test("matrix: reload from a preview attaches that session first", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Reload session" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(2);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual([
+      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
+      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
+    ]);
 });
