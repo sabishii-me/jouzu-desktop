@@ -60,8 +60,10 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
-      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwMkRDRUI5QkY5NTk5MEMKUldRTW1aVy91YzR0c015QWNjb21vdVFTMjBpaWJ2TWRkMnFBTElGaEpVelNJVnkyMG14Tm1iM3AK",
+      "endpoints": [
+        "https://github.com/sabishii-me/jouzu-desktop/releases/download/desktop-update/latest.json"
+      ],
       "windows": {
         "installMode": "quiet"
       }

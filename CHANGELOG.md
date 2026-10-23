@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 - 2026-10-23
+
+- Ship the desktop-only installer; the Jouzu runtime is provisioned separately.
+- Update the app from the desktop update feed.
+- Show the TextGuard review prompt above the composer.
+- Add fork, pin and archive session actions.
+- Reconcile interrupted tool calls when a session is reopened.
+
 ## 0.2.1 - 2026-10-21
 
 - Prepare the standalone desktop product.

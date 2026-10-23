@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { desktopFeed, writeDesktopFeed } from './desktop-feed.mjs';
+
+const base = {
+	version: '1.0.1',
+	notes: '- Desktop-only release',
+	pubDate: '2026-10-23T04:00:00Z',
+	repository: 'sabishii-me/jouzu-desktop',
+	assetName: 'JouzuDesktop_1.0.1_x64-setup.exe',
+	signature: '  dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZQo  \n',
+};
+
+test('the feed names the version release asset for the Windows target', () => {
+	const feed = desktopFeed(base);
+	assert.equal(feed.version, '1.0.1');
+	assert.equal(feed.pub_date, '2026-10-23T04:00:00.000Z');
+	assert.deepEqual(feed.platforms, {
+		'windows-x86_64': {
+			signature: 'dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZQo',
+			url: 'https://github.com/sabishii-me/jouzu-desktop/releases/download/v1.0.1/JouzuDesktop_1.0.1_x64-setup.exe',
+		},
+	});
+});
+
+test('an invalid version, repository, asset name, signature or date is refused', () => {
+	const cases = [
+		{ version: '1.0' },
+		{ version: '1.0.1-beta' },
+		{ repository: 'no-slash' },
+		{ repository: 'owner/' },
+		{ assetName: 'Jouzu Desktop_1.0.1_x64-setup.exe' },
+		{ assetName: 'setup.zip' },
+		{ assetName: '' },
+		{ signature: '   ' },
+		{ pubDate: 'not a date' },
+	];
+	for (const overrides of cases) {
+		assert.throws(() => desktopFeed({ ...base, ...overrides }), Error, JSON.stringify(overrides));
+	}
+});
+
+test('the feed file is UTF-8 without a byte order mark', () => {
+	const directory = mkdtempSync(join(tmpdir(), 'desktop-feed-'));
+	const path = join(directory, 'latest.json');
+	writeDesktopFeed(path, desktopFeed(base));
+	const bytes = readFileSync(path);
+	assert.notEqual(bytes.subarray(0, 3).toString('hex'), 'efbbbf');
+	assert.ok(bytes.toString('utf8').endsWith('\n'));
+	assert.equal(JSON.parse(bytes.toString('utf8')).platforms['windows-x86_64'].signature, 'dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZQo');
+});

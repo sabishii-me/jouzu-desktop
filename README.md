@@ -21,8 +21,8 @@ cargo test --locked --bins
 cargo build --locked --release --bins
 ```
 
-The desktop build consumes an already-published runtime artifact. Runtime
-source and runtime release machinery are not part of this repository.
+The desktop release carries the shell only; runtime provisioning and the Jouzu
+runtime release process are not part of this repository.
 
 Planning, task tracking and ADRs live in the private
 `sabishii-me/jouzu-desktop-project` repository.
