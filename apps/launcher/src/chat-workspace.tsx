@@ -620,16 +620,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const messages = await client.getForkMessages();
       const match = [...messages].reverse().find(item => item.text.trim() === prompt.trim());
       if (!match) throw new Error("Could not identify the turn to fork.");
-      const forked = await client.fork(match.entryId);
-      if (forked.cancelled) return;
-      // fork rebinds the runtime to the new branch (everything before this turn);
-      // open it and put the turn text back in the composer, like pi does.
-      const branch = client.snapshot.sessionFile;
+      if (!await client.fork(match.entryId)) return;
+      setSelectedSession(null);
       await refreshSessions();
-      setPreview(null);
-      setSelectedSession(branch ?? null);
-      setHero(!branch);
-      setDraft(forked.text || prompt);
       setNotification("Branched into a new conversation.");
     } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { switchingRef.current = false; setSwitching(false); }

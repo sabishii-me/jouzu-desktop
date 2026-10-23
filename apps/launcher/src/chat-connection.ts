@@ -247,16 +247,15 @@ export class ChatConnection {
     if (!object(result) || !Array.isArray(result.messages)) throw new Error("Runtime returned incompatible fork history.");
     return result.messages.filter((item): item is ForkMessage => object(item) && typeof item.entryId === "string" && typeof item.text === "string");
   }
-  async fork(entryId: string): Promise<{ cancelled: boolean; text: string }> {
+  async fork(entryId: string): Promise<boolean> {
     if (!this.snapshot.connected || this.snapshot.pending || this.snapshot.projection.running) throw new Error("Wait for the current turn to settle before forking.");
     this.replaying = true;
     this.update({ pending: true, error: null });
     try {
       const result = await this.request("fork", { entryId });
       const cancelled = object(result) && result.cancelled === true;
-      const text = object(result) && typeof result.text === "string" ? result.text : "";
       if (!cancelled) await this.refreshHistory();
-      return { cancelled, text };
+      return !cancelled;
     } catch (error) { this.update({ error: String(error) }); throw error; }
     finally {
       this.replaying = false;

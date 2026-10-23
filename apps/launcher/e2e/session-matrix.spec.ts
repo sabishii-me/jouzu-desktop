@@ -100,14 +100,7 @@ async function setup(page: Page) {
               .map((item, index) => ({ entryId: `${sessionFile()}#${index}`, text: item.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n").trim() }));
             response(request, { messages });
           }
-          else if (request.type === "fork") {
-            w.forkCalls.push(request.entryId);
-            const source = sessionFile();
-            const sourceText = (histories[source] ?? []).filter((item: any) => item.role === "user").map((item: any) => item.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n")).at(-1) ?? "";
-            current = "branch-1";
-            histories[sessionFile()] = histories[source] ?? [];
-            response(request, { cancelled: false, text: sourceText });
-          }
+          else if (request.type === "fork") { w.forkCalls.push(request.entryId); response(request, { cancelled: false }); }
           else if (request.type === "compact") { w.compactCalls.push(current); response(request, {}); }
           else if (request.type === "set_model") { w.modelCalls.push({ session: current, provider: request.provider, modelId: request.modelId }); response(request, { name: "Alternate model" }); }
           else if (request.type === "set_thinking_level") { w.thinkingCalls.push({ session: current, level: request.level }); response(request, {}); }
@@ -351,16 +344,4 @@ test("matrix: a flow command from a preview attaches that session first", async 
   expect(await page.evaluate(() => (window as any).switchCalls))
     .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
   expect(await page.evaluate(() => (window as any).promptCalls)).toEqual(["/flow"]);
-});
-
-test("matrix: fork opens the new branch instead of a new session", async ({ page }) => {
-  await setup(page);
-  await page.getByRole("button", { name: /^S1\b/ }).click();
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
-  await page.getByRole("button", { name: "Branch into a new conversation" }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
-  await expect(page.getByText("What would you like to work on?")).toHaveCount(0);
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
-  await expect(page.getByLabel("Message Jouzu")).toHaveValue("short question");
-  await expect(page.getByText("Branched into a new conversation.")).toBeVisible();
 });
