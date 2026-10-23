@@ -63,12 +63,13 @@ export function readableTextGuardSnapshot(body: string | undefined): string {
 }
 
 /** Sits directly above the composer; it never opens a dialog. */
-export function TextGuardBar({ data, open, busy, running, error, onToggle, onStop, onAction }: {
+export function TextGuardBar({ data, open, busy, running, error, historical = false, onToggle, onStop, onAction }: {
   data: TextGuardData | null;
   open: boolean;
   busy: boolean;
   running: boolean;
   error: string | null;
+  historical?: boolean;
   onToggle: () => void;
   onStop: () => void;
   onAction: (action: "approve" | "dismiss" | "mode", item: TextGuardItem | null, extra?: Record<string, unknown>) => void;
@@ -83,7 +84,7 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
     : { border: "rgba(245, 158, 11, 0.72)", background: "rgba(245, 158, 11, 0.11)", icon: "#f59e0b" };
   const mode = textGuardMode(data?.mode);
   const pending = items.length;
-  const reviewable = !data || pending > 0;
+  const reviewable = pending > 0 || (!data && !(historical && error));
   const modeButtons = (["on", "strict", "off"] as const).map(value => <Button key={value} variant={mode === value ? "default" : "ghost"} className="h-7 px-2 text-xs" aria-pressed={mode === value} disabled={busy} onClick={() => onAction("mode", null, { mode: value })}>{value === "on" ? "On" : value === "strict" ? "Strict" : "Off"}</Button>);
   const label = data
     ? withheld
@@ -91,9 +92,15 @@ export function TextGuardBar({ data, open, busy, running, error, onToggle, onSto
       : items.length
         ? `TextGuard has ${items.length} finding${items.length === 1 ? "" : "s"} to review`
         : "TextGuard completed for this session"
-    : "TextGuard withheld content from the model";
+    : historical
+      ? "TextGuard withheld content in this session"
+      : "TextGuard withheld content from the model";
   const subtitle = !data
-    ? "Click Review to inspect the current session."
+    ? historical
+      ? error
+        ? "The transcript is intact, but this review cannot be reopened."
+        : "The transcript shows withheld content. Click Review to inspect this session."
+      : "Click Review to inspect the current session."
     : items.length === 0
       ? "No items are waiting for a decision. You can still change the scanning mode."
       : "The content was not injected into the model. Review it before retrying.";

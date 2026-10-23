@@ -17,8 +17,8 @@ import { SessionStatsBar } from "./session-stats-bar";
 import { parseTextGuardNotice, parseTextGuardResult, TextGuardBar, type TextGuardData, type TextGuardItem } from "./textguard-bar";
 import type { SessionTiming } from "./chat-connection";
 
-type TextGuardView = { data: TextGuardData | null; seen: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
-const emptyTextGuardView: TextGuardView = { data: null, seen: false, open: false, busy: false, error: null, loading: false };
+type TextGuardView = { data: TextGuardData | null; seen: boolean; historical: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
+const emptyTextGuardView: TextGuardView = { data: null, seen: false, historical: false, open: false, busy: false, error: null, loading: false };
 
 interface WorkspaceItem { id: string; path: string }
 interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
@@ -163,7 +163,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         if (textguard) {
           const id = textguard.sessionId ?? activeSessionIdRef.current;
           if (id && id === activeSessionIdRef.current) {
-            updateTextGuard(id, { data: textguard, seen: true, error: null, loading: false });
+            const view = textguardRef.current[id];
+            // A transcript-only event with no live review is historical: an empty
+            // inspect must not turn it into a completed review.
+            if (!textguard.items.length && !view?.data && view?.historical) {
+              updateTextGuard(id, { error: "This review is no longer available in the runtime.", loading: false, seen: true });
+              return;
+            }
+            updateTextGuard(id, { data: textguard, seen: true, historical: false, error: null, loading: false });
           }
           return;
         }
@@ -707,7 +714,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   useEffect(() => {
     const id = snapshot.sessionId;
     if (!id || !textguardWithheld || switching || hero) return;
-    updateTextGuard(id, { seen: true });
+    updateTextGuard(id, { seen: true, historical: !textguardRef.current[id]?.data });
   }, [textguardWithheld, snapshot.sessionId, switching, hero]);
   const workspacePicker = <div ref={picker} className="relative">
     <Button type="button" variant="outline" className="h-8 max-w-64 gap-2 px-2 text-xs" aria-label="Choose workspace" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>
@@ -726,7 +733,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
   const textguardBar = textguardView?.seen
-    ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} onToggle={() => {
+    ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} historical={textguardView.historical} onToggle={() => {
         if (!textguardKey) return;
         if (!textguardView.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
         updateTextGuard(textguardKey, { open: !textguardView.open });

@@ -51,6 +51,7 @@ async function setup(page: Page) {
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const sessions = ids.map((id: string, index: number) => ({ path: paths[index], title: `S${index}`, workspace: "C:/Projects/Matrix", updated: 100 - index, pinned: false, archived: false }));
     let current = "";
+    let approvedLive = false;
     const records: any[] = [];
     const response = (request: any, data?: any) => records.push({ type: "response", id: request.id, command: request.type, success: true, data });
     const sessionFile = () => current ? `C:/sessions/${current}.jsonl` : "C:/sessions/new.jsonl";
@@ -85,9 +86,12 @@ async function setup(page: Page) {
           else if (request.type === "prompt") {
             w.promptCalls.push(request.message);
             if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes("inspect")) {
-              const payload = current === ids[7] ? liveReview : { ...review, sessionId: current || "new", items: [] };
+              const payload = current === ids[7]
+                ? (approvedLive ? { ...liveReview, items: [] } : liveReview)
+                : { ...review, sessionId: current || "new", items: [] };
               records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify(payload)}` });
             }
+            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes('"action":"approve"') && current === ids[7]) approvedLive = true;
             response(request);
           }
           else if (request.type === "get_fork_messages") {
@@ -194,7 +198,7 @@ test("matrix: TextGuard is visible only for the attached session", async ({ page
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
   const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld content from the model");
+  await expect(bar).toContainText("TextGuard withheld content in this session");
   expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
   await bar.getByRole("button", { name: "Review", exact: true }).click();
   await expect(bar).toContainText("TextGuard withheld 1 item");
@@ -205,7 +209,25 @@ test("matrix: TextGuard is visible only for the attached session", async ({ page
   expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
 });
 
-test("matrix: a settled review leaves no Stop turn or Review", async ({ page }) => {
+test("matrix: approving the live review leaves the completed strip", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S7\b/ }).click();
+  const composer = page.getByLabel("Message Jouzu");
+  await composer.fill("continue");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  const bar = page.getByRole("region", { name: "TextGuard" });
+  await bar.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(bar).toContainText("TextGuard withheld 1 item");
+  await bar.getByRole("button", { name: "Review", exact: true }).click();
+  await bar.getByRole("button", { name: "Allow for this session" }).click();
+  await expect(bar).toContainText("TextGuard completed for this session");
+  await expect(bar.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
+  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await expect(bar.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
+});
+
+test("matrix: an expired review stays historical and never claims completion", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S11\b/ }).click();
   const composer = page.getByLabel("Message Jouzu");
@@ -213,12 +235,11 @@ test("matrix: a settled review leaves no Stop turn or Review", async ({ page }) 
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
   const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld content from the model");
+  await expect(bar).toContainText("TextGuard withheld content in this session");
   await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(bar).toContainText("TextGuard completed for this session");
-  await expect(bar.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
+  await expect(bar).toContainText(/no longer available/i);
+  await expect(bar).not.toContainText("TextGuard completed");
   await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
-  await expect(bar.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
 });
 
 test("matrix: fork from a preview attaches once before forking", async ({ page }) => {

@@ -21,14 +21,15 @@ const item: TextGuardItem = {
 const emptyReview: TextGuardData = { ok: true, action: "inspect", sessionId: "session", mode: "on", items: [] };
 const pendingReview: TextGuardData = { ...emptyReview, items: [item] };
 
-function markup(data: TextGuardData | null, running: boolean) {
+function markup(data: TextGuardData | null, running: boolean, extra: { historical?: boolean; error?: string | null } = {}) {
   return renderToStaticMarkup(
     <TextGuardBar
       data={data}
       open={false}
       busy={false}
       running={running}
-      error={null}
+      error={extra.error ?? null}
+      historical={extra.historical}
       onToggle={() => {}}
       onStop={() => {}}
       onAction={() => {}}
@@ -55,5 +56,19 @@ describe("TextGuardBar actions", () => {
     const html = markup(null, true);
     expect(html).toContain(">Review<");
     expect(html).not.toContain("Stop turn");
+  });
+
+  it("labels a transcript-only event historical and never completed", () => {
+    const html = markup(null, false, { historical: true });
+    expect(html).toContain("TextGuard withheld content in this session");
+    expect(html).not.toContain("TextGuard completed");
+    expect(html).toContain(">Review<");
+  });
+
+  it("hides Review once the historical review is known to be unavailable", () => {
+    const html = markup(null, false, { historical: true, error: "This review is no longer available in the runtime." });
+    expect(html).toContain("no longer available");
+    expect(html).not.toContain(">Review<");
+    expect(html).not.toContain("TextGuard completed");
   });
 });
