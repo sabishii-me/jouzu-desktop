@@ -159,6 +159,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       }
       else if (request.method === "notify") {
         const message = String(request.message ?? "");
+        // The runtime already raises a plain-text alert as content is withheld; it carries no
+        // items, so mark the session seen and let the panel's inspect fetch the review.
+        if (/^TextGuard (?:withheld|flagged)\b/u.test(message) || /^TextGuard: \d+ items? waiting for your review/u.test(message)) {
+          const id = activeSessionIdRef.current;
+          if (id) updateTextGuard(id, { seen: true, historical: false, error: null, loading: false });
+          return;
+        }
         const textguard = parseTextGuardNotice(message);
         if (textguard) {
           const id = textguard.sessionId ?? activeSessionIdRef.current;
