@@ -5,7 +5,7 @@ import { resolve, extname, sep } from "node:path";
 test.use({ channel: process.env.JOUZU_UI_TEST_BROWSER });
 
 const workspace = "C:/Projects/Matrix";
-const ids = Array.from({ length: 12 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
+const ids = Array.from({ length: 13 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
 const path = (index: number) => `C:/sessions/${ids[index]}.jsonl`;
 
 function history(index: number) {
@@ -31,6 +31,12 @@ function history(index: number) {
     { role: "user", content: [{ type: "text", text: "settled TextGuard question" }] },
     { role: "assistant", content: [{ type: "toolCall", id: "tool-4", name: "read", arguments: { path: "SKILL.md" } }], stopReason: "toolUse" },
     { role: "toolResult", toolCallId: "tool-4", toolName: "read", isError: true, content: [{ type: "text", text: "TextGuard withheld this result from the model: 1 error-level finding." }] },
+  ];
+  if (index === 12) return [
+    { role: "user", content: [{ type: "text", text: "first question" }] },
+    { role: "assistant", content: [{ type: "text", text: "first answer" }], stopReason: "endTurn" },
+    { role: "user", content: [{ type: "text", text: "second question" }] },
+    { role: "assistant", content: [{ type: "text", text: "second answer" }], stopReason: "endTurn" },
   ];
   return [{ role: "user", content: [{ type: "text", text: `session ${index} question` }] }, { role: "assistant", content: [{ type: "text", text: `session ${index} answer` }], stopReason: "endTurn" }];
 }
@@ -100,7 +106,22 @@ async function setup(page: Page) {
               .map((item, index) => ({ entryId: `${sessionFile()}#${index}`, text: item.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n").trim() }));
             response(request, { messages });
           }
-          else if (request.type === "fork") { w.forkCalls.push(request.entryId); response(request, { cancelled: false }); }
+          else if (request.type === "fork") {
+            w.forkCalls.push(request.entryId);
+            const source = sessionFile();
+            const history = histories[source] ?? [];
+            const ordinal = Number(String(request.entryId).split("#").pop());
+            let users = -1;
+            let cut = history.length;
+            history.forEach((item: any, index: number) => {
+              if (item.role !== "user") return;
+              users += 1;
+              if (users === ordinal && cut === history.length) cut = index;
+            });
+            current = "branch-1";
+            histories[sessionFile()] = history.slice(0, cut);
+            response(request, { cancelled: false });
+          }
           else if (request.type === "compact") { w.compactCalls.push(current); response(request, {}); }
           else if (request.type === "set_model") { w.modelCalls.push({ session: current, provider: request.provider, modelId: request.modelId }); response(request, { name: "Alternate model" }); }
           else if (request.type === "set_thinking_level") { w.thinkingCalls.push({ session: current, level: request.level }); response(request, {}); }
@@ -344,4 +365,27 @@ test("matrix: a flow command from a preview attaches that session first", async 
   expect(await page.evaluate(() => (window as any).switchCalls))
     .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
   expect(await page.evaluate(() => (window as any).promptCalls)).toEqual(["/flow"]);
+});
+
+test("matrix: fork opens the branch at the previous agent turn end", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S12\b/ }).click();
+  await expect(page.getByText("second answer")).toBeVisible();
+  await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
+  await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByText("first answer")).toBeVisible();
+  await expect(page.getByText("second answer")).toHaveCount(0);
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
+});
+
+test("matrix: fork on a single-turn session opens the empty branch", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
+  await expect.poll(() => page.evaluate(() => (window as any).forkCalls.length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "assistant message" })).toHaveCount(0);
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
 });

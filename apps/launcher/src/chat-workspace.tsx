@@ -621,8 +621,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const match = [...messages].reverse().find(item => item.text.trim() === prompt.trim());
       if (!match) throw new Error("Could not identify the turn to fork.");
       if (!await client.fork(match.entryId)) return;
-      setSelectedSession(null);
+      // The runtime forks before the selected user turn; open the branch it created.
+      const branch = client.snapshot.sessionFile;
       await refreshSessions();
+      setPreview(null);
+      setSelectedSession(branch ?? null);
+      setHero(!branch);
       setNotification("Branched into a new conversation.");
     } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { switchingRef.current = false; setSwitching(false); }
