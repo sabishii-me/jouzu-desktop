@@ -595,12 +595,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setHero(false);
     loadPreview(sessionPath);
   }
-  async function forkTurn(prompt: string) {
+  async function forkTurn(prompt: string, messageIndex: number) {
     const client = connection.current;
     if (!client || !prompt.trim()) return;
     if (switchingRef.current || snapshot.pending || !snapshot.connected) { setNotification("Wait for the session to finish loading."); return; }
     // Fork is an explicit action on the selected session: attach it first, the same
-    // way Review does, so the runtime looks up this session's turn and not another.
+    // way Review does, so the branch is copied from the session on screen.
     const target = selectedSessionRef.current;
     const attach = !!target && normalizedPath(target) !== normalizedPath(client.snapshot.sessionFile ?? "");
     if (attach) startSwitch(target);
@@ -617,16 +617,16 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         switchingRef.current = true;
         setSwitching(true);
       }
-      const messages = await client.getForkMessages();
-      const match = [...messages].reverse().find(item => item.text.trim() === prompt.trim());
-      if (!match) throw new Error("Could not identify the turn to fork.");
-      if (!await client.fork(match.entryId)) return;
-      // The runtime forks before the selected user turn; open the branch it created.
-      const branch = client.snapshot.sessionFile;
+      const source = client.snapshot.sessionFile;
+      if (!source) throw new Error("This session has no file to branch yet.");
+      // Copy the session through the clicked message (the turn end) into a new
+      // session, then switch the runtime to it. No runtime fork semantics change.
+      const branch = await invoke<string>("chat_session_branch", { sessionPath: source, messageIndex });
+      await client.resumeSession(branch);
       await refreshSessions();
       setPreview(null);
-      setSelectedSession(branch ?? null);
-      setHero(!branch);
+      setSelectedSession(branch);
+      setHero(false);
       setNotification("Branched into a new conversation.");
     } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { switchingRef.current = false; setSwitching(false); }
@@ -836,7 +836,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         </div>
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={false} onFork={prompt => void forkTurn(prompt)} />
+          <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={false} onFork={(prompt, index) => void forkTurn(prompt, index)} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
         <div className="relative">

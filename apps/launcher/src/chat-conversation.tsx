@@ -36,9 +36,9 @@ function turnUsageAt(messages: ChatMessage[], end: number) {
   }
   return { usage, startedAt: messages[start]?.timestamp };
 }
-function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = false }: { messages: ChatMessage[]; index: number; message: ChatMessage; onFork?: (prompt: string) => void; forkDisabled?: boolean }) {
+function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = false }: { messages: ChatMessage[]; index: number; message: ChatMessage; onFork?: (prompt: string, index: number) => void; forkDisabled?: boolean }) {
   const metrics = turnUsageAt(messages, index);
-  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index)) : undefined} forkDisabled={forkDisabled} />;
+  return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index), index) : undefined} forkDisabled={forkDisabled} />;
 }
 function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const preview = thinking.split(/\r?\n/).find(line => line.trim())?.replace(/\s+/g, " ").trim() ?? "";
@@ -54,7 +54,7 @@ function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boo
   </details>;
 }
 
-function ChatConversationView({ projection, pending = false, startedAt, opening = false, onFork }: { projection: ChatProjection; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string) => void }) {
+function ChatConversationView({ projection, pending = false, startedAt, opening = false, onFork }: { projection: ChatProjection; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void }) {
   const scroll = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);

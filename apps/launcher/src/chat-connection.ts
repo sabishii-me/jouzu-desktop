@@ -34,7 +34,6 @@ function writeModelPreference(value: { provider: string; id: string } | undefine
     else localStorage.removeItem(MODEL_PREFERENCE_KEY);
   } catch { /* A webview without storage keeps the selection for this session only. */ }
 }
-export interface ForkMessage { entryId: string; text: string }
 export interface ChatSnapshot {  projection: ChatProjection;
   connected: boolean;
   transportReady?: boolean;
@@ -242,26 +241,6 @@ export class ChatConnection {
   }
   newSession() { return this.changeSession("new_session"); }
   resumeSession(sessionPath: string) { return this.changeSession("switch_session", { sessionPath }); }
-  async getForkMessages(): Promise<ForkMessage[]> {
-    const result = await this.request("get_fork_messages");
-    if (!object(result) || !Array.isArray(result.messages)) throw new Error("Runtime returned incompatible fork history.");
-    return result.messages.filter((item): item is ForkMessage => object(item) && typeof item.entryId === "string" && typeof item.text === "string");
-  }
-  async fork(entryId: string): Promise<boolean> {
-    if (!this.snapshot.connected || this.snapshot.pending || this.snapshot.projection.running) throw new Error("Wait for the current turn to settle before forking.");
-    this.replaying = true;
-    this.update({ pending: true, error: null });
-    try {
-      const result = await this.request("fork", { entryId });
-      const cancelled = object(result) && result.cancelled === true;
-      if (!cancelled) await this.refreshHistory();
-      return !cancelled;
-    } catch (error) { this.update({ error: String(error) }); throw error; }
-    finally {
-      this.replaying = false;
-      this.update({ pending: false });
-    }
-  }
   /** Reopen the current session so extensions, skills, MCP servers and catalogs re-bind. */
   async reloadSession() {
     const sessionPath = this.snapshot.sessionFile;

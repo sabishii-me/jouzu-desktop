@@ -315,6 +315,110 @@ pub async fn chat_session_messages(
     Ok(messages)
 }
 
+/// Fork at the selected turn: copy the source session up to and including the
+/// message at `message_index` into a new session file with `parentSession`.
+#[tauri::command]
+pub async fn chat_session_branch(
+    session_path: String,
+    message_index: usize,
+) -> Result<String, String> {
+    let path = validated_session_path(&session_path)?;
+    tauri::async_runtime::spawn_blocking(move || branch_session_file(&path, message_index))
+        .await
+        .map_err(|_| "Session branch failed".to_string())?
+}
+
+fn branch_session_file(source: &Path, message_index: usize) -> Result<String, String> {
+    let text = fs::read_to_string(source).map_err(|_| "Session read failed".to_string())?;
+    let mut lines = text.lines();
+    let header_line = lines.next().ok_or_else(|| "Session is empty".to_string())?;
+    let header: Value = serde_json::from_str(header_line).map_err(|_| "Session header is invalid".to_string())?;
+    let cwd = header.get("cwd").and_then(Value::as_str).ok_or_else(|| "Session has no workspace".to_string())?;
+    let mut kept: Vec<&str> = Vec::new();
+    let mut seen = 0usize;
+    let mut found = false;
+    for line in lines {
+        let Ok(entry) = serde_json::from_str::<Value>(line) else { continue };
+        kept.push(line);
+        if entry.get("type").and_then(Value::as_str) == Some("message") {
+            if seen == message_index {
+                found = true;
+                break;
+            }
+            seen += 1;
+        }
+    }
+    if !found {
+        return Err("Message not found in session".to_string());
+    }
+    let directory = source.parent().ok_or_else(|| "Session directory is missing".to_string())?;
+    let id = new_session_id();
+    let timestamp = iso_timestamp_now();
+    let file_name = format!("{}_{}.jsonl", timestamp.replace([':', '.'], "-"), id);
+    let target = directory.join(file_name);
+    let mut output = String::new();
+    output.push_str(&serde_json::json!({
+        "type": "session",
+        "version": 3,
+        "id": id,
+        "timestamp": timestamp,
+        "cwd": cwd,
+        "parentSession": source.to_string_lossy(),
+    }).to_string());
+    output.push('\n');
+    for line in kept {
+        output.push_str(line);
+        output.push('\n');
+    }
+    fs::write(&target, output).map_err(|_| "Session branch write failed".to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+fn new_session_id() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u128;
+    let value = now.wrapping_mul(0x9e3779b97f4a7c15) ^ (pid << 48);
+    format!(
+        "{:08x}-{:04x}-7{:03x}-{:04x}-{:012x}",
+        (value >> 96) as u32,
+        (value >> 80) as u16,
+        (value >> 68) as u16 & 0x0fff,
+        ((value >> 48) as u16 & 0x3fff) | 0x8000,
+        value & 0xffff_ffff_ffff
+    )
+}
+
+fn iso_timestamp_now() -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    let days = seconds.div_euclid(86_400);
+    let remainder = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.000Z",
+        year, month, day, remainder / 3600, (remainder % 3600) / 60, remainder % 60
+    )
+}
+
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * month_prime + 2) / 5 + 1) as u32;
+    let month = if month_prime < 10 { month_prime + 3 } else { month_prime - 9 } as u32;
+    if month <= 2 { year += 1; }
+    (year, month, day)
+}
+
 fn read_session_messages(path: &Path, limit: Option<usize>) -> Vec<Value> {
     let Some(limit) = limit else { return read_all_session_messages(path) };
     if limit == 0 {
@@ -663,6 +767,31 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "user");
         assert_eq!(messages[1]["role"], "assistant");
+    }
+
+    #[test]
+    fn branches_through_the_selected_message() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.jsonl");
+        let mut file = File::create(&source).unwrap();
+        writeln!(file, "{}", serde_json::json!({"type":"session","version":3,"id":"source","cwd":r"C:\Work"})).unwrap();
+        for (index, text) in ["first", "first answer", "second", "second answer"].iter().enumerate() {
+            let role = if index % 2 == 0 { "user" } else { "assistant" };
+            writeln!(file, "{}", serde_json::json!({"type":"message","id":format!("m{index}"),"message":{"role":role,"content":[{"type":"text","text":text}]}})).unwrap();
+        }
+        let target = branch_session_file(&source, 3).unwrap();
+        let lines: Vec<Value> = fs::read_to_string(&target).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(lines[0]["type"], "session");
+        assert_eq!(lines[0]["parentSession"], source.to_string_lossy().as_ref());
+        assert_eq!(lines[0]["cwd"], r"C:\Work");
+        let messages: Vec<&Value> = lines.iter().skip(1).filter(|line| line["type"] == "message").collect();
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[3]["message"]["content"][0]["text"], "second answer");
+
+        let earlier = branch_session_file(&source, 1).unwrap();
+        let earlier_messages: Vec<Value> = fs::read_to_string(&earlier).unwrap().lines().skip(1).map(|line| serde_json::from_str(line).unwrap()).filter(|line: &Value| line["type"] == "message").collect();
+        assert_eq!(earlier_messages.len(), 2);
+        assert_eq!(earlier_messages[1]["message"]["content"][0]["text"], "first answer");
     }
 
     #[test]

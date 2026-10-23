@@ -572,6 +572,7 @@ fn main() {
             sessions::chat_session_update,
             sessions::chat_flow_reports,
             sessions::chat_session_messages,
+            sessions::chat_session_branch,
             sessions::chat_session_timing,
             sessions::chat_session_recover,
             launcher_state,
