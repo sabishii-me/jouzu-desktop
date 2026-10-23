@@ -743,6 +743,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     title: textguardBlocked ? `${textguardItems || 1} item(s) withheld from the model` : "TextGuard",
     tone: (textguardBlocked ? "blocked" : textguardView?.historical ? "expired" : "idle") as "blocked" | "expired" | "idle",
     disabled: !textguardKey,
+    blocked: textguardBlocked,
+    mode: (textguardView?.data?.mode ?? "on") as "on" | "strict" | "off",
+    onMode: (mode: "on" | "strict" | "off") => void runTextGuard("mode", null, { mode }),
     onOpen: () => {
       if (!textguardKey) return;
       if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); if (!snapshot.projection.running) void requestTextGuardReview(); return; }

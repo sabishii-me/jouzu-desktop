@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, ShieldAlert, Square, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, ShieldAlert, Square, X } from "lucide-react";
 import { IMAGE_ACCEPT, MAX_IMAGES, type ImageAttachment } from "./chat-attachments";
 import type { ChatModel } from "./chat-connection";
 import { Button } from "./components/ui/button";
@@ -110,7 +110,7 @@ function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport,
 
 export interface ComposerProps {
   hero?: boolean;
-  textguard?: { label: string; title: string; tone: "idle" | "blocked" | "expired"; disabled: boolean; onOpen: () => void };
+  textguard?: { label: string; title: string; tone: "idle" | "blocked" | "expired"; disabled: boolean; blocked: boolean; mode: "on" | "strict" | "off"; onOpen: () => void; onMode: (mode: "on" | "strict" | "off") => void };
   connected: boolean;
   pending: boolean;
   opening?: boolean;
@@ -135,6 +135,25 @@ export interface ComposerProps {
   thinkingLevel?: string;
   thinkingLevels: readonly string[];
   onThinkingLevel: (level: string) => void;
+}
+function TextGuardControl({ control }: { control: NonNullable<ComposerProps["textguard"]> }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const tone = control.tone === "blocked" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : control.tone === "expired" ? "text-amber-600" : "text-muted-foreground";
+  if (control.blocked) return <Button type="button" variant="ghost" className={`h-8 gap-1.5 px-2 text-xs ${tone}`} disabled={control.disabled} onClick={control.onOpen} aria-label={`TextGuard: ${control.title}`} title={control.title}><ShieldAlert className="size-4" />{control.label}</Button>;
+  const modes = ["on", "strict", "off"] as const;
+  return <div ref={ref} className="relative">
+    <Button type="button" variant="ghost" className={`h-8 gap-1.5 px-2 text-xs ${tone}`} disabled={control.disabled} aria-expanded={open} aria-haspopup="menu" aria-label={`TextGuard: ${control.title}`} title={control.title} onClick={() => setOpen(value => !value)}><ShieldAlert className="size-4" />{control.label}<ChevronDown className="size-3" /></Button>
+    {open && <div role="menu" aria-label="TextGuard mode" className="absolute bottom-full left-0 z-40 mb-1 w-48 rounded-lg border border-border bg-popover p-1 shadow-xl">
+      {modes.map(mode => <button key={mode} type="button" role="menuitemradio" aria-checked={control.mode === mode} onClick={() => { setOpen(false); control.onMode(mode); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"><ShieldAlert className="size-4" /><span className="min-w-0 flex-1 truncate">{mode === "on" ? "On" : mode === "strict" ? "Strict" : "Off"}</span>{control.mode === mode && <Check className="size-3.5" />}</button>)}
+    </div>}
+  </div>;
 }
 export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
@@ -165,7 +184,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
         <div className="flex min-w-0 items-center gap-1">
           {onAddImages && <><input ref={imageInput} type="file" accept={IMAGE_ACCEPT} multiple className="hidden" aria-label="Choose images" onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; onAddImages(files); }} /></>}
           <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
-                    {textguard && <Button type="button" variant="ghost" className={`h-8 gap-1.5 px-2 text-xs ${textguard.tone === "blocked" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : textguard.tone === "expired" ? "text-amber-600" : "text-muted-foreground"}`} disabled={textguard.disabled} onClick={textguard.onOpen} aria-label={`TextGuard: ${textguard.title}`} title={textguard.title}><ShieldAlert className="size-4" />{textguard.label}</Button>}
+                    {textguard && <TextGuardControl control={textguard} />}
           {readingImages && <span role="status" className="text-xs text-muted-foreground">Reading images…</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">

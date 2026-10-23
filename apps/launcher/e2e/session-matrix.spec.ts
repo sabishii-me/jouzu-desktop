@@ -218,6 +218,21 @@ test("matrix: TextGuard history is hidden while the session is only previewed", 
   }
 });
 
+test("matrix: TextGuard mode is a composer dropdown until something is blocked", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S2\b/ }).click();
+  const composer = page.getByLabel("Message Jouzu");
+  await composer.fill("continue");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
+  await page.getByRole("button", { name: /^TextGuard/ }).click();
+  const menu = page.getByRole("menu", { name: "TextGuard mode" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitemradio", { name: "On" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Strict" }).click();
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.some((call: string) => call.includes('"action":"mode"') && call.includes('"mode":"strict"')))).toBe(true);
+});
 test("matrix: TextGuard is visible only for the attached session", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S7\b/ }).click();
