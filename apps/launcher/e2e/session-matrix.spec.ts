@@ -46,6 +46,8 @@ async function setup(page: Page) {
     w.forkCalls = [];
     w.compactCalls = [];
     w.exportCalls = [];
+    w.modelCalls = [];
+    w.thinkingCalls = [];
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const sessions = ids.map((id: string, index: number) => ({ path: paths[index], title: `S${index}`, workspace: "C:/Projects/Matrix", updated: 100 - index, pinned: false, archived: false }));
     let current = "";
@@ -65,7 +67,7 @@ async function setup(page: Page) {
         if (command === "chat_session_messages") return histories[String(args.sessionPath)] ?? [];
         if (command === "textguard_reviews_read") return String(args.sessionId) === ids[2] ? review : null;
         if (command === "textguard_reviews_write" || command === "textguard_reviews_clear") return null;
-        if (command === "chat_flow_reports") return [];
+        if (command === "chat_flow_reports") return [{ kind: "note", text: "matrix report" }];
         if (command === "chat_session_timing") return { modelMs: 1, toolMs: 1, turns: 1, steps: 1, outputTokens: 1 };
         if (command === "environment_read") return [];
         if (command === "plugin:dialog|save") return "C:/tmp/export.html";
@@ -77,8 +79,8 @@ async function setup(page: Page) {
           else if (request.type === "new_session") { current = ""; response(request, { cancelled: false }); }
           else if (request.type === "get_state") response(request, { sessionId: current || "new", sessionFile: sessionFile(), isStreaming: false, model: { name: "Matrix model" } });
           else if (request.type === "get_messages") response(request, { messages: histories[sessionFile()] ?? [] });
-          else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Matrix model" }] });
-          else if (request.type === "get_available_thinking_levels") response(request, { levels: [] });
+          else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Matrix model" }, { provider: "fixture", id: "alternate", name: "Alternate model" }] });
+          else if (request.type === "get_available_thinking_levels") response(request, { levels: ["low", "medium"] });
           else if (request.type === "get_session_stats") response(request, { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: { total: 1 } });
           else if (request.type === "prompt") {
             w.promptCalls.push(request.message);
@@ -96,6 +98,8 @@ async function setup(page: Page) {
           }
           else if (request.type === "fork") { w.forkCalls.push(request.entryId); response(request, { cancelled: false }); }
           else if (request.type === "compact") { w.compactCalls.push(current); response(request, {}); }
+          else if (request.type === "set_model") { w.modelCalls.push({ session: current, provider: request.provider, modelId: request.modelId }); response(request, { name: "Alternate model" }); }
+          else if (request.type === "set_thinking_level") { w.thinkingCalls.push({ session: current, level: request.level }); response(request, {}); }
           else if (request.type === "export_html") { w.exportCalls.push({ session: current, path: request.outputPath }); response(request, { path: request.outputPath }); }
           else response(request);
           return;
@@ -280,4 +284,43 @@ test("matrix: reload from a preview attaches that session first", async ({ page 
       "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
       "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
     ]);
+});
+
+test("matrix: changing the model from a preview attaches that session first", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  expect(await page.evaluate(() => (window as any).switchCalls)).toHaveLength(0);
+  await page.getByRole("button", { name: "Model", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: /Alternate model/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).modelCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
+  expect(await page.evaluate(() => (window as any).modelCalls))
+    .toEqual([{ session: "00000000-0000-4000-8000-000000000002", provider: "fixture", modelId: "alternate" }]);
+});
+
+test("matrix: changing the thinking level from a preview attaches that session first", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Model", exact: true }).click();
+  await page.getByRole("button", { name: "medium", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).thinkingCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
+  expect(await page.evaluate(() => (window as any).thinkingCalls))
+    .toEqual([{ session: "00000000-0000-4000-8000-000000000002", level: "medium" }]);
+});
+
+test("matrix: a flow command from a preview attaches that session first", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Flow", exact: true }).click();
+  await page.getByRole("button", { name: "Status", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).switchCalls))
+    .toEqual(["C:/sessions/00000000-0000-4000-8000-000000000002.jsonl"]);
+  expect(await page.evaluate(() => (window as any).promptCalls)).toEqual(["/flow"]);
 });

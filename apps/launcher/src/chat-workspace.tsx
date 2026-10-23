@@ -391,8 +391,32 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const client = connection.current;
     if (!client || commandBusy) return;
     setCommandBusy(true);
-    try { await client.runCommand(command); }
+    try {
+      if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for the command."); return; }
+      await client.runCommand(command);
+    }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    finally { setCommandBusy(false); }
+  }
+  async function selectSessionModel(provider: string, id: string) {
+    const client = connection.current;
+    if (!client || commandBusy) return;
+    setCommandBusy(true);
+    try {
+      if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session to change its model."); return; }
+      await client.selectModel(provider, id);
+    }
+    catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    finally { setCommandBusy(false); }
+  }
+  async function selectThinkingLevel(level: string) {
+    const client = connection.current;
+    if (!client || commandBusy) return;
+    setCommandBusy(true);
+    try {
+      if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session to change its thinking level."); return; }
+      await client.setThinkingLevel(level);
+    }
     finally { setCommandBusy(false); }
   }
   function inspectTextGuard(sessionId: string) {
@@ -796,7 +820,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
           {textguardBar}
-          <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
+          <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
@@ -806,7 +830,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         </div>
         <div className="relative">
           {textguardBar && <div className="shrink-0 px-3 sm:px-6"><div className="mx-auto max-w-3xl">{textguardBar}</div></div>}
-          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void connection.current?.selectModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void connection.current?.setThinkingLevel(level)} />
+          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
         </div>
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}
