@@ -713,7 +713,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const flowError = useMemo(() => latestFlowError(snapshot.projection.messages), [snapshot.projection.messages]);
   const textguardWithheld = useMemo(() => Object.values(snapshot.projection.tools).some(tool => {
     const result = JSON.stringify(tool.result ?? "");
-    return tool.phase === "error" && (result.includes("TextGuard withheld") || result.includes("TextGuard advisory"));
+    return result.includes("TextGuard withheld") || result.includes("TextGuard advisory");
   }), [snapshot.projection.tools]);
   useEffect(() => {
     const id = snapshot.sessionId;
@@ -736,12 +736,35 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const workspaceError = snapshot.error;
   const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
-  const textguardBar = textguardView?.seen
-    ? <TextGuardBar data={textguardView.data} open={textguardView.open} busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} historical={textguardView.historical} onToggle={() => {
-        if (!textguardKey) return;
-        if (!textguardView.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); void requestTextGuardReview(); return; }
-        updateTextGuard(textguardKey, { open: !textguardView.open });
-      }} onStop={() => void connection.current?.abort()} onAction={(action, item, extra) => void runTextGuard(action, item, extra)} />
+  const textguardItems = textguardView?.data?.items.length ?? 0;
+  const textguardBlocked = !!textguardView?.seen && (textguardView.data ? textguardItems > 0 : true);
+  const textguardControl = snapshot.sessionId ? {
+    label: textguardBlocked ? `${textguardItems || 1} blocked` : "TextGuard",
+    title: textguardBlocked ? `${textguardItems || 1} item(s) withheld from the model` : "TextGuard",
+    tone: (textguardBlocked ? "blocked" : textguardView?.historical ? "expired" : "idle") as "blocked" | "expired" | "idle",
+    disabled: !textguardKey,
+    onOpen: () => {
+      if (!textguardKey) return;
+      if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); if (!snapshot.projection.running) void requestTextGuardReview(); return; }
+      updateTextGuard(textguardKey, { open: true });
+    },
+  } : undefined;
+
+  // A review created by the running turn can only be inspected after it settles.
+  useEffect(() => {
+    if (!textguardKey || snapshot.projection.running || !textguardView?.open || textguardView.data) return;
+    inspectTextGuard(textguardKey);
+  }, [textguardKey, snapshot.projection.running, textguardView?.open, textguardView?.data]);
+  const textguardPanel = textguardKey && textguardView?.seen && textguardView.open
+    ? <aside role="region" aria-label="TextGuard review" className="relative z-20 flex h-full w-[480px] max-w-[90vw] shrink-0 flex-col border-l border-border bg-background">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <h2 className="text-sm font-semibold">TextGuard</h2>
+          <Button variant="ghost" className="size-8 p-0" aria-label="Close TextGuard" onClick={() => updateTextGuard(textguardKey, { open: false })}><X className="size-4" /></Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <TextGuardBar data={textguardView.data} open busy={textguardView.busy} running={snapshot.projection.running} error={textguardView.error} historical={textguardView.historical} onToggle={() => updateTextGuard(textguardKey, { open: false })} onStop={() => void connection.current?.abort()} onAction={(action, item, extra) => void runTextGuard(action, item, extra)} />
+        </div>
+      </aside>
     : null;
   return <div ref={chatRoot} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
@@ -830,7 +853,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <p className="max-w-md text-sm text-muted-foreground">Choose a workspace, then describe the task. Jouzu can explore code, explain it, or make a change.</p>
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
-          {textguardBar}
           <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
@@ -840,12 +862,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
         <div className="relative">
-          {textguardBar && <div className="shrink-0 px-3 sm:px-6"><div className="mx-auto max-w-3xl">{textguardBar}</div></div>}
-          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
+          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={snapshot.projection.running} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
         </div>
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}
     </section>
+    {textguardPanel}
   </div>;
 }
 

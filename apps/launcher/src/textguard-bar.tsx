@@ -96,7 +96,9 @@ export function TextGuardBar({ data, open, busy, running, error, historical = fa
       ? "TextGuard withheld content in this session"
       : "TextGuard withheld content from the model";
   const subtitle = !data
-    ? historical
+    ? running
+      ? "The turn is still running. Review this content when it settles."
+      : historical
       ? error
         ? "The transcript is intact, but this review cannot be reopened."
         : "The transcript shows withheld content. Click Review to inspect this session."

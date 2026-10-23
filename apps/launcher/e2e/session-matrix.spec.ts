@@ -223,38 +223,37 @@ test("matrix: TextGuard is visible only for the attached session", async ({ page
   await page.getByRole("button", { name: /^S7\b/ }).click();
   const composer = page.getByLabel("Message Jouzu");
   const before = await composer.boundingBox();
-  await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "TextGuard review" })).toHaveCount(0);
   await composer.fill("continue");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
-  const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld content in this session");
-  expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
-  await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(bar).toContainText("TextGuard withheld 1 item");
-  await expect(bar).toContainText("LIVE.md");
+  const icon = page.getByRole("button", { name: /^TextGuard/ });
+  await expect(icon).toContainText("1 blocked");
+  await icon.click();
+  const panel = page.getByRole("region", { name: "TextGuard review" });
+  await expect(panel).toContainText("TextGuard withheld 1 item");
+  await expect(panel).toContainText("LIVE.md");
   expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
   await page.getByRole("button", { name: /^S8\b/ }).click();
-  await expect(page.getByRole("region", { name: "TextGuard" })).toHaveCount(0);
+  await expect(panel).toHaveCount(0);
   expect((await composer.boundingBox())?.y).toBeCloseTo(before!.y, 0);
 });
 
-test("matrix: approving the live review leaves the completed strip", async ({ page }) => {
+test("matrix: approving the live review leaves the completed state", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S7\b/ }).click();
   const composer = page.getByLabel("Message Jouzu");
   await composer.fill("continue");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
-  const bar = page.getByRole("region", { name: "TextGuard" });
-  await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(bar).toContainText("TextGuard withheld 1 item");
-  await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await bar.getByRole("button", { name: "Allow for this session" }).click();
-  await expect(bar).toContainText("TextGuard completed for this session");
-  await expect(bar.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
-  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
-  await expect(bar.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^TextGuard/ }).click();
+  const panel = page.getByRole("region", { name: "TextGuard review" });
+  await panel.getByRole("button", { name: "Review", exact: true }).click();
+  await panel.getByRole("button", { name: "Allow for this session" }).click();
+  await expect(panel).toContainText("TextGuard completed for this session");
+  await expect(panel.getByRole("button", { name: "Stop turn" })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Strict", exact: true })).toBeVisible();
 });
 
 test("matrix: an expired review stays historical and never claims completion", async ({ page }) => {
@@ -264,12 +263,11 @@ test("matrix: an expired review stays historical and never claims completion", a
   await composer.fill("continue");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(1);
-  const bar = page.getByRole("region", { name: "TextGuard" });
-  await expect(bar).toContainText("TextGuard withheld content in this session");
-  await bar.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(bar).toContainText(/no longer available/i);
-  await expect(bar).not.toContainText("TextGuard completed");
-  await expect(bar.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^TextGuard/ }).click();
+  const panel = page.getByRole("region", { name: "TextGuard review" });
+  await expect(panel).toContainText(/no longer available/i);
+  await expect(panel).not.toContainText("TextGuard completed");
+  await expect(panel.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
 });
 
 test("matrix: fork from a preview attaches and opens the branch", async ({ page }) => {

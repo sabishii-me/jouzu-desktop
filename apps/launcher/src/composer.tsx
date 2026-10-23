@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, Square, X } from "lucide-react";
+import { ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, ShieldAlert, Square, X } from "lucide-react";
 import { IMAGE_ACCEPT, MAX_IMAGES, type ImageAttachment } from "./chat-attachments";
 import type { ChatModel } from "./chat-connection";
 import { Button } from "./components/ui/button";
@@ -110,6 +110,7 @@ function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport,
 
 export interface ComposerProps {
   hero?: boolean;
+  textguard?: { label: string; title: string; tone: "idle" | "blocked" | "expired"; disabled: boolean; onOpen: () => void };
   connected: boolean;
   pending: boolean;
   opening?: boolean;
@@ -135,7 +136,7 @@ export interface ComposerProps {
   thinkingLevels: readonly string[];
   onThinkingLevel: (level: string) => void;
 }
-export function Composer({ hero = false, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -164,10 +165,11 @@ export function Composer({ hero = false, connected, pending, opening = false, un
         <div className="flex min-w-0 items-center gap-1">
           {onAddImages && <><input ref={imageInput} type="file" accept={IMAGE_ACCEPT} multiple className="hidden" aria-label="Choose images" onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; onAddImages(files); }} /></>}
           <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
+                    {textguard && <Button type="button" variant="ghost" className={`h-8 gap-1.5 px-2 text-xs ${textguard.tone === "blocked" ? "text-destructive hover:bg-destructive/10 hover:text-destructive" : textguard.tone === "expired" ? "text-amber-600" : "text-muted-foreground"}`} disabled={textguard.disabled} onClick={textguard.onOpen} aria-label={`TextGuard: ${textguard.title}`} title={textguard.title}><ShieldAlert className="size-4" />{textguard.label}</Button>}
           {readingImages && <span role="status" className="text-xs text-muted-foreground">Reading images…</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground sm:inline">{!connected ? "Connecting…" : unavailable ? "Session unavailable" : opening ? "Opening session…" : pending ? "Sending…" : running ? "Enter to steer" : "Enter to send · Shift+Enter for newline"}</span>
+          <span className="hidden text-xs text-muted-foreground lg:inline">{!connected ? "Connecting…" : unavailable ? "Session unavailable" : opening ? "Opening session…" : pending ? "Sending…" : running ? "Enter to steer" : "Enter to send · Shift+Enter for newline"}</span>
           <ModelMenu open={modelOpen} onOpenChange={setModelOpen} models={models} model={model} onSelect={onSelectModel} onOpen={onRefreshModels} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} onThinking={onThinkingLevel} />
           {running && <Button type="button" variant="outline" className="h-8 px-2" onClick={onStop}><Square className="size-3.5" />Stop</Button>}
           <Button type="submit" className="h-8 px-2" disabled={!connected || pending || opening || unavailable || readingImages || !draft.trim()}><Send className="size-3.5" />{running ? "Steer" : "Send"}</Button>
