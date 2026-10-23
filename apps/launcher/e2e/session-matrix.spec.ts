@@ -281,8 +281,10 @@ test("matrix: an expired review stays historical and never claims completion", a
   await page.getByRole("button", { name: /^TextGuard/ }).click();
   const panel = page.getByRole("region", { name: "TextGuard review" });
   await expect(panel).toContainText(/no longer available/i);
+  await expect(panel).toContainText("Re-run the request");
   await expect(panel).not.toContainText("TextGuard completed");
   await expect(panel.getByRole("button", { name: "Review", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^TextGuard/ })).not.toContainText("blocked");
 });
 
 test("matrix: fork from a preview attaches and opens the branch", async ({ page }) => {

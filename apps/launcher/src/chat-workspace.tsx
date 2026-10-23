@@ -737,11 +737,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
   const textguardItems = textguardView?.data?.items.length ?? 0;
-  const textguardBlocked = !!textguardView?.seen && (textguardView.data ? textguardItems > 0 : true);
+  const textguardExpired = !!textguardView?.historical && !!textguardView?.error;
+  const textguardBlocked = !!textguardView?.seen && !textguardExpired && (textguardView.data ? textguardItems > 0 : true);
   const textguardControl = snapshot.sessionId ? {
     label: textguardBlocked ? `${textguardItems || 1} blocked` : "TextGuard",
     title: textguardBlocked ? `${textguardItems || 1} item(s) withheld from the model` : "TextGuard",
-    tone: (textguardBlocked ? "blocked" : textguardView?.historical ? "expired" : "idle") as "blocked" | "expired" | "idle",
+    tone: (textguardBlocked ? "blocked" : textguardExpired || textguardView?.historical ? "expired" : "idle") as "blocked" | "expired" | "idle",
     disabled: !textguardKey,
     blocked: textguardBlocked,
     mode: (textguardView?.data?.mode ?? "on") as "on" | "strict" | "off",
