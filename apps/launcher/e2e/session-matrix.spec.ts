@@ -91,6 +91,7 @@ async function setup(page: Page) {
         if (command === "environment_read") return [];
         if (command === "plugin:dialog|save") return "C:/tmp/export.html";
         if (command === "chat_scratch_dir") return "C:/Temp/jz-scratch";
+        if (command === "chat_poll_many") return (args.handles as string[]).map(handle => ({ handle, records: (handleStates.get(handle)?.records ?? []).splice(0), closed: false }));
         if (command === "chat_start") return "matrix-test";
         if (command === "chat_poll") return { records: records.splice(0), closed: false };
         if (command === "chat_send") {
