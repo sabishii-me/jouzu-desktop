@@ -104,6 +104,9 @@ struct Output {
 }
 struct Session {
     owner: String,
+    generation: String,
+    path: std::path::PathBuf,
+    last_poll: Instant,
     input: mpsc::SyncSender<Vec<u8>>,
     stop: mpsc::Sender<()>,
     output: Arc<Mutex<Output>>,
@@ -307,31 +310,50 @@ pub fn chat_start(
     window: tauri::WebviewWindow,
     state: tauri::State<ChatService>,
     path: String,
+    generation: Option<String>,
 ) -> Result<String, String> {
     if window.label() != "main" {
         return Err("Chat is restricted to the main window".into());
     }
-    // A webview reload does not run the previous page's React cleanup, so its chat
-    // process can survive with a Flow attachment. The desktop owns exactly one chat
-    // view; retire any previous process before starting the next one.
-    let stale: Vec<Session> = {
-        let mut previous = state
-            .sessions
-            .lock()
-            .map_err(|_| "Chat state unavailable")?;
-        previous.drain().map(|(_, session)| session).collect()
-    };
-    stop_sessions(stale);
+    // A pool handle is generation-scoped: a page load releases the previous
+    // generation explicitly, so a new handle must not stop other live sessions.
+    // Legacy callers pass no generation and keep the single-runtime cleanup.
+    if generation.is_none() {
+        let stale: Vec<Session> = {
+            let mut previous = state
+                .sessions
+                .lock()
+                .map_err(|_| "Chat state unavailable")?;
+            previous.drain().map(|(_, session)| session).collect()
+        };
+        stop_sessions(stale);
+    }
     let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "Chat state unavailable")?;
-    if sessions.len() >= 8 {
-        return Err("Close a conversation before starting another".into());
-    }
     let cwd = std::fs::canonicalize(&path).map_err(|_| "Workspace folder is unavailable")?;
     if !cwd.is_dir() {
         return Err("Workspace must be a folder".into());
+    }
+    // Two runtimes in one workspace can contend for the same Flow branch ownership.
+    // Keep one live runtime per workspace; different workspaces may coexist.
+    let same: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.path == cwd)
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let previous: Vec<Session> = same
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    if !previous.is_empty() {
+        drop(sessions);
+        stop_sessions(previous);
+        sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "Chat state unavailable")?;
     }
     let root = crate::runtime::application_root(&app)?;
     let managed = crate::runtime::managed_root()?;
@@ -505,6 +527,9 @@ pub fn chat_start(
         handle.clone(),
         Session {
             owner: window.label().into(),
+            generation: generation.unwrap_or_default(),
+            path: cwd.clone(),
+            last_poll: Instant::now(),
             input,
             stop,
             output,
@@ -541,14 +566,15 @@ pub fn chat_poll(
     state: tauri::State<ChatService>,
     handle: String,
 ) -> Result<Poll, String> {
-    let sessions = state
+    let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "Chat state unavailable")?;
     let session = sessions
-        .get(&handle)
+        .get_mut(&handle)
         .filter(|s| s.owner == window.label())
         .ok_or("Unknown chat connection")?;
+    session.last_poll = Instant::now();
     let mut output = session
         .output
         .lock()
@@ -561,6 +587,94 @@ pub fn chat_poll(
         error: output.error.clone(),
     })
 }
+
+#[derive(Serialize)]
+pub struct PoolPoll {
+    handle: String,
+    records: Vec<Value>,
+    closed: bool,
+    error: Option<String>,
+}
+
+/// One poll call serves every live session so the pool needs one timer.
+#[tauri::command]
+pub fn chat_poll_many(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    handles: Vec<String>,
+) -> Result<Vec<PoolPoll>, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let now = Instant::now();
+    let mut polls = Vec::with_capacity(handles.len());
+    for handle in &handles {
+        let Some(session) = sessions.get_mut(handle) else {
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()) });
+            continue;
+        };
+        if session.owner != window.label() {
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()) });
+            continue;
+        }
+        session.last_poll = now;
+        let mut output = session
+            .output
+            .lock()
+            .map_err(|_| "Chat output unavailable")?;
+        polls.push(PoolPoll {
+            handle: handle.clone(),
+            records: output.records.drain(..).collect(),
+            closed: output.closed,
+            error: output.error.clone(),
+        });
+    }
+    // A page load releases the previous generation explicitly; the reaper is the
+    // backstop for a closed page that never ran its cleanup.
+    let reaped: Vec<String> = sessions
+        .iter()
+        .filter(|(handle, session)| {
+            session.owner == window.label()
+                && !handles.contains(handle)
+                && session.last_poll.elapsed() > Duration::from_secs(60)
+        })
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = reaped
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    stop_sessions(stopped);
+    Ok(polls)
+}
+
+/// Stop every session created by an older page generation, keeping the current one.
+#[tauri::command]
+pub fn chat_release_generation(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    generation: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let stale: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.owner == window.label() && session.generation != generation)
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = stale
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    stop_sessions(stopped);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn chat_stop(
     window: tauri::WebviewWindow,
@@ -717,6 +831,9 @@ mod tests {
         (
             Session {
                 owner: "main".into(),
+                generation: String::new(),
+                path: std::path::PathBuf::new(),
+                last_poll: Instant::now(),
                 input,
                 stop,
                 output: Arc::new(Mutex::new(Output::default())),

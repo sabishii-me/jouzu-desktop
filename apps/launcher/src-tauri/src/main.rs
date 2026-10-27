@@ -566,6 +566,8 @@ fn main() {
             chat::chat_start,
             chat::chat_send,
             chat::chat_poll,
+            chat::chat_poll_many,
+            chat::chat_release_generation,
             chat::chat_stop,
             attachments::read_dropped_image,
             sessions::chat_sessions,

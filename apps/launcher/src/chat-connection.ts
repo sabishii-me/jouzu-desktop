@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emptyProjection, historyProjection, interruptUnfinishedTools, object, projectEvent, type ChatProjection, type WireObject } from "./chat-projection";
 
+/** One id per page load: handles from an older page are released by chat_release_generation. */
+export const pageGeneration = globalThis.crypto.randomUUID();
+
 export interface ChatImage { type: "image"; data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }
 export interface ChatModel { provider: string; id: string; name: string }
 export interface SessionStats {
@@ -81,7 +84,8 @@ export class ChatConnection {
     // the authoritative transcript, so opening a saved session never animates it.
     this.replaying = true;
     try {
-      const handle = await invoke<string>("chat_start", { path });
+      await invoke("chat_release_generation", { generation: pageGeneration });
+      const handle = await invoke<string>("chat_start", { path, generation: pageGeneration });
       if (this.disposed) { await invoke("chat_stop", { handle }); return; }
       this.handle = handle;
       this.update({ transportReady: true });
