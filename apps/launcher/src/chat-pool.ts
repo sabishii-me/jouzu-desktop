@@ -29,6 +29,7 @@ export class ChatPool {
   private idle = new Set<ChatConnection>();
   private entries = new Map<string, ChatConnection>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private warming = false;
   private disposed = false;
 
   constructor(private readonly target = 4, private readonly maxSessions = 30) {}
@@ -62,20 +63,29 @@ export class ChatPool {
   };
 
   async warm(): Promise<void> {
-    this.ensureTimer();
-    while (!this.disposed && this.idle.size < this.target) {
-      const scratch = await invoke<string>("chat_scratch_dir");
-      const client = new ChatConnection(() => {}, () => {});
-      this.slots.set(client, { client, scratch });
-      try {
-        await client.start(scratch, true, `slot:${crypto.randomUUID()}`, true);
-        if (this.disposed) { void client.close(); return; }
-        this.idle.add(client);
-      } catch {
-        this.slots.delete(client);
-        void client.close();
-        return;
-      }
+    if (this.warming || this.disposed) return;
+    this.warming = true;
+    try {
+      this.ensureTimer();
+      const want = Math.max(0, this.target - this.idle.size);
+      await Promise.all(Array.from({ length: want }, () => this.startSlot()));
+    } finally {
+      this.warming = false;
+    }
+  }
+
+  private async startSlot(): Promise<void> {
+    if (this.disposed) return;
+    const scratch = await invoke<string>("chat_scratch_dir");
+    const client = new ChatConnection(() => {}, () => {});
+    this.slots.set(client, { client, scratch });
+    try {
+      await client.start(scratch, true, `slot:${crypto.randomUUID()}`, true);
+      if (this.disposed) { void client.close(); return; }
+      this.idle.add(client);
+    } catch {
+      this.slots.delete(client);
+      void client.close();
     }
   }
 
