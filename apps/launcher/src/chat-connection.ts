@@ -87,6 +87,7 @@ export class ChatConnection {
     return () => { this.subscribers.delete(listener); };
   }
   setDialogHandler(handler: (request: WireObject) => void) { this.dialog = handler; }
+  isDisposed() { return this.disposed; }
   private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) for (const listener of this.subscribers) listener(this.snapshot); }
   async start(path: string, fresh = false, key = path) {
     // The runtime replays historical messages as ordinary wire events while the

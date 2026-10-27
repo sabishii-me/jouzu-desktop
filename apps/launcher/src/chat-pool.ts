@@ -17,9 +17,10 @@ interface Slot {
 export class ChatPool {
   private slots = new Map<ChatConnection, Slot>();
   private idle = new Set<ChatConnection>();
+  private entries = new Map<string, ChatConnection>();
   private disposed = false;
 
-  constructor(private readonly target = 4) {}
+  constructor(private readonly target = 4, private readonly maxSessions = 30) {}
 
   /** Warm blank runtimes for `path` until the idle target is met. */
   async warm(path: string): Promise<void> {
@@ -59,6 +60,26 @@ export class ChatPool {
     return client;
   }
 
+
+  /** A live session client kept across view switches; LRU-bounded by maxSessions. */
+  async enter(path: string, sessionPath: string, dialog?: (request: WireObject) => void): Promise<ChatConnection> {
+    const cached = this.entries.get(sessionPath);
+    if (cached && !cached.isDisposed()) {
+      this.entries.delete(sessionPath);
+      this.entries.set(sessionPath, cached);
+      return cached;
+    }
+    if (cached) this.entries.delete(sessionPath);
+    const client = await this.lease(path, sessionPath, dialog, false);
+    this.entries.set(sessionPath, client);
+    while (this.entries.size > this.maxSessions) {
+      const oldest = this.entries.keys().next().value as string;
+      const evicted = this.entries.get(oldest);
+      this.entries.delete(oldest);
+      void evicted?.close();
+    }
+    return client;
+  }
   dispose(): void {
     this.disposed = true;
     for (const client of this.slots.keys()) void client.close();
