@@ -24,10 +24,15 @@ interface PoolPoll {
  * Idle slots are polled by one timer through chat_poll_many. A leased client
  * takes over its own polling, so the view keeps the behavior it always had.
  */
+const statusKey = (path: string) => path.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
+
 export class ChatPool {
   private slots = new Map<ChatConnection, Slot>();
   private idle = new Set<ChatConnection>();
   private entries = new Map<string, ChatConnection>();
+  private watches = new Map<ChatConnection, () => void>();
+  private statusListeners = new Set<() => void>();
+  private statusSignature = "";
   private timer: ReturnType<typeof setTimeout> | undefined;
   private warming = false;
   private disposed = false;
@@ -61,6 +66,61 @@ export class ChatPool {
     }
     this.timer = setTimeout(this.loop, 10);
   };
+
+  /** The live client for `sessionPath`, when opening it needs no runtime call. */
+  client(sessionPath: string): ChatConnection | undefined {
+    const key = statusKey(sessionPath);
+    for (const [path, client] of this.entries) {
+      if (statusKey(path) !== key) continue;
+      if (client.isDisposed()) {
+        this.entries.delete(path);
+        this.unwatch(client);
+        this.emitStatus();
+        return undefined;
+      }
+      this.entries.delete(path);
+      this.entries.set(path, client);
+      this.watch(client);
+      return client;
+    }
+    return undefined;
+  }
+
+  /** Whether the pooled runtime for `sessionPath` is streaming a turn. */
+  isRunning(sessionPath: string): boolean {
+    const key = statusKey(sessionPath);
+    for (const [path, client] of this.entries) {
+      if (statusKey(path) !== key) continue;
+      return client.snapshot.connected && client.snapshot.projection.running;
+    }
+    return false;
+  }
+
+  /** Notifies only when a session starts or stops running, not on every stream event. */
+  subscribeStatus(listener: () => void): () => void {
+    this.statusListeners.add(listener);
+    return () => { this.statusListeners.delete(listener); };
+  }
+
+  private watch(client: ChatConnection): void {
+    if (this.watches.has(client)) return;
+    this.watches.set(client, client.subscribe(() => this.emitStatus()));
+  }
+
+  private unwatch(client: ChatConnection): void {
+    this.watches.get(client)?.();
+    this.watches.delete(client);
+  }
+
+  private emitStatus(): void {
+    const signature = [...this.entries]
+      .map(([path, client]) => `${statusKey(path)}:${client.snapshot.connected && client.snapshot.projection.running ? 1 : 0}`)
+      .sort()
+      .join("|");
+    if (signature === this.statusSignature) return;
+    this.statusSignature = signature;
+    for (const listener of this.statusListeners) listener();
+  }
 
   async warm(): Promise<void> {
     if (this.warming || this.disposed) return;
@@ -116,6 +176,7 @@ export class ChatPool {
     if (cached && !cached.isDisposed()) {
       this.entries.delete(sessionPath);
       this.entries.set(sessionPath, cached);
+      this.watch(cached);
       return cached;
     }
     if (cached) this.entries.delete(sessionPath);
@@ -132,11 +193,15 @@ export class ChatPool {
       client = await this.lease(path, sessionPath, dialog, false);
     }
     this.entries.set(sessionPath, client);
+    this.watch(client);
+    this.emitStatus();
     while (this.entries.size > this.maxSessions) {
       const oldest = this.entries.keys().next().value as string;
       const evicted = this.entries.get(oldest);
       this.entries.delete(oldest);
+      if (evicted) this.unwatch(evicted);
       void evicted?.close();
+      this.emitStatus();
     }
     return client;
   }
@@ -144,11 +209,14 @@ export class ChatPool {
   /** Keep an existing client under its session path so switching back is instant. */
   remember(sessionPath: string, client: ChatConnection): void {
     this.entries.set(sessionPath, client);
+    this.watch(client);
+    this.emitStatus();
     while (this.entries.size > this.maxSessions) {
       const oldest = this.entries.keys().next().value as string;
       const evicted = this.entries.get(oldest);
       this.entries.delete(oldest);
-      if (evicted && evicted !== client) void evicted.close();
+      if (evicted && evicted !== client) { this.unwatch(evicted); void evicted.close(); }
+      this.emitStatus();
     }
   }
 
@@ -159,6 +227,9 @@ export class ChatPool {
     for (const client of this.slots.keys()) void client.close();
     this.slots.clear();
     this.idle.clear();
+    for (const client of this.entries.values()) this.unwatch(client);
+    this.entries.clear();
+    this.statusListeners.clear();
   }
 }
 
