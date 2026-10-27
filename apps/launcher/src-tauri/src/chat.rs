@@ -671,7 +671,9 @@ pub fn chat_poll_many(
         .filter_map(|handle| sessions.remove(&handle))
         .collect();
     drop(sessions);
-    stop_sessions(stopped);
+    if !stopped.is_empty() {
+        std::thread::spawn(move || stop_sessions(stopped));
+    }
     Ok(polls)
 }
 
@@ -692,7 +694,9 @@ pub fn chat_release_generation(
         .filter_map(|handle| sessions.remove(&handle))
         .collect();
     drop(sessions);
-    stop_sessions(stopped);
+    if !stopped.is_empty() {
+        std::thread::spawn(move || stop_sessions(stopped));
+    }
     Ok(())
 }
 
