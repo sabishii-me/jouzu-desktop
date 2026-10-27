@@ -244,3 +244,28 @@ describe("desktop RPC connection", () => {
     expect(invoke).not.toHaveBeenCalledWith("chat_poll", expect.anything());
   });
 });
+
+  it("keeps polling after a stale extension context error", async () => {
+    vi.useFakeTimers();
+    const requests: Record<string, unknown>[] = [];
+    const replied = new Set<unknown>();
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "chat_start") return "stale" as never;
+      if (command === "chat_send") { requests.push((args as { request: Record<string, unknown> }).request); return undefined as never; }
+      if (command === "chat_poll") {
+        const request = requests.find(item => ["get_state", "get_messages"].includes(String(item.type)) && !replied.has(item.id));
+        if (!request) return { records: [], closed: false } as never;
+        replied.add(request.id);
+        const stale = { type: "extension_error", extensionPath: "<inline:test>", error: "This extension ctx is stale after session replacement or reload." };
+        const response = { type: "response", id: request.id, command: request.type, success: true, data: request.type === "get_state" ? { sessionId: "stale-id", isStreaming: false } : { messages: [] } };
+        return { records: [stale, response], closed: false } as never;
+      }
+      return undefined as never;
+    });
+    const client = new ChatConnection(() => {}, () => {});
+    const starting = client.start("folder");
+    await vi.advanceTimersByTimeAsync(100);
+    await starting;
+    expect(client.snapshot.connected).toBe(true);
+    await client.close();
+  });
