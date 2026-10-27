@@ -3,7 +3,7 @@ import { ChatConnection } from "./chat-connection";
 import { ChatPool } from "./chat-pool";
 
 function running(path: string): ChatConnection {
-  const client = new ChatConnection(() => {});
+  const client = new ChatConnection(() => {}, () => {});
   client.snapshot = {
     ...client.snapshot,
     connected: true,
@@ -42,4 +42,18 @@ test("settling a turn clears the running mark without closing the runtime", () =
   expect(pool.isRunning("C:/sessions/alpha.jsonl")).toBe(false);
   expect(statuses.at(-1)).toBe(false);
   expect(client.isDisposed()).toBe(false);
+});
+
+test("one entry per session even when the path case differs", () => {
+  const pool = new ChatPool(4);
+  const first = running("C:/sessions/alpha.jsonl");
+  pool.remember("C:/sessions/alpha.jsonl", first);
+
+  const second = new ChatConnection(() => {}, () => {});
+  second.snapshot = { ...second.snapshot, connected: true, sessionFile: "c:/sessions/ALPHA.jsonl" };
+  pool.remember("c:/sessions/ALPHA.jsonl", second);
+
+  // A second entry for the same session would be a second runtime for it.
+  expect(pool.client("C:/sessions/alpha.jsonl")).toBe(second);
+  expect(pool.isRunning("C:/sessions/alpha.jsonl")).toBe(false);
 });

@@ -24,7 +24,7 @@ interface PoolPoll {
  * Idle slots are polled by one timer through chat_poll_many. A leased client
  * takes over its own polling, so the view keeps the behavior it always had.
  */
-const statusKey = (path: string) => path.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
+const entryKey = (path: string) => path.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
 
 export class ChatPool {
   private slots = new Map<ChatConnection, Slot>();
@@ -69,31 +69,25 @@ export class ChatPool {
 
   /** The live client for `sessionPath`, when opening it needs no runtime call. */
   client(sessionPath: string): ChatConnection | undefined {
-    const key = statusKey(sessionPath);
-    for (const [path, client] of this.entries) {
-      if (statusKey(path) !== key) continue;
-      if (client.isDisposed()) {
-        this.entries.delete(path);
-        this.unwatch(client);
-        this.emitStatus();
-        return undefined;
-      }
-      this.entries.delete(path);
-      this.entries.set(path, client);
-      this.watch(client);
-      return client;
+    const key = entryKey(sessionPath);
+    const client = this.entries.get(key);
+    if (!client) return undefined;
+    if (client.isDisposed()) {
+      this.entries.delete(key);
+      this.unwatch(client);
+      this.emitStatus();
+      return undefined;
     }
-    return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, client);
+    this.watch(client);
+    return client;
   }
 
   /** Whether the pooled runtime for `sessionPath` is streaming a turn. */
   isRunning(sessionPath: string): boolean {
-    const key = statusKey(sessionPath);
-    for (const [path, client] of this.entries) {
-      if (statusKey(path) !== key) continue;
-      return client.snapshot.connected && client.snapshot.projection.running;
-    }
-    return false;
+    const client = this.entries.get(entryKey(sessionPath));
+    return !!client && client.snapshot.connected && client.snapshot.projection.running;
   }
 
   /** Notifies only when a session starts or stops running, not on every stream event. */
@@ -114,7 +108,7 @@ export class ChatPool {
 
   private emitStatus(): void {
     const signature = [...this.entries]
-      .map(([path, client]) => `${statusKey(path)}:${client.snapshot.connected && client.snapshot.projection.running ? 1 : 0}`)
+      .map(([key, client]) => `${key}:${client.snapshot.connected && client.snapshot.projection.running ? 1 : 0}`)
       .sort()
       .join("|");
     if (signature === this.statusSignature) return;
@@ -172,27 +166,30 @@ export class ChatPool {
 
   /** A live session client kept across view switches; LRU-bounded by maxSessions. */
   async enter(path: string, sessionPath: string, dialog?: (request: WireObject) => void): Promise<ChatConnection> {
-    const cached = this.entries.get(sessionPath);
+    // One entry per session: paths that differ only in case or separators are the
+    // same session, and a second entry would mean a second runtime for it.
+    const key = entryKey(sessionPath);
+    const cached = this.entries.get(key);
     if (cached && !cached.isDisposed()) {
-      this.entries.delete(sessionPath);
-      this.entries.set(sessionPath, cached);
+      this.entries.delete(key);
+      this.entries.set(key, cached);
       this.watch(cached);
       return cached;
     }
-    if (cached) this.entries.delete(sessionPath);
+    if (cached) this.entries.delete(key);
     let client: ChatConnection;
     try { client = await this.lease(path, sessionPath, dialog, false); }
     catch (error) {
       // An external process owns the branch. Only a cached client of ours can be
       // stopped; then retry once, because stealing another process lock is not allowed.
       if (!/already owned|busy/iu.test(String(error))) throw error;
-      const cached = this.entries.get(sessionPath);
+      const cached = this.entries.get(key);
       if (!cached) throw error;
       await cached.close();
-      this.entries.delete(sessionPath);
+      this.entries.delete(key);
       client = await this.lease(path, sessionPath, dialog, false);
     }
-    this.entries.set(sessionPath, client);
+    this.entries.set(key, client);
     this.watch(client);
     this.emitStatus();
     while (this.entries.size > this.maxSessions) {
@@ -208,7 +205,7 @@ export class ChatPool {
 
   /** Keep an existing client under its session path so switching back is instant. */
   remember(sessionPath: string, client: ChatConnection): void {
-    this.entries.set(sessionPath, client);
+    this.entries.set(entryKey(sessionPath), client);
     this.watch(client);
     this.emitStatus();
     while (this.entries.size > this.maxSessions) {

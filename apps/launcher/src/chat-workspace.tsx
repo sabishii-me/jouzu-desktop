@@ -216,9 +216,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       disposed = true;
       unsubscribeRef.current?.();
       connection.current = null;
-      const sessionFile = client?.snapshot.sessionFile;
-      if (client && sessionFile && !client.snapshot.error) chatPool.remember(sessionFile, client);
-      else void client?.close().catch(() => {});
+      // The same rule as every other view change: a session with a transcript is
+      // kept, a blank one is closed instead of being parked under a provisional path.
+      if (client?.snapshot.error) void client.close().catch(() => {});
+      else parkPrevious(client ?? null);
     };
   }, [path, revision]);
   useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
@@ -438,6 +439,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       onStartSession?.();
       void refreshSessions();
     } catch (error) {
+      // A failed cold start must not leave the hero over the session that is still
+      // bound: sending from the hero would go into the previous session.
+      const previousFile = previous?.snapshot.sessionFile ?? null;
+      setHero(!previousFile);
+      setSelectedSession(previousFile);
+      setPreview(null);
       setNotification(String(error).replace(/^Error:\s*/u, ""));
     } finally {
       switchingRef.current = false;
@@ -660,7 +667,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       setSessionError(null);
       setSelectedSession(sessionPath);
       setHero(false);
-      updateDialogs(emptyDialogQueue());
       setDiskReports([]); setReportsSession(sessionPath); setTiming(undefined);
       onStartSession?.();
       void refreshSessions();
