@@ -1,15 +1,15 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 
 test.use({ channel: process.env.JOUZU_UI_TEST_BROWSER });
 
 /**
- * 0060: one running turn must not lock the app to one session. Each runtime has its
- * own handle and its own record queue here, so the fixture can tell a background
- * turn from the visible one.
+ * A per-handle fixture: every `chat_start` gets its own record queue and session,
+ * so the test can tell a background turn from the visible one. A prompt opens a
+ * turn that stays open until `abort`.
  */
-test("a running turn does not lock the app to one session", async ({ page }) => {
+async function setup(page: Page) {
   await page.addInitScript(({ workspace }) => {
     localStorage.setItem("jouzu.ui.language", "en");
     const w = window as any;
@@ -92,7 +92,6 @@ test("a running turn does not lock the app to one session", async ({ page }) => 
           else if (request.type === "prompt") {
             w.promptCalls.push({ handle: args.handle, message: request.message });
             const text = String(request.message);
-            // A turn that stays open: no agent_end until abort.
             state.running = true;
             const user = { role: "user", content: [{ type: "text", text }] };
             state.queue.push({ type: "agent_start" }, { type: "message_start", message: user }, { type: "message_end", message: user }, { type: "message_start", message: { role: "assistant", content: [] } });
@@ -124,6 +123,10 @@ test("a running turn does not lock the app to one session", async ({ page }) => 
   });
   await page.goto("http://jouzu-ui.test/");
   await expect(page.getByLabel("Message Jouzu")).toBeVisible();
+}
+
+test("a running turn does not lock the app to one session", async ({ page }) => {
+  await setup(page);
 
   // Open Alpha from disk, then send: that attaches its runtime and starts a turn.
   await page.getByRole("button", { name: /^Alpha/ }).click();
@@ -173,4 +176,46 @@ test("a running turn does not lock the app to one session", async ({ page }) => 
   expect(stops).not.toContain(prompts[1].handle);
   // Bounded: entry + four warm + Alpha + the new session.
   expect(await page.evaluate(() => (window as any).handleCount())).toBeLessThanOrEqual(8);
+});
+
+test("two sessions in one workspace run turns side by side", async ({ page }) => {
+  await setup(page);
+
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await page.getByLabel("Message Jouzu").fill("alpha work");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+
+  // Beta is a preview: its transcript is on screen, and Stop must not point at
+  // the turn that is still running in Alpha.
+  await page.getByRole("button", { name: /^Beta/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("Beta answer");
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+  await expect(page.locator("[data-session-running]")).toHaveCount(1);
+
+  await page.getByLabel("Message Jouzu").fill("beta work");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(2);
+  await expect(page.locator("[data-session-running]")).toHaveCount(2);
+
+  const summary = await page.evaluate(() => (window as any).handleSummary());
+  expect(summary.filter((item: any) => item.session === "C:/sessions/alpha.jsonl")).toHaveLength(1);
+  expect(summary.filter((item: any) => item.session === "C:/sessions/beta.jsonl")).toHaveLength(1);
+  expect(summary.every((item: any) => item.running)).toBe(true);
+
+  // Each session keeps its own turn; Stop reaches only the one on screen.
+  const prompts = await page.evaluate(() => (window as any).promptCalls);
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).abortCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).abortCalls)).toEqual([prompts[0].handle]);
+  await expect(page.locator("[data-session-running]")).toHaveCount(1);
+
+  await page.getByRole("button", { name: /^Beta/ }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).abortCalls.length)).toBe(2);
+  expect(await page.evaluate(() => (window as any).abortCalls)).toEqual([prompts[0].handle, prompts[1].handle]);
+  await expect(page.locator("[data-session-running]")).toHaveCount(0);
 });
