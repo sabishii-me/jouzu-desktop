@@ -89,7 +89,9 @@ export class ChatConnection {
   setDialogHandler(handler: (request: WireObject) => void) { this.dialog = handler; }
   isDisposed() { return this.disposed; }
   private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) for (const listener of this.subscribers) listener(this.snapshot); }
-  async start(path: string, fresh = false, key = path) {
+  private external = false;
+  async start(path: string, fresh = false, key = path, external = false) {
+    this.external = external;
     // The runtime replays historical messages as ordinary wire events while the
     // connection attaches. Suppress those events until get_messages has supplied
     // the authoritative transcript, so opening a saved session never animates it.
@@ -120,13 +122,14 @@ export class ChatConnection {
       this.fail(error);
     }
   }
-  private poll = async () => {
-    if (this.disposed || this.failed || !this.handle || this.polling) return;
-    this.polling = true;
-    try {
-      const batch = await invoke<Poll>("chat_poll", { handle: this.handle });
-      if (this.disposed || this.failed) return;
-      for (const record of batch.records) {
+  get chatHandle() { return this.handle; }
+  attachView() {
+    this.external = false;
+    if (!this.disposed && !this.failed && this.handle && !this.polling) this.poll();
+  }
+  failExternal(error: string) { this.fail(new Error(error)); }
+  ingest(records: any[]) {
+      for (const record of records) {
         if (record.type === "response") {
           const pending = typeof record.id === "string" ? this.requests.get(record.id) : undefined;
           if (!pending || record.command !== pending.command || typeof record.success !== "boolean") throw new Error("Uncorrelated runtime response.");
@@ -143,7 +146,7 @@ export class ChatConnection {
         } else if (record.type === "extension_ui_request") {
           if (record.method === "setWidget" && typeof record.widgetKey === "string") {
             const widgets = { ...(this.snapshot.widgets ?? {}) };
-            const lines = Array.isArray(record.widgetLines) ? record.widgetLines.filter((line): line is string => typeof line === "string") : undefined;
+            const lines = Array.isArray(record.widgetLines) ? record.widgetLines.filter((line: unknown): line is string => typeof line === "string") : undefined;
             if (lines?.length) widgets[record.widgetKey] = lines;
             else delete widgets[record.widgetKey];
             this.update({ widgets });
@@ -172,7 +175,8 @@ export class ChatConnection {
       }
         else this.update({ projection: projectEvent(this.snapshot.projection, record) });
       }
-      if (batch.closed) throw new Error(batch.error || "Runtime disconnected. The outcome may be incomplete; no work was replayed.");
+  }
+  tick() {
       const now = Date.now();
       const waitingForUser = this.dialogs.size > 0;
       for (const [id, deadline] of this.dialogs) if (deadline !== null && deadline <= now) this.dialogs.delete(id);
@@ -180,6 +184,16 @@ export class ChatConnection {
       if (waitingForUser) for (const pending of this.requests.values()) pending.deadline += now - this.lastPoll;
       this.lastPoll = now;
       for (const pending of this.requests.values()) if (now > pending.deadline) throw new Error("Jouzu did not answer for five minutes. The outcome is uncertain; no work was replayed.");
+  }
+  private poll = async () => {
+    if (this.disposed || this.failed || !this.handle || this.polling) return;
+    this.polling = true;
+    try {
+      const batch = await invoke<Poll>("chat_poll", { handle: this.handle });
+      if (this.disposed || this.failed) return;
+      this.ingest(batch.records);
+      if (batch.closed) throw new Error(batch.error || "Runtime disconnected. The outcome may be incomplete; no work was replayed.");
+      this.tick();
       this.polling = false;
       this.timer = setTimeout(this.poll, this.requests.size || this.dialogs.size ? POLL_ACTIVE_MS : POLL_IDLE_MS);
     } catch (error) {

@@ -7,28 +7,68 @@ interface Slot {
   scratch: string;
 }
 
+interface PoolPoll {
+  handle: string;
+  records: unknown[];
+  closed?: boolean;
+  error?: string;
+}
+
 /**
  * Warm slots are blank runtimes started in a private scratch directory. They never
  * attach the real workspace's session branch, so they cannot contend with the
  * visible runtime for Flow ownership. Leasing a session runs switch_session, which
  * releases the scratch branch and acquires the target's. New sessions cold-start
  * in the real workspace because a scratch runtime's cwd is its scratch directory.
+ *
+ * Idle slots are polled by one timer through chat_poll_many. A leased client
+ * takes over its own polling, so the view keeps the behavior it always had.
  */
 export class ChatPool {
   private slots = new Map<ChatConnection, Slot>();
   private idle = new Set<ChatConnection>();
   private entries = new Map<string, ChatConnection>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
 
   constructor(private readonly target = 4, private readonly maxSessions = 30) {}
 
+  private ensureTimer(): void {
+    if (this.timer || this.disposed) return;
+    this.timer = setTimeout(this.loop, 10);
+  }
+
+  private loop = async (): Promise<void> => {
+    this.timer = undefined;
+    if (this.disposed) return;
+    const clients = [...this.slots.keys()].filter(client => !client.isDisposed() && client.chatHandle);
+    const handles = clients.map(client => client.chatHandle!).filter(Boolean);
+    const byHandle = new Map(clients.map(client => [client.chatHandle!, client]));
+    if (handles.length) {
+      try {
+        const polls = await invoke<PoolPoll[]>("chat_poll_many", { handles });
+        for (const poll of polls ?? []) {
+          const client = byHandle.get(poll.handle);
+          if (!client) continue;
+          client.ingest(poll.records ?? []);
+          if (poll.closed) client.failExternal(poll.error ?? "Runtime disconnected.");
+          else client.tick();
+        }
+      } catch {
+        // A page reload can race the pool; the next tick retries.
+      }
+    }
+    this.timer = setTimeout(this.loop, 10);
+  };
+
   async warm(): Promise<void> {
+    this.ensureTimer();
     while (!this.disposed && this.idle.size < this.target) {
       const scratch = await invoke<string>("chat_scratch_dir");
       const client = new ChatConnection(() => {}, () => {});
       this.slots.set(client, { client, scratch });
       try {
-        await client.start(scratch, true, `slot:${crypto.randomUUID()}`);
+        await client.start(scratch, true, `slot:${crypto.randomUUID()}`, true);
         if (this.disposed) { void client.close(); return; }
         this.idle.add(client);
       } catch {
@@ -49,6 +89,7 @@ export class ChatPool {
       this.idle.delete(client);
       this.slots.delete(client);
       if (dialog) client.setDialogHandler(dialog);
+      client.attachView();
       await client.resumeSession(sessionPath!);
     } else {
       client = new ChatConnection(() => {}, dialog ?? (() => {}));
@@ -92,6 +133,8 @@ export class ChatPool {
 
   dispose(): void {
     this.disposed = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
     for (const client of this.slots.keys()) void client.close();
     this.slots.clear();
     this.idle.clear();
