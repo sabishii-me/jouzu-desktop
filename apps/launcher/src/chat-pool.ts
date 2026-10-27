@@ -53,7 +53,7 @@ export class ChatPool {
       if (sessionPath) await client.resumeSession(sessionPath);
     } else {
       client = new ChatConnection(() => {}, dialog ?? (() => {}));
-      await client.start(path, fresh && !sessionPath, fresh ? undefined : path);
+      await client.start(path, fresh && !sessionPath, `slot:${crypto.randomUUID()}`);
       if (sessionPath) await client.resumeSession(sessionPath);
     }
     void this.warm(path).catch(() => {});
