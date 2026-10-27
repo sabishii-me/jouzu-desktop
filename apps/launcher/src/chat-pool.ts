@@ -1,18 +1,18 @@
+import { invoke } from "@tauri-apps/api/core";
 import { ChatConnection } from "./chat-connection";
 import type { WireObject } from "./chat-projection";
 
 interface Slot {
   client: ChatConnection;
-  path: string;
-  ready: Promise<void>;
+  scratch: string;
 }
 
 /**
- * Keeps blank runtimes warm so opening a session or starting a new one does not
- * pay the spawn cost. A slot is only ever leased to one view at a time: the
- * pool removes it from the idle set before handing it out, and the caller closes
- * it when the view goes away. Different workspaces keep different slots, which
- * matches the native one-runtime-per-workspace ownership guard.
+ * Warm slots are blank runtimes started in a private scratch directory. They never
+ * attach the real workspace's session branch, so they cannot contend with the
+ * visible runtime for Flow ownership. Leasing a session runs switch_session, which
+ * releases the scratch branch and acquires the target's. New sessions cold-start
+ * in the real workspace because a scratch runtime's cwd is its scratch directory.
  */
 export class ChatPool {
   private slots = new Map<ChatConnection, Slot>();
@@ -22,14 +22,13 @@ export class ChatPool {
 
   constructor(private readonly target = 4, private readonly maxSessions = 30) {}
 
-  /** Warm blank runtimes for `path` until the idle target is met. */
-  async warm(path: string): Promise<void> {
+  async warm(): Promise<void> {
     while (!this.disposed && this.idle.size < this.target) {
+      const scratch = await invoke<string>("chat_scratch_dir");
       const client = new ChatConnection(() => {}, () => {});
-      const slot: Slot = { client, path, ready: client.start(path, true, `slot:${crypto.randomUUID()}`) };
-      this.slots.set(client, slot);
+      this.slots.set(client, { client, scratch });
       try {
-        await slot.ready;
+        await client.start(scratch, true, `slot:${crypto.randomUUID()}`);
         if (this.disposed) { void client.close(); return; }
         this.idle.add(client);
       } catch {
@@ -40,26 +39,25 @@ export class ChatPool {
     }
   }
 
-  /** Take a warm runtime for `path`; switch it to `sessionPath` when one is given. */
+  /** Take a warm runtime for `path`; a session target switches it across cwd. */
   async lease(path: string, sessionPath?: string, dialog?: (request: WireObject) => void, fresh = true): Promise<ChatConnection> {
     let client: ChatConnection | undefined;
-    if (fresh) for (const candidate of this.idle) {
-      if (this.slots.get(candidate)?.path === path) { client = candidate; break; }
+    if (sessionPath) {
+      for (const candidate of this.idle) { client = candidate; break; }
     }
     if (client) {
       this.idle.delete(client);
       this.slots.delete(client);
       if (dialog) client.setDialogHandler(dialog);
-      if (sessionPath) await client.resumeSession(sessionPath);
+      await client.resumeSession(sessionPath!);
     } else {
       client = new ChatConnection(() => {}, dialog ?? (() => {}));
       await client.start(path, fresh && !sessionPath, `slot:${crypto.randomUUID()}`);
       if (sessionPath) await client.resumeSession(sessionPath);
     }
-    void this.warm(path).catch(() => {});
+    void this.warm().catch(() => {});
     return client;
   }
-
 
   /** A live session client kept across view switches; LRU-bounded by maxSessions. */
   async enter(path: string, sessionPath: string, dialog?: (request: WireObject) => void): Promise<ChatConnection> {
@@ -80,6 +78,7 @@ export class ChatPool {
     }
     return client;
   }
+
   /** Keep an existing client under its session path so switching back is instant. */
   remember(sessionPath: string, client: ChatConnection): void {
     this.entries.set(sessionPath, client);
@@ -90,6 +89,7 @@ export class ChatPool {
       if (evicted && evicted !== client) void evicted.close();
     }
   }
+
   dispose(): void {
     this.disposed = true;
     for (const client of this.slots.keys()) void client.close();
@@ -98,5 +98,5 @@ export class ChatPool {
   }
 }
 
-/** One pool per window: the legacy single-view workspace leases a runtime from it. */
+/** One pool per window: the workspace view leases a runtime from it. */
 export const chatPool = new ChatPool(4);

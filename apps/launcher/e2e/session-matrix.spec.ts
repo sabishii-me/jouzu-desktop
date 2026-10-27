@@ -60,7 +60,7 @@ async function setup(page: Page) {
     let current = "";
     let approvedLive = false;
     const records: any[] = [];
-    const handleStates = new Map<string, any[]>();
+    const handleStates = new Map<string, { current: string; records: any[]; approvedLive: boolean }>();
     let handleSeq = 0;
     let currentOut = records;
     const response = (request: any, data?: any) => currentOut.push({ type: "response", id: request.id, command: request.type, success: true, data });
@@ -90,6 +90,7 @@ async function setup(page: Page) {
         if (command === "chat_session_timing") return { modelMs: 1, toolMs: 1, turns: 1, steps: 1, outputTokens: 1 };
         if (command === "environment_read") return [];
         if (command === "plugin:dialog|save") return "C:/tmp/export.html";
+        if (command === "chat_scratch_dir") return "C:/Temp/jz-scratch";
         if (command === "chat_start") return "matrix-test";
         if (command === "chat_poll") return { records: records.splice(0), closed: false };
         if (command === "chat_send") {
@@ -105,11 +106,11 @@ async function setup(page: Page) {
             w.promptCalls.push(request.message);
             if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes("inspect")) {
               const payload = current === ids[7]
-                ? (approvedLive ? { ...liveReview, items: [] } : liveReview)
+                ? (state.approvedLive ? { ...liveReview, items: [] } : liveReview)
                 : { ...review, sessionId: current || "new", items: [] };
               records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify(payload)}` });
             }
-            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes('"action":"approve"') && current === ids[7]) approvedLive = true;
+            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes('"action":"approve"') && current === ids[7]) state.approvedLive = true;
             response(request);
           }
           else if (request.type === "get_fork_messages") {

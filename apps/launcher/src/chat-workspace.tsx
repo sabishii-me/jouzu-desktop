@@ -643,20 +643,17 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     // way Review does, so the branch is copied from the session on screen.
     const target = selectedSessionRef.current;
     const attach = !!target && normalizedPath(target) !== normalizedPath(client.snapshot.sessionFile ?? "");
-    if (attach) startSwitch(target);
     switchingRef.current = true;
     setSwitching(true);
     try {
       if (attach) {
-        await switchPromise.current;
-        client = connection.current;
+        // Fork attaches on the current runtime: the fork must run against the session
+        // on screen, and a pool swap here would clear the branch notification.
+        await client.resumeSession(target);
         if (!client || normalizedPath(target ?? "") !== normalizedPath(client.snapshot.sessionFile ?? "")) {
           setNotification("Could not attach this session for forking.");
           return;
         }
-        // switchSession's finally clears the guard; keep fork single-flight while it runs.
-        switchingRef.current = true;
-        setSwitching(true);
       }
       const source = client.snapshot.sessionFile;
       if (!source) throw new Error("This session has no file to branch yet.");

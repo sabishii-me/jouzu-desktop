@@ -620,6 +620,17 @@ pub struct PoolPoll {
 
 /// One poll call serves every live session so the pool needs one timer.
 #[tauri::command]
+pub fn chat_scratch_dir() -> Result<String, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!("jouzu-warm-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 pub fn chat_poll_many(
     window: tauri::WebviewWindow,
     state: tauri::State<ChatService>,
