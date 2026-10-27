@@ -9,8 +9,9 @@ import { McpMenu } from "./mcp-menu";
 import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
+import { chatPool } from "./chat-pool";
 import { readImageAttachment, removeSubmittedImages, validateImageSelection, type ImageAttachment } from "./chat-attachments";
-import { emptyProjection, historyProjection, interruptUnfinishedTools, type ChatProjection, type FlowReportRecord } from "./chat-projection";
+import { emptyProjection, historyProjection, interruptUnfinishedTools, type ChatProjection, type FlowReportRecord, type WireObject } from "./chat-projection";
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
@@ -142,17 +143,19 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
     setDraft(""); updateAttachments([]); setAttachmentError(null);
     setFlowNotice("");
-    const client = new ChatConnection(state => {
-      setSnapshot(state);
-      if (!state.connected && state.error) updateDialogs(emptyDialogQueue());
-    }, request => {
+    let client: ChatConnection | undefined;
+    let unsubscribe: (() => void) | undefined;
+    let disposed = false;
+    const handleDialog = (request: WireObject) => {
+      const active = client;
+      if (!active) return;
       if (["select", "confirm", "input", "editor"].includes(String(request.method))) {
         const result = enqueueDialog(queue.current, request, Date.now());
         updateDialogs(result.queue);
         if (result.status === "full" && typeof request.id === "string") {
           setNotification("Too many extension requests to display. The additional request was cancelled.");
-          void client.reply(request.id, { cancelled: true }).catch(error => {
-            if (connection.current === client) setNotification(`The additional request could not be cancelled. ${String(error)}`);
+          void active.reply(request.id, { cancelled: true }).catch(error => {
+            if (connection.current === active) setNotification(`The additional request could not be cancelled. ${String(error)}`);
           });
         }
         else if (result.status === "invalid") setNotification("An invalid extension request could not be displayed.");
@@ -164,8 +167,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           const id = textguard.sessionId ?? activeSessionIdRef.current;
           if (id && id === activeSessionIdRef.current) {
             const view = textguardRef.current[id];
-            // A transcript-only event with no live review is historical: an empty
-            // inspect must not turn it into a completed review.
             if (!textguard.items.length && !view?.data && view?.historical) {
               updateTextGuard(id, { error: "This review is no longer available in the runtime.", loading: false, seen: true });
               return;
@@ -185,11 +186,28 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         else setNotification(message);
       }
       else if (request.method === "set_editor_text") setDraft(String(request.text ?? ""));
-    });
-    connection.current = client;
-    void client.start(path, newSessionOnStart.current || freshOnPath.current);
+    };
+    void (async () => {
+      try {
+        const leased = await chatPool.lease(path, undefined, handleDialog, newSessionOnStart.current || freshOnPath.current);
+        if (disposed) { void leased.close().catch(() => {}); return; }
+        client = leased;
+        connection.current = leased;
+        unsubscribe = leased.subscribe(state => {
+          setSnapshot(state);
+          if (!state.connected && state.error) updateDialogs(emptyDialogQueue());
+        });
+      } catch (error) {
+        if (!disposed) setSnapshot(current => ({ ...current, error: String(error) }));
+      }
+    })();
     freshOnPath.current = false;
-    return () => { connection.current = null; void client.close().catch(() => {}); };
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+      connection.current = null;
+      void client?.close().catch(() => {});
+    };
   }, [path, revision]);
   useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
   useEffect(() => {

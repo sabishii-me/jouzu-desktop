@@ -40,9 +40,9 @@ export class ChatPool {
   }
 
   /** Take a warm runtime for `path`; switch it to `sessionPath` when one is given. */
-  async lease(path: string, sessionPath?: string, dialog?: (request: WireObject) => void): Promise<ChatConnection> {
+  async lease(path: string, sessionPath?: string, dialog?: (request: WireObject) => void, fresh = true): Promise<ChatConnection> {
     let client: ChatConnection | undefined;
-    for (const candidate of this.idle) {
+    if (fresh) for (const candidate of this.idle) {
       if (this.slots.get(candidate)?.path === path) { client = candidate; break; }
     }
     if (client) {
@@ -52,7 +52,7 @@ export class ChatPool {
       if (sessionPath) await client.resumeSession(sessionPath);
     } else {
       client = new ChatConnection(() => {}, dialog ?? (() => {}));
-      await client.start(path, !sessionPath);
+      await client.start(path, fresh && !sessionPath, fresh ? undefined : path);
       if (sessionPath) await client.resumeSession(sessionPath);
     }
     void this.warm(path).catch(() => {});
@@ -66,3 +66,6 @@ export class ChatPool {
     this.idle.clear();
   }
 }
+
+/** One pool per window: the legacy single-view workspace leases a runtime from it. */
+export const chatPool = new ChatPool(4);
