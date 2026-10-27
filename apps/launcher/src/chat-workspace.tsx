@@ -12,6 +12,7 @@ import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connec
 import { chatPool } from "./chat-pool";
 import { readImageAttachment, removeSubmittedImages, validateImageSelection, type ImageAttachment } from "./chat-attachments";
 import { emptyProjection, historyProjection, interruptUnfinishedTools, type ChatProjection, type FlowReportRecord, type WireObject } from "./chat-projection";
+import { clearDraft, draftKey, readDraft, writeDraft } from "./drafts";
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
@@ -57,6 +58,9 @@ function relativeTime(updated: number) {
 export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSession, onRetry, onBusyChange, catalogRefreshing = false, canRefreshModels = false, onModelsMissing, workspaces, onSelect, onAddFolder, onRemove, onTerminal, onSettings, onUpdate, updateAvailable = false, updateBusy = false }: ChatWorkspaceProps) {
   const [snapshot, setSnapshot] = useState<ChatSnapshot>({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
   const [draft, setDraft] = useState("");
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const draftKeyRef = useRef("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const attachmentRef = useRef(attachments);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -129,7 +133,27 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (owner) dialogQueues.current.set(owner, next);
     writeDialogs(next);
   }
-  function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
+  function updateAttachments(next: ImageAttachment[]) {
+    attachmentRef.current = next;
+    setAttachments(next);
+    saveDraft(draftRef.current, next);
+  }
+  function saveDraft(text: string, next: ImageAttachment[]) {
+    const key = draftKeyRef.current;
+    if (key) writeDraft(key, { text, attachments: next });
+  }
+  function updateDraft(value: string) {
+    draftRef.current = value;
+    setDraft(value);
+    saveDraft(value, attachmentRef.current);
+  }
+  function applyDraft(next: { text: string; attachments: ImageAttachment[] } | undefined) {
+    draftRef.current = next?.text ?? "";
+    setDraft(next?.text ?? "");
+    attachmentRef.current = next?.attachments ?? [];
+    setAttachments(next?.attachments ?? []);
+    setAttachmentError(null);
+  }
   function bindClient(next: ChatConnection) {
     unsubscribeRef.current?.();
     connection.current = next;
@@ -157,6 +181,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (newSession && !previousNewSession.current) void startNewSession();
     previousNewSession.current = newSession;
   }, [newSession]);
+  // A draft belongs to the workspace and the session (or its new-session slot).
+  // Changing the key loads that draft; it never clears the one left behind.
+  const activeDraftKey = draftKey(path, hero ? null : selectedSession ?? snapshot.sessionFile ?? null);
+  useEffect(() => {
+    if (draftKeyRef.current === activeDraftKey) return;
+    draftKeyRef.current = activeDraftKey;
+    applyDraft(readDraft(activeDraftKey));
+  }, [activeDraftKey]);
   useEffect(() => {
     const selected = selectedSessionRef.current;
     const keepPreview = !!selected && !!previewRef.current && normalizedPath(previewRef.current.path) === normalizedPath(selected);
@@ -169,7 +201,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (selected) setHero(false);
     writeDialogs(emptyDialogQueue());
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
-    setDraft(""); updateAttachments([]); setAttachmentError(null);
     setFlowNotice("");
     let client: ChatConnection | undefined;
     let disposed = false;
@@ -216,7 +247,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         else setNotification(message);
       }
       else if (request.method === "set_editor_text") {
-        if (connection.current === owner) setDraft(String(request.text ?? ""));
+        if (connection.current === owner) updateDraft(String(request.text ?? ""));
       }
     };
     void (async () => {
@@ -363,7 +394,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     }
     if (images.length) await addImages(images);
     if (files.length) {
-      setDraft(current => `${current}${current.trim() ? "\n\n" : ""}${files.map(path => `File: ${path}`).join("\n")}`);
+      const current = draftRef.current;
+      updateDraft(`${current}${current.trim() ? "\n\n" : ""}${files.map(path => `File: ${path}`).join("\n")}`);
       setNotification(`${files.length} file${files.length === 1 ? "" : "s"} added to the message.`);
     }
   }
@@ -398,7 +430,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const running = client.snapshot.projection.running;
       await client.sendOrSteer(value, submitted.map(item => item.image), running);
       if (connection.current !== client) return;
-      setDraft(current => current === value ? "" : current);
+      // Only a successful send clears the sent key; text typed during the send and
+      // attachments that were not submitted stay.
+      if (draftRef.current === value) {
+        clearDraft(draftKeyRef.current);
+        draftRef.current = "";
+        setDraft("");
+      }
+      else saveDraft(draftRef.current, attachmentRef.current);
       updateAttachments(removeSubmittedImages(attachmentRef.current, submitted));
       if (wasHero) { setHero(false); onStartSession?.(); }
     } catch (error) {
@@ -946,7 +985,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <BackgroundMenu jobs={flow.background} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <FlowMenu key={snapshot.sessionId ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === activeSession ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
-            <McpMenu onReload={() => void reloadSession()} onAsk={() => setDraft("Add an MCP server to this workspace. Ask me for the name, transport, target, and any required environment variables.")} />
+            <McpMenu onReload={() => void reloadSession()} onAsk={() => updateDraft("Add an MCP server to this workspace. Ask me for the name, transport, target, and any required environment variables.")} />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -967,7 +1006,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <p className="max-w-md text-sm text-muted-foreground">Choose a workspace, then describe the task. Jouzu can explore code, explain it, or make a change.</p>
           </div>
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
-          <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={composerRunning} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
+          <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
@@ -976,7 +1015,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
         <div className="relative">
-          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={setDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
+          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
         </div>
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
       </>}

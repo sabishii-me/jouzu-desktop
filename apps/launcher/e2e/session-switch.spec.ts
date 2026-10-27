@@ -90,4 +90,21 @@ test("a session opens once and switching replaces it once", async ({ page }) => 
   expect(await page.evaluate(() => (window as any).switchCalls)).toEqual(["C:/sessions/beta.jsonl"]);
   await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(1);
   expect(await page.evaluate(() => (window as any).promptCalls)).toEqual(["Continue Beta"]);
+  // A successful send clears only the draft it sent.
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
+
+  // A draft belongs to one session: it survives a switch and a reload.
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await page.getByLabel("Message Jouzu").fill("unsent alpha draft");
+  await page.getByRole("button", { name: /^Beta/ }).click();
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("unsent alpha draft");
+
+  // The write is debounced; let it reach localStorage before the reload.
+  await page.waitForTimeout(300);
+  await page.reload();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await expect(page.getByLabel("Message Jouzu")).toHaveValue("unsent alpha draft");
 });
