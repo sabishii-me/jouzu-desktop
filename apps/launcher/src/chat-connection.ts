@@ -77,7 +77,7 @@ export class ChatConnection {
   private requests = new Map<string, { command: string; resolve: (value: unknown) => void; reject: (error: Error) => void; deadline: number }>();
   snapshot: ChatSnapshot = { projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] };
   private subscribers = new Set<(state: ChatSnapshot) => void>();
-  constructor(publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {
+  constructor(publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject, client: ChatConnection) => void) {
     this.subscribers.add(publish);
   }
   /** A pool-owned connection can outlive one view; views subscribe instead of owning the callback. */
@@ -86,7 +86,7 @@ export class ChatConnection {
     listener(this.snapshot);
     return () => { this.subscribers.delete(listener); };
   }
-  setDialogHandler(handler: (request: WireObject) => void) { this.dialog = handler; }
+  setDialogHandler(handler: (request: WireObject, client: ChatConnection) => void) { this.dialog = handler; }
   isDisposed() { return this.disposed; }
   private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) for (const listener of this.subscribers) listener(this.snapshot); }
   private external = false;
@@ -162,7 +162,7 @@ export class ChatConnection {
                 this.dialogs.set(record.id, typeof record.timeout === "number" && Number.isFinite(record.timeout) ? Date.now() + Math.max(0, record.timeout) : null);
               }
             }
-            this.dialog(record);
+            this.dialog(record, this);
           }
         }
         else if (record.type === "extension_error") {

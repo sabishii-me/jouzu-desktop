@@ -20,6 +20,7 @@ async function setup(page: Page) {
     w.promptCalls = [];
     w.abortCalls = [];
     w.stopCalls = [];
+    w.dialogReplies = [];
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const alpha = "C:/sessions/alpha.jsonl";
     const beta = "C:/sessions/beta.jsonl";
@@ -47,6 +48,18 @@ async function setup(page: Page) {
       .filter(([, state]) => state.current)
       .map(([handle, state]) => ({ handle, session: state.current, running: state.running }));
     w.handleCount = () => handles.size;
+    let dialogSeq = 0;
+    // A background turn can ask a question at any time; this lets the test choose
+    // which session asks and when.
+    w.raiseDialog = (sessionPath: string) => {
+      for (const [handle, state] of handles) {
+        if (state.current !== sessionPath) continue;
+        const id = `dlg-${++dialogSeq}`;
+        state.queue.push({ type: "extension_ui_request", id, method: "confirm", title: "Allow this?", message: "Background question" });
+        return { handle, id };
+      }
+      return null;
+    };
     w.__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback() {},
@@ -104,6 +117,9 @@ async function setup(page: Page) {
             response(state, request);
           }
           else if (request.type === "clear_queue") response(state, request);
+          else if (request.type === "extension_ui_response") {
+            w.dialogReplies.push({ handle: args.handle, id: request.id, confirmed: request.confirmed ?? null });
+          }
           else response(state, request);
           return;
         }
@@ -218,4 +234,34 @@ test("two sessions in one workspace run turns side by side", async ({ page }) =>
   await expect.poll(() => page.evaluate(() => (window as any).abortCalls.length)).toBe(2);
   expect(await page.evaluate(() => (window as any).abortCalls)).toEqual([prompts[0].handle, prompts[1].handle]);
   await expect(page.locator("[data-session-running]")).toHaveCount(0);
+});
+
+test("a dialog raised by a background session waits for that session", async ({ page }) => {
+  await setup(page);
+
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await page.getByLabel("Message Jouzu").fill("alpha work");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /^Beta/ }).click();
+  await page.getByLabel("Message Jouzu").fill("beta work");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(2);
+
+  // Alpha asks while Beta is the session on screen: the question belongs to Alpha.
+  const raised = await page.evaluate(() => (window as any).raiseDialog("C:/sessions/alpha.jsonl"));
+  expect(raised).toBeTruthy();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /^Alpha/ }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("Allow this?");
+  await page.getByRole("dialog").getByRole("button", { name: "Yes" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).dialogReplies.length)).toBe(1);
+
+  const replies = await page.evaluate(() => (window as any).dialogReplies);
+  expect(replies).toEqual([{ handle: raised.handle, id: raised.id, confirmed: true }]);
+  expect(await page.evaluate(() => (window as any).abortCalls)).toHaveLength(0);
+  await expect(page.locator("[data-session-running]")).toHaveCount(2);
 });

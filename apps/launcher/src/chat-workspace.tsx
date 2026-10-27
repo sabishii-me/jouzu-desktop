@@ -116,20 +116,34 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const picker = useRef<HTMLDivElement>(null);
   const connection = useRef<ChatConnection | null>(null);
   const unsubscribeRef = useRef<null | (() => void)>(null);
-  const dialogRef = useRef<(request: WireObject) => void>(() => {});
+  const dialogRef = useRef<(request: WireObject, client: ChatConnection) => void>(() => {});
+  const dialogQueues = useRef(new Map<ChatConnection, DialogQueue>());
   const previousNewSession = useRef(newSession);
   const newSessionOnStart = useRef(newSession);
   newSessionOnStart.current = newSession;
   const freshOnPath = useRef(false);
   const queuedSwitch = useRef<string | "new" | null>(null);
-  function updateDialogs(next: DialogQueue) { queue.current = next; setDialogs(next); }
+  function writeDialogs(next: DialogQueue) { queue.current = next; setDialogs(next); }
+  function updateDialogs(next: DialogQueue) {
+    const owner = connection.current;
+    if (owner) dialogQueues.current.set(owner, next);
+    writeDialogs(next);
+  }
   function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
   function bindClient(next: ChatConnection) {
     unsubscribeRef.current?.();
     connection.current = next;
+    // A dialog belongs to the runtime that raised it: the view shows the queue of
+    // the client it is bound to, and a background dialog waits here until then.
+    const pending = expireDialogs(dialogQueues.current.get(next) ?? emptyDialogQueue(), Date.now());
+    dialogQueues.current.set(next, pending);
+    writeDialogs(pending);
     unsubscribeRef.current = next.subscribe(state => {
       setSnapshot(state);
-      if (!state.connected && state.error) updateDialogs(emptyDialogQueue());
+      if (!state.connected && state.error) {
+        dialogQueues.current.set(next, emptyDialogQueue());
+        if (connection.current === next) writeDialogs(emptyDialogQueue());
+      }
     });
   }
   function updateTextGuard(sessionId: string, change: Partial<TextGuardView>) {
@@ -153,22 +167,22 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSessionError(null);
     setSwitching(false);
     if (selected) setHero(false);
-    updateDialogs(emptyDialogQueue());
+    writeDialogs(emptyDialogQueue());
     setSnapshot({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
     setDraft(""); updateAttachments([]); setAttachmentError(null);
     setFlowNotice("");
     let client: ChatConnection | undefined;
     let disposed = false;
-    const handleDialog = (request: WireObject) => {
-      const active = client;
-      if (!active) return;
+    const handleDialog = (request: WireObject, owner: ChatConnection) => {
       if (["select", "confirm", "input", "editor"].includes(String(request.method))) {
-        const result = enqueueDialog(queue.current, request, Date.now());
-        updateDialogs(result.queue);
+        const pending = expireDialogs(dialogQueues.current.get(owner) ?? emptyDialogQueue(), Date.now());
+        const result = enqueueDialog(pending, request, Date.now());
+        dialogQueues.current.set(owner, result.queue);
+        if (connection.current === owner) writeDialogs(result.queue);
         if (result.status === "full" && typeof request.id === "string") {
           setNotification("Too many extension requests to display. The additional request was cancelled.");
-          void active.reply(request.id, { cancelled: true }).catch(error => {
-            if (connection.current === active) setNotification(`The additional request could not be cancelled. ${String(error)}`);
+          void owner.reply(request.id, { cancelled: true }).catch(error => {
+            if (connection.current === owner) setNotification(`The additional request could not be cancelled. ${String(error)}`);
           });
         }
         else if (result.status === "invalid") setNotification("An invalid extension request could not be displayed.");
@@ -177,8 +191,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         const message = String(request.message ?? "");
         const textguard = parseTextGuardNotice(message);
         if (textguard) {
-          const id = textguard.sessionId ?? activeSessionIdRef.current;
-          if (id && id === activeSessionIdRef.current) {
+          const id = textguard.sessionId ?? owner.snapshot.sessionId;
+          if (id) {
             const view = textguardRef.current[id];
             if (!textguard.items.length && !view?.data && view?.historical) {
               updateTextGuard(id, { error: "This review is no longer available in the runtime.", loading: false, seen: true });
@@ -190,15 +204,20 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         }
         const textguardResult = parseTextGuardResult(message);
         if (textguardResult) {
-          const id = activeSessionIdRef.current;
+          const id = owner.snapshot.sessionId;
           if (id) updateTextGuard(id, { error: textguardResult.ok ? null : textguardResult.error ?? "TextGuard request failed.", loading: false });
           return;
         }
+        // A background session keeps working; its notices must not surface as the
+        // visible session's toast or Flow notice.
+        if (connection.current !== owner) return;
         const flow = flowNoticeText(message);
         if (flow) setFlowNotice(flow);
         else setNotification(message);
       }
-      else if (request.method === "set_editor_text") setDraft(String(request.text ?? ""));
+      else if (request.method === "set_editor_text") {
+        if (connection.current === owner) setDraft(String(request.text ?? ""));
+      }
     };
     void (async () => {
       try {
@@ -216,6 +235,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       disposed = true;
       unsubscribeRef.current?.();
       connection.current = null;
+      if (client) dialogQueues.current.delete(client);
       // The same rule as every other view change: a session with a transcript is
       // kept, a blank one is closed instead of being parked under a provisional path.
       if (client?.snapshot.error) void client.close().catch(() => {});
@@ -430,7 +450,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSwitching(true);
     setSessionError(null);
     try {
-      const next = await chatPool.lease(path, undefined, request => dialogRef.current(request), true);
+      const next = await chatPool.lease(path, undefined, dialogRef.current, true);
       parkPrevious(previous);
       bindClient(next);
       updateDialogs(emptyDialogQueue());
@@ -566,7 +586,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSessionError(null);
     try {
       const previous = connection.current;
-      const next = await chatPool.enter(path, target, request => dialogRef.current(request));
+      const next = await chatPool.enter(path, target, dialogRef.current);
       if (connection.current !== previous) return;
       if (previous && previous !== next) parkPrevious(previous);
       if (connection.current !== next) bindClient(next);

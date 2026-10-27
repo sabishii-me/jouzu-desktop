@@ -144,7 +144,7 @@ export class ChatPool {
   }
 
   /** Take a warm runtime for `path`; a session target switches it across cwd. */
-  async lease(path: string, sessionPath?: string, dialog?: (request: WireObject) => void, fresh = true): Promise<ChatConnection> {
+  async lease(path: string, sessionPath?: string, dialog?: (request: WireObject, client: ChatConnection) => void, fresh = true): Promise<ChatConnection> {
     let client: ChatConnection | undefined;
     if (sessionPath) {
       for (const candidate of this.idle) { client = candidate; break; }
@@ -165,7 +165,7 @@ export class ChatPool {
   }
 
   /** A live session client kept across view switches; LRU-bounded by maxSessions. */
-  async enter(path: string, sessionPath: string, dialog?: (request: WireObject) => void): Promise<ChatConnection> {
+  async enter(path: string, sessionPath: string, dialog?: (request: WireObject, client: ChatConnection) => void): Promise<ChatConnection> {
     // One entry per session: paths that differ only in case or separators are the
     // same session, and a second entry would mean a second runtime for it.
     const key = entryKey(sessionPath);
