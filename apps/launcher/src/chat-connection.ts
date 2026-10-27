@@ -76,16 +76,26 @@ export class ChatConnection {
   private preferredModel = readModelPreference();
   private requests = new Map<string, { command: string; resolve: (value: unknown) => void; reject: (error: Error) => void; deadline: number }>();
   snapshot: ChatSnapshot = { projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] };
-  constructor(private publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {}
-  private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) this.publish(this.snapshot); }
-  async start(path: string, fresh = false) {
+  private subscribers = new Set<(state: ChatSnapshot) => void>();
+  constructor(publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {
+    this.subscribers.add(publish);
+  }
+  /** A pool-owned connection can outlive one view; views subscribe instead of owning the callback. */
+  subscribe(listener: (state: ChatSnapshot) => void): () => void {
+    this.subscribers.add(listener);
+    listener(this.snapshot);
+    return () => { this.subscribers.delete(listener); };
+  }
+  setDialogHandler(handler: (request: WireObject) => void) { this.dialog = handler; }
+  private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) for (const listener of this.subscribers) listener(this.snapshot); }
+  async start(path: string, fresh = false, key = path) {
     // The runtime replays historical messages as ordinary wire events while the
     // connection attaches. Suppress those events until get_messages has supplied
     // the authoritative transcript, so opening a saved session never animates it.
     this.replaying = true;
     try {
       await invoke("chat_release_generation", { generation: pageGeneration });
-      const handle = await invoke<string>("chat_start", { path, generation: pageGeneration });
+      const handle = await invoke<string>("chat_start", { path, generation: pageGeneration, key });
       if (this.disposed) { await invoke("chat_stop", { handle }); return; }
       this.handle = handle;
       this.update({ transportReady: true });

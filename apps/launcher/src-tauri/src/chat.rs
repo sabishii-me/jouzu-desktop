@@ -105,7 +105,7 @@ struct Output {
 struct Session {
     owner: String,
     generation: String,
-    path: std::path::PathBuf,
+    key: String,
     last_poll: Instant,
     input: mpsc::SyncSender<Vec<u8>>,
     stop: mpsc::Sender<()>,
@@ -311,6 +311,7 @@ pub fn chat_start(
     state: tauri::State<ChatService>,
     path: String,
     generation: Option<String>,
+    key: Option<String>,
 ) -> Result<String, String> {
     if window.label() != "main" {
         return Err("Chat is restricted to the main window".into());
@@ -336,11 +337,12 @@ pub fn chat_start(
     if !cwd.is_dir() {
         return Err("Workspace must be a folder".into());
     }
-    // Two runtimes in one workspace can contend for the same Flow branch ownership.
-    // Keep one live runtime per workspace; different workspaces may coexist.
+    // Ownership is per session/branch. A pool slot keeps a unique key until it is
+    // leased; the visible entry uses its session key. Only the same key is stopped.
+    let session_key = key.unwrap_or_else(|| cwd.to_string_lossy().into_owned());
     let same: Vec<String> = sessions
         .iter()
-        .filter(|(_, session)| session.path == cwd)
+        .filter(|(_, session)| session.key == session_key)
         .map(|(handle, _)| handle.clone())
         .collect();
     let previous: Vec<Session> = same
@@ -528,7 +530,7 @@ pub fn chat_start(
         Session {
             owner: window.label().into(),
             generation: generation.unwrap_or_default(),
-            path: cwd.clone(),
+            key: session_key,
             last_poll: Instant::now(),
             input,
             stop,
@@ -832,7 +834,7 @@ mod tests {
             Session {
                 owner: "main".into(),
                 generation: String::new(),
-                path: std::path::PathBuf::new(),
+                key: String::new(),
                 last_poll: Instant::now(),
                 input,
                 stop,
