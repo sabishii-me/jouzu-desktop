@@ -738,19 +738,19 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
   const textguardItems = textguardView?.data?.items.length ?? 0;
   const textguardBlocked = !!textguardView?.seen && (textguardView.data ? textguardItems > 0 : true);
+  const [textguardMode, setTextguardMode] = useState<"on" | "strict" | "off">("on");
   const textguardControl = snapshot.sessionId ? {
-    label: textguardBlocked ? `${textguardItems || 1} blocked` : "TextGuard",
-    title: textguardBlocked ? `${textguardItems || 1} item(s) withheld from the model` : "TextGuard",
-    tone: (textguardBlocked ? "blocked" : textguardView?.historical ? "expired" : "idle") as "blocked" | "expired" | "idle",
+    label: "TextGuard",
+    title: `TextGuard mode: ${textguardMode === "on" ? "On" : textguardMode === "strict" ? "Strict" : "Off"}`,
+    tone: "idle" as "blocked" | "expired" | "idle",
     disabled: !textguardKey,
-    blocked: textguardBlocked,
-    mode: (textguardView?.data?.mode ?? "on") as "on" | "strict" | "off",
-    onMode: (mode: "on" | "strict" | "off") => void runTextGuard("mode", null, { mode }),
-    onOpen: () => {
-      if (!textguardKey) return;
-      if (!textguardView?.data) { updateTextGuard(textguardKey, { open: true, busy: false, loading: false }); if (!snapshot.projection.running) void requestTextGuardReview(); return; }
-      updateTextGuard(textguardKey, { open: true });
+    blocked: false,
+    mode: textguardMode,
+    onMode: (mode: "on" | "strict" | "off") => {
+      setTextguardMode(mode);
+      void runExtensionCommand(`/textguard ${mode}`);
     },
+    onOpen: () => {},
   } : undefined;
 
   // A review created by the running turn can only be inspected after it settles.
