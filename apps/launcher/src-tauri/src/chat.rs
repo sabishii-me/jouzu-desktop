@@ -162,6 +162,26 @@ fn stop_sessions(mut sessions: Vec<Session>) {
         let _ = join_session(session);
     }
 }
+fn stale_generation_handles(sessions: &HashMap<String, Session>, owner: &str, generation: &str) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|(_, session)| session.owner == owner && session.generation != generation)
+        .map(|(handle, _)| handle.clone())
+        .collect()
+}
+
+fn reaped_handles(sessions: &HashMap<String, Session>, owner: &str, kept: &[String], now: Instant) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|(handle, session)| {
+            session.owner == owner
+                && !kept.contains(handle)
+                && now.duration_since(session.last_poll) > Duration::from_secs(60)
+        })
+        .map(|(handle, _)| handle.clone())
+        .collect()
+}
+
 fn validate(request: &Value) -> Result<(), String> {
     let object = request
         .as_object()
@@ -634,15 +654,7 @@ pub fn chat_poll_many(
     }
     // A page load releases the previous generation explicitly; the reaper is the
     // backstop for a closed page that never ran its cleanup.
-    let reaped: Vec<String> = sessions
-        .iter()
-        .filter(|(handle, session)| {
-            session.owner == window.label()
-                && !handles.contains(handle)
-                && session.last_poll.elapsed() > Duration::from_secs(60)
-        })
-        .map(|(handle, _)| handle.clone())
-        .collect();
+    let reaped: Vec<String> = reaped_handles(&sessions, window.label(), &handles, Instant::now());
     let stopped: Vec<Session> = reaped
         .into_iter()
         .filter_map(|handle| sessions.remove(&handle))
@@ -663,11 +675,7 @@ pub fn chat_release_generation(
         .sessions
         .lock()
         .map_err(|_| "Chat state unavailable")?;
-    let stale: Vec<String> = sessions
-        .iter()
-        .filter(|(_, session)| session.owner == window.label() && session.generation != generation)
-        .map(|(handle, _)| handle.clone())
-        .collect();
+    let stale: Vec<String> = stale_generation_handles(&sessions, window.label(), &generation);
     let stopped: Vec<Session> = stale
         .into_iter()
         .filter_map(|handle| sessions.remove(&handle))
@@ -843,6 +851,27 @@ mod tests {
             },
             stopping,
         )
+    }
+
+    #[test]
+    fn generation_and_reaper_pick_only_stale_handles() {
+        let mut sessions = HashMap::new();
+        let (mut old, _) = test_session();
+        old.generation = "old".into();
+        old.last_poll = Instant::now() - Duration::from_secs(120);
+        let (mut live, _) = test_session();
+        live.generation = "new".into();
+        sessions.insert("old".into(), old);
+        sessions.insert("live".into(), live);
+
+        let mut stale = stale_generation_handles(&sessions, "main", "new");
+        stale.sort();
+        assert_eq!(stale, vec!["old"]);
+
+        let mut reaped = reaped_handles(&sessions, "main", &[], Instant::now());
+        reaped.sort();
+        assert_eq!(reaped, vec!["old"]);
+        assert!(reaped_handles(&sessions, "main", &["old".into()], Instant::now()).is_empty());
     }
 
     #[test]
