@@ -80,6 +80,16 @@ export class ChatPool {
     }
     return client;
   }
+  /** Keep an existing client under its session path so switching back is instant. */
+  remember(sessionPath: string, client: ChatConnection): void {
+    this.entries.set(sessionPath, client);
+    while (this.entries.size > this.maxSessions) {
+      const oldest = this.entries.keys().next().value as string;
+      const evicted = this.entries.get(oldest);
+      this.entries.delete(oldest);
+      if (evicted && evicted !== client) void evicted.close();
+    }
+  }
   dispose(): void {
     this.disposed = true;
     for (const client of this.slots.keys()) void client.close();

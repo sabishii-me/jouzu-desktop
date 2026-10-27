@@ -111,6 +111,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const [pickerOpen, setPickerOpen] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
   const connection = useRef<ChatConnection | null>(null);
+  const unsubscribeRef = useRef<null | (() => void)>(null);
+  const dialogRef = useRef<(request: WireObject) => void>(() => {});
   const previousNewSession = useRef(newSession);
   const newSessionOnStart = useRef(newSession);
   newSessionOnStart.current = newSession;
@@ -118,6 +120,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const queuedSwitch = useRef<string | "new" | null>(null);
   function updateDialogs(next: DialogQueue) { queue.current = next; setDialogs(next); }
   function updateAttachments(next: ImageAttachment[]) { attachmentRef.current = next; setAttachments(next); }
+  function bindClient(next: ChatConnection) {
+    unsubscribeRef.current?.();
+    connection.current = next;
+    unsubscribeRef.current = next.subscribe(state => {
+      setSnapshot(state);
+      if (!state.connected && state.error) updateDialogs(emptyDialogQueue());
+    });
+  }
   function updateTextGuard(sessionId: string, change: Partial<TextGuardView>) {
     setTextguardBySession(current => {
       const next = { ...current, [sessionId]: { ...(current[sessionId] ?? emptyTextGuardView), ...change } };
@@ -144,7 +154,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setDraft(""); updateAttachments([]); setAttachmentError(null);
     setFlowNotice("");
     let client: ChatConnection | undefined;
-    let unsubscribe: (() => void) | undefined;
     let disposed = false;
     const handleDialog = (request: WireObject) => {
       const active = client;
@@ -192,11 +201,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         const leased = await chatPool.lease(path, undefined, handleDialog, newSessionOnStart.current || freshOnPath.current);
         if (disposed) { void leased.close().catch(() => {}); return; }
         client = leased;
-        connection.current = leased;
-        unsubscribe = leased.subscribe(state => {
-          setSnapshot(state);
-          if (!state.connected && state.error) updateDialogs(emptyDialogQueue());
-        });
+        dialogRef.current = handleDialog;
+        bindClient(leased);
       } catch (error) {
         if (!disposed) setSnapshot(current => ({ ...current, error: String(error) }));
       }
@@ -204,9 +210,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     freshOnPath.current = false;
     return () => {
       disposed = true;
-      unsubscribe?.();
+      unsubscribeRef.current?.();
       connection.current = null;
-      void client?.close().catch(() => {});
+      const sessionFile = client?.snapshot.sessionFile;
+      if (client && sessionFile && !client.snapshot.error) chatPool.remember(sessionFile, client);
+      else void client?.close().catch(() => {});
     };
   }, [path, revision]);
   useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
