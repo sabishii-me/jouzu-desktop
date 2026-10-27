@@ -359,7 +359,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     return () => { disposed = true; subscription.then(unlisten => unlisten()).catch(() => {}); };
   }, [path, revision]);
   async function send() {
-    const client = connection.current;
+    let client = connection.current;
     if (!client || readingRef.current) return;
     const value = draft;
     const submitted = attachmentRef.current;
@@ -368,6 +368,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("The session is still opening."); return; }
+      client = connection.current;
+      if (!client) return;
       const running = client.snapshot.projection.running;
       await client.sendOrSteer(value, submitted.map(item => item.image), running);
       if (connection.current !== client) return;
@@ -415,7 +417,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for reloading."); return; }
-      await client.reloadSession();
+      const active = connection.current;
+      if (!active) return;
+      await active.reloadSession();
       setNotification("Session reloaded.");
     } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
@@ -426,7 +430,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for the command."); return; }
-      await client.runCommand(command);
+      const active = connection.current;
+      if (!active) return;
+      await active.runCommand(command);
     }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
@@ -437,7 +443,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session to change its model."); return; }
-      await client.selectModel(provider, id);
+      const active = connection.current;
+      if (!active) return;
+      await active.selectModel(provider, id);
     }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
@@ -448,7 +456,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session to change its thinking level."); return; }
-      await client.setThinkingLevel(level);
+      const active = connection.current;
+      if (!active) return;
+      await active.setThinkingLevel(level);
     }
     finally { setCommandBusy(false); }
   }
@@ -528,9 +538,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         void refreshSessions();
         return;
       }
-      await client.resumeSession(target);
-      if (connection.current !== client) return;
-      const loaded = client.snapshot.sessionFile ?? target;
+      const previous = connection.current;
+      const previousSession = previous?.snapshot.sessionFile;
+      const next = await chatPool.enter(path, target, request => dialogRef.current(request));
+      if (connection.current !== previous) return;
+      if (previous && previousSession && previous !== next) chatPool.remember(previousSession, previous);
+      if (connection.current !== next) bindClient(next);
+      const loaded = next.snapshot.sessionFile ?? target;
       // A click that arrived while this switch was running owns the selection.
       if (!queuedSwitch.current && normalizedPath(loaded) !== normalizedPath(selectedSessionRef.current ?? "")) setSelectedSession(loaded);
       // The same row was clicked again while loading: that is already this load.
@@ -594,13 +608,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     const target = selectedSessionRef.current;
     if (!target) return true;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "")) return true;
+      if (normalizedPath(target) === normalizedPath(connection.current?.snapshot.sessionFile ?? "")) return true;
       if (!switchingRef.current) startSwitch(target);
       const pending = switchPromise.current;
       if (!pending) break;
       await pending;
     }
-    return normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "");
+    return normalizedPath(target) === normalizedPath(connection.current?.snapshot.sessionFile ?? "");
   }
   /** A click only records intent. The runtime load is always the single path below. */
   function openSession(sessionPath: string) {
@@ -622,7 +636,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     loadPreview(sessionPath);
   }
   async function forkTurn(prompt: string, messageIndex: number) {
-    const client = connection.current;
+    let client = connection.current;
     if (!client || !prompt.trim()) return;
     if (switchingRef.current || snapshot.pending || !snapshot.connected) { setNotification("Wait for the session to finish loading."); return; }
     // Fork is an explicit action on the selected session: attach it first, the same
@@ -635,7 +649,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     try {
       if (attach) {
         await switchPromise.current;
-        if (connection.current !== client || normalizedPath(target ?? "") !== normalizedPath(client.snapshot.sessionFile ?? "")) {
+        client = connection.current;
+        if (!client || normalizedPath(target ?? "") !== normalizedPath(client.snapshot.sessionFile ?? "")) {
           setNotification("Could not attach this session for forking.");
           return;
         }
@@ -674,8 +689,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for compacting."); return; }
-      await client.compact();
-      if (connection.current === client) setNotification("Earlier conversation compacted.");
+      const active = connection.current;
+      if (!active) return;
+      await active.compact();
+      if (connection.current === active) setNotification("Earlier conversation compacted.");
     } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
   }
@@ -687,9 +704,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setCommandBusy(true);
     try {
       if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for export."); return; }
-      await client.exportHtml(selected);
-      if (connection.current === client) setNotification(`Conversation exported to ${selected}`);
-    } catch (error) { if (connection.current === client) setNotification(String(error)); }
+      const active = connection.current;
+      if (!active) return;
+      await active.exportHtml(selected);
+      if (connection.current === active) setNotification(`Conversation exported to ${selected}`);
+    } catch (error) { if (connection.current) setNotification(String(error)); }
     finally { setCommandBusy(false); }
   }
   async function switchWorkspace(next: string) {

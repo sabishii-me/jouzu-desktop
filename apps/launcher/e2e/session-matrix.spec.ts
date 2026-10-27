@@ -60,7 +60,10 @@ async function setup(page: Page) {
     let current = "";
     let approvedLive = false;
     const records: any[] = [];
-    const response = (request: any, data?: any) => records.push({ type: "response", id: request.id, command: request.type, success: true, data });
+    const handleStates = new Map<string, any[]>();
+    let handleSeq = 0;
+    let currentOut = records;
+    const response = (request: any, data?: any) => currentOut.push({ type: "response", id: request.id, command: request.type, success: true, data });
     const sessionFile = () => current ? `C:/sessions/${current}.jsonl` : "C:/sessions/new.jsonl";
     const review = { ok: true, action: "inspect", sessionId: ids[2], mode: "on", items: [{ id: "matrix-review", withheld: true, ticket: "ticket", source: "SKILL.md", digest: "a".repeat(64), severity: "error", review: { source: "SKILL.md", digest: "a".repeat(64), scanner: "fixture", status: "withheld", severity: { error: 1 }, findings: [{ kind: "yara:command_injection" }] }, snapshot: { body: "reviewed body" } }] };
     const liveReview = { ...review, sessionId: ids[7], items: [{ ...review.items[0], id: "live-review", source: "LIVE.md" }] };
