@@ -109,7 +109,18 @@ export class ChatPool {
       return cached;
     }
     if (cached) this.entries.delete(sessionPath);
-    const client = await this.lease(path, sessionPath, dialog, false);
+    let client: ChatConnection;
+    try { client = await this.lease(path, sessionPath, dialog, false); }
+    catch (error) {
+      // An external process owns the branch. Only a cached client of ours can be
+      // stopped; then retry once, because stealing another process lock is not allowed.
+      if (!/already owned|busy/iu.test(String(error))) throw error;
+      const cached = this.entries.get(sessionPath);
+      if (!cached) throw error;
+      await cached.close();
+      this.entries.delete(sessionPath);
+      client = await this.lease(path, sessionPath, dialog, false);
+    }
     this.entries.set(sessionPath, client);
     while (this.entries.size > this.maxSessions) {
       const oldest = this.entries.keys().next().value as string;
