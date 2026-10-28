@@ -178,6 +178,22 @@ export function App() {
     if (chatBusy) setRestartPending(true);
     else setSessionRevision(value => value + 1);
   }
+  /** A shell-only install has no runtime; step 2 installs it from a package folder. */
+  async function installRuntime() {
+    if (runtime.state) {
+      await runtime.run(async () => {
+        await invoke("repair_jouzu");
+        return invoke<RuntimeReport>("runtime_report");
+      });
+      return;
+    }
+    const picked = await open({ directory: true, multiple: false, title: t.setupRuntimePick });
+    if (typeof picked !== "string") return;
+    await runtime.run(async () => {
+      await invoke("runtime_install", { payload: picked });
+      return invoke<RuntimeReport>("runtime_report");
+    });
+  }
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
     const mutates = request.action !== "status";
@@ -342,8 +358,8 @@ export function App() {
                 note={runtime.state ? `${t.runtimePath}: ${runtime.state.root}` : undefined}
                 busy={runtime.busy}
                 error={runtime.error}
-                install={runtime.state ? () => void runtime.run(async () => { await invoke("repair_jouzu"); return invoke<RuntimeReport>("runtime_report"); }) : undefined}
-                installLabel={t.runtimeRepair}
+                install={() => void installRuntime()}
+                installLabel={runtime.state ? t.runtimeRepair : t.runtimeInstall}
               />
               {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
             </div>
