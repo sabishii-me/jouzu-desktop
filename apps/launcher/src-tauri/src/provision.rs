@@ -156,4 +156,23 @@ mod tests {
         assert!(error.contains("missing"), "{error}");
         assert!(!managed.path().join("runtime-install.tmp").exists());
     }
+
+    /// A real package, including the health check. Set JOUZU_TEST_PAYLOAD to a
+    /// directory that carries app/ and runtime/ (an installed full package does).
+    #[test]
+    #[ignore]
+    fn installs_a_real_package() {
+        let source = std::path::PathBuf::from(
+            std::env::var("JOUZU_TEST_PAYLOAD").expect("set JOUZU_TEST_PAYLOAD to a runtime package folder"),
+        );
+        let managed = tempfile::tempdir().unwrap();
+        install_payload(&source, managed.path()).unwrap();
+        assert!(managed.path().join("app/bootstrap.mjs").is_file());
+        assert!(managed.path().join("runtime/node/node.exe").is_file());
+        assert!(!managed.path().join("runtime-install.tmp").exists());
+        assert_eq!(
+            std::fs::read(managed.path().join("app/bootstrap.mjs")).unwrap(),
+            std::fs::read(source.join("app/bootstrap.mjs")).unwrap()
+        );
+    }
 }
