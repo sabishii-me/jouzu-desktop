@@ -393,7 +393,7 @@ export function App() {
       </LauncherPage>
     </div>
   </main>;
-  const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : 6;
+  const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : prepare.phase === "tools" ? 95 : 6;
   // A launcher-style prepare page: banner, one bar, no choices. It belongs to the
   // runtime step of the same state machine.
   const prepareScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
@@ -406,7 +406,7 @@ export function App() {
     </div>
     <div className="flex justify-center px-6 pb-16 pt-8">
       <div className="w-full max-w-xl space-y-3">
-        <div className="flex items-baseline justify-between"><span className="text-sm font-medium">{prepare.error ? t.prepareFailed : prepare.phase === "node" ? t.prepareNode : prepare.phase === "packages" ? t.preparePackages : prepare.phase === "verify" ? t.prepareVerify : t.prepareTitle}</span><span className="text-xs text-muted-foreground">{prepare.phase === "node" && prepare.total ? `${Math.round(prepare.downloaded / 1048576)} / ${Math.round(prepare.total / 1048576)} MB` : ""}</span></div>
+        <div className="flex items-baseline justify-between"><span className="text-sm font-medium">{prepare.error ? t.prepareFailed : prepare.phase === "node" ? t.prepareNode : prepare.phase === "packages" ? t.preparePackages : prepare.phase === "verify" ? t.prepareVerify : prepare.phase === "tools" ? t.prepareTools : t.prepareTitle}</span><span className="text-xs text-muted-foreground">{prepare.phase === "node" && prepare.total ? `${Math.round(prepare.downloaded / 1048576)} / ${Math.round(prepare.total / 1048576)} MB` : ""}</span></div>
         <Progress value={prepare.phase === "packages" && !prepare.error ? null : preparePercent} className="h-2.5" />
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span className="break-all">{prepare.error ? prepare.error : t.prepareHint}</span>{prepare.error && <Button variant="outline" onClick={() => void runPrepare()}>{t.retry}</Button>}</div>
       </div>

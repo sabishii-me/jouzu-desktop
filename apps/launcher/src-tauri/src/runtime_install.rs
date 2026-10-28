@@ -19,6 +19,18 @@ const CONTROL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../packaging/launcher/control.mjs"
 ));
+const GIT_ENVIRONMENT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/git-environment.ps1"
+));
+const GIT_EXTRACT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/extract-portable-git.ps1"
+));
+const TERMINAL_ENVIRONMENT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/terminal-environment.ps1"
+));
 const APP_MANIFEST: &str = "{\n  \"name\": \"jouzu-desktop-runtime\",\n  \"private\": true\n}\n";
 
 type Progress<'a> = &'a dyn Fn(serde_json::Value);
@@ -301,8 +313,8 @@ fn check_control(managed: &Path, node: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Install Node and the official npm package into the managed root.
-pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
+/// Install Node and the official npm package, refusing to touch a working install.
+fn install_runtime(managed: &Path, progress: Progress) -> Result<String, String> {
     let app = managed.join("app");
     if app.join("bootstrap.mjs").is_file() {
         return Err("A runtime is already installed. Update it instead.".into());
@@ -321,6 +333,43 @@ pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
         return Err(error);
     }
     Ok(version)
+}
+
+/// Install Node, the official npm package and the tools the workspace needs.
+pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
+    let app = managed.join("app");
+    // A retry after a tool failure must not touch a runtime that is already there.
+    let version = if app.join("bootstrap.mjs").is_file() {
+        installed_version(&app)?
+    } else {
+        install_runtime(managed, progress)?
+    };
+    write_tool_scripts(managed)?;
+    install_tools(managed, progress)?;
+    Ok(version)
+}
+
+/// The tool components are part of the same install, not a menu.
+fn install_tools(managed: &Path, progress: Progress) -> Result<(), String> {
+    progress(serde_json::json!({ "phase": "tools", "tool": "git" }));
+    crate::git_environment::install(managed)?;
+    progress(serde_json::json!({ "phase": "tools", "tool": "terminal" }));
+    crate::terminal::install(managed)?;
+    Ok(())
+}
+
+/// These helpers are the desktop's own; the npm package does not carry them.
+fn write_tool_scripts(managed: &Path) -> Result<(), String> {
+    let directory = managed.join("runtime").join("launcher-update");
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    for (name, body) in [
+        ("git-environment.ps1", GIT_ENVIRONMENT),
+        ("extract-portable-git.ps1", GIT_EXTRACT),
+        ("terminal-environment.ps1", TERMINAL_ENVIRONMENT),
+    ] {
+        std::fs::write(directory.join(name), body).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -342,7 +391,7 @@ mod tests {
         let managed = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(managed.path().join("app")).unwrap();
         std::fs::write(managed.path().join("app/bootstrap.mjs"), b"existing").unwrap();
-        let error = install(managed.path(), &|_| {}).unwrap_err();
+        let error = install_runtime(managed.path(), &|_| {}).unwrap_err();
         assert!(error.contains("already installed"), "{error}");
         assert_eq!(std::fs::read(managed.path().join("app/bootstrap.mjs")).unwrap(), b"existing");
     }
@@ -352,7 +401,7 @@ mod tests {
     #[ignore]
     fn installs_the_official_runtime() {
         let managed = tempfile::tempdir().unwrap();
-        let version = install(managed.path(), &|_| {}).unwrap();
+        let version = install_runtime(managed.path(), &|_| {}).unwrap();
         assert!(managed.path().join("runtime/node/node.exe").is_file());
         assert!(managed.path().join("app/bootstrap.mjs").is_file());
         assert!(managed.path().join("app/node_modules/jouzu/package.json").is_file());
