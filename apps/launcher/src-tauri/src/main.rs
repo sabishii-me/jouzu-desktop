@@ -27,6 +27,7 @@ mod control;
 mod environment;
 mod runtime;
 mod sessions;
+mod image_tool;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -600,6 +601,9 @@ fn main() {
             runtime_report,
             runtime_install,
             mcp_config,
+            image_tool::image_settings_read,
+            image_tool::image_settings_save,
+            image_tool::image_tool_ensure,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,

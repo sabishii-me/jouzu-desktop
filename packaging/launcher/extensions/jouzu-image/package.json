@@ -1,0 +1,10 @@
+{
+  "name": "jouzu-image",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Image generation tool for Jouzu Desktop",
+  "pi": {
+    "extensions": ["./index.js"]
+  }
+}

@@ -346,6 +346,7 @@ pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
     };
     write_tool_scripts(managed)?;
     install_tools(managed, progress)?;
+    crate::image_tool::ensure(managed)?;
     Ok(version)
 }
 
