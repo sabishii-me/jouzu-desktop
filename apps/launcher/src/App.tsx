@@ -591,7 +591,14 @@ export function App() {
         onStartSession={() => setNewSession(false)}
         onRetry={() => setSessionRevision(value => value + 1)}
         onBusyChange={setChatBusy}
-        onBootChange={booting => { setEntryBooting(booting); if (!booting) entryReady.current = true; }}
+        onBootChange={booting => {
+          setEntryBooting(booting);
+          if (!booting) { entryReady.current = true; return; }
+          // Safety: a session that never reports "connected" must not keep the
+          // whole window behind the loader. The chat then shows its own line.
+          if (entryReady.current) return;
+          window.setTimeout(() => { if (!entryReady.current) { entryReady.current = true; setEntryBooting(false); } }, 8000);
+        }}
         catalogRefreshing={catalogRefreshing}
         canRefreshModels={setup?.account.signedIn === true}
         onModelsMissing={() => void refreshModelCatalog()}
