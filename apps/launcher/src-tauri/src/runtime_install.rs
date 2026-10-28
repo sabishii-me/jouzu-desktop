@@ -21,6 +21,8 @@ const CONTROL: &str = include_str!(concat!(
 ));
 const APP_MANIFEST: &str = "{\n  \"name\": \"jouzu-desktop-runtime\",\n  \"private\": true\n}\n";
 
+type Progress<'a> = &'a dyn Fn(serde_json::Value);
+
 fn http(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(600))
@@ -41,6 +43,46 @@ fn http(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     if bytes.len() as u64 > limit {
         return Err(format!("{url} is larger than the allowed size."));
     }
+    Ok(bytes)
+}
+
+/// A download that reports its byte count, so the prepare screen has a real bar.
+fn http_stream(url: &str, limit: u64, phase: &str, progress: Progress) -> Result<Vec<u8>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|error| format!("Could not start the download: {error}"))?;
+    let mut response = client
+        .get(url)
+        .send()
+        .map_err(|error| format!("Could not download {url}: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Download failed with HTTP {} for {url}", response.status()));
+    }
+    let total = response.content_length();
+    let mut bytes = Vec::new();
+    let mut downloaded = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    let mut reported = 0u64;
+    progress(serde_json::json!({ "phase": phase, "downloaded": 0, "total": total }));
+    loop {
+        let read = response
+            .read(&mut buffer)
+            .map_err(|error| format!("Could not read {url}: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        downloaded += read as u64;
+        if downloaded > limit {
+            return Err(format!("{url} is larger than the allowed size."));
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if downloaded - reported >= 256 * 1024 {
+            reported = downloaded;
+            progress(serde_json::json!({ "phase": phase, "downloaded": downloaded, "total": total }));
+        }
+    }
+    progress(serde_json::json!({ "phase": phase, "downloaded": downloaded, "total": total }));
     Ok(bytes)
 }
 
@@ -84,7 +126,7 @@ fn extract(archive: &Path, directory: &Path) -> Result<(), String> {
 }
 
 /// Node is the one thing the npm package cannot bring itself.
-fn ensure_node(managed: &Path) -> Result<PathBuf, String> {
+fn ensure_node(managed: &Path, progress: Progress) -> Result<PathBuf, String> {
     let node = managed.join("runtime").join("node");
     let executable = node.join("node.exe");
     if executable.is_file() {
@@ -94,7 +136,7 @@ fn ensure_node(managed: &Path) -> Result<PathBuf, String> {
     let shasums = http(&format!("{NODE_BASE}/v{NODE_VERSION}/SHASUMS256.txt"), MAX_TEXT)?;
     let text = String::from_utf8(shasums).map_err(|_| "The Node checksum file is not text.")?;
     let expected = digest_for(&text, &name).ok_or("The Node checksum file does not list this build.")?;
-    let bytes = http(&format!("{NODE_BASE}/v{NODE_VERSION}/{name}"), MAX_ARCHIVE)?;
+    let bytes = http_stream(&format!("{NODE_BASE}/v{NODE_VERSION}/{name}"), MAX_ARCHIVE, "node", progress)?;
     if sha256(&bytes) != expected {
         return Err("The Node download does not match its published checksum.".into());
     }
@@ -118,7 +160,7 @@ fn ensure_node(managed: &Path) -> Result<PathBuf, String> {
     Ok(executable)
 }
 
-fn npm_install(node: &Path, app: &Path) -> Result<(), String> {
+fn npm_install(node: &Path, app: &Path, progress: Progress) -> Result<(), String> {
     let npm = node
         .parent()
         .unwrap()
@@ -133,6 +175,7 @@ fn npm_install(node: &Path, app: &Path) -> Result<(), String> {
     if !app.join("package.json").is_file() {
         std::fs::write(app.join("package.json"), APP_MANIFEST).map_err(|error| error.to_string())?;
     }
+    progress(serde_json::json!({ "phase": "packages" }));
     let output = Command::new(node)
         .arg(&npm)
         .arg("install")
@@ -259,7 +302,7 @@ fn check_control(managed: &Path, node: &Path) -> Result<(), String> {
 }
 
 /// Install Node and the official npm package into the managed root.
-pub fn install(managed: &Path) -> Result<String, String> {
+pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
     let app = managed.join("app");
     if app.join("bootstrap.mjs").is_file() {
         return Err("A runtime is already installed. Update it instead.".into());
@@ -268,8 +311,9 @@ pub fn install(managed: &Path) -> Result<String, String> {
     if app.exists() {
         std::fs::remove_dir_all(&app).map_err(|error| format!("Could not clear the previous attempt: {error}"))?;
     }
-    let node = ensure_node(managed)?;
-    npm_install(&node, &app)?;
+    let node = ensure_node(managed, progress)?;
+    npm_install(&node, &app, progress)?;
+    progress(serde_json::json!({ "phase": "verify" }));
     std::fs::write(app.join("bootstrap.mjs"), BOOTSTRAP).map_err(|error| error.to_string())?;
     let version = installed_version(&app)?;
     if let Err(error) = check_health(managed, &node).and_then(|_| check_control(managed, &node)) {
@@ -298,7 +342,7 @@ mod tests {
         let managed = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(managed.path().join("app")).unwrap();
         std::fs::write(managed.path().join("app/bootstrap.mjs"), b"existing").unwrap();
-        let error = install(managed.path()).unwrap_err();
+        let error = install(managed.path(), &|_| {}).unwrap_err();
         assert!(error.contains("already installed"), "{error}");
         assert_eq!(std::fs::read(managed.path().join("app/bootstrap.mjs")).unwrap(), b"existing");
     }
@@ -308,7 +352,7 @@ mod tests {
     #[ignore]
     fn installs_the_official_runtime() {
         let managed = tempfile::tempdir().unwrap();
-        let version = install(managed.path()).unwrap();
+        let version = install(managed.path(), &|_| {}).unwrap();
         assert!(managed.path().join("runtime/node/node.exe").is_file());
         assert!(managed.path().join("app/bootstrap.mjs").is_file());
         assert!(managed.path().join("app/node_modules/jouzu/package.json").is_file());

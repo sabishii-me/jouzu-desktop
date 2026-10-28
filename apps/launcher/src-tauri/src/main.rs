@@ -371,11 +371,15 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn runtime_install() -> Result<serde_json::Value, String> {
+async fn runtime_install(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let managed = runtime::managed_root()?;
-    let version = tauri::async_runtime::spawn_blocking(move || runtime_install::install(&managed))
-        .await
-        .map_err(|_| "Runtime installation failed".to_string())??;
+    let handle = app.clone();
+    let version = tauri::async_runtime::spawn_blocking(move || {
+        let emit = |value: serde_json::Value| { let _ = tauri::Emitter::emit(&handle, "runtime-install-progress", value); };
+        runtime_install::install(&managed, &emit)
+    })
+    .await
+    .map_err(|_| "Runtime installation failed".to_string())??;
     Ok(serde_json::json!({ "version": version }))
 }
 

@@ -30,6 +30,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "./com
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
 import { Button } from "./components/ui/button";
 import { JouzuLoader } from "./components/ui/jouzu-loader";
+import { Progress } from "./components/ui/progress";
 import { messages, locales, resolveLocale, type Locale } from "./i18n";
 import { type Workspace } from "./history";
 import { parseDiagnostics, type Diagnostics } from "./diagnostics";
@@ -82,6 +83,9 @@ export function App() {
   // One state machine: the runtime is an input to it, not a second screen.
   // null = still probing, false = onboarding installs it, true = the service can run.
   const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
+  // One prepare surface: real download bytes, then package and verification phases.
+  const [prepare, setPrepare] = useState<{ phase: string; downloaded: number; total: number | null; error: string | null }>({ phase: "", downloaded: 0, total: null, error: null });
+  const prepareStarted = useRef(false);
   type OnboardingStep = "language" | "runtime" | "model";
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("language");
   const onboardingInitialized = useRef(false);
@@ -184,25 +188,28 @@ export function App() {
     if (chatBusy) setRestartPending(true);
     else setSessionRevision(value => value + 1);
   }
-  /** Installs the official npm runtime when none is present; repairs an existing one. */
-  async function installRuntime() {
-    const wasMissing = !runtimePresent;
-    let installed = false;
-    await runtime.run(async () => {
-      if (runtime.state) await invoke("repair_jouzu");
-      else await invoke<string>("runtime_install");
-      installed = true;
-      return invoke<RuntimeReport>("runtime_report");
-    });
-    // `run` records its own failure; a state that never arrived leaves the step as is.
-    if (installed) {
+  /** The prepare screen: one automatic install, no choices. */
+  async function runPrepare() {
+    setPrepare({ phase: "start", downloaded: 0, total: null, error: null });
+    try {
+      await invoke<string>("runtime_install");
       setRuntimePresent(true);
-      // The language step could not save its profile without the runtime.
-      if (wasMissing) await configure({ action: "profile", profile: japaneseChoice ? "ja" : "core" });
+      await configure({ action: "profile", profile: japaneseChoice ? "ja" : "core" });
       void loadComponents();
       await readStatus();
+      setOnboardingStep("model");
+    } catch (error) {
+      prepareStarted.current = false;
+      setPrepare(current => ({ ...current, error: String(error) }));
     }
   }
+  useEffect(() => {
+    if (onboardingStep !== "runtime") { prepareStarted.current = false; return; }
+    if (runtimePresent) { setOnboardingStep("model"); return; }
+    if (prepareStarted.current) return;
+    prepareStarted.current = true;
+    void runPrepare();
+  }, [onboardingStep, runtimePresent]);
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
     const mutates = request.action !== "status";
@@ -273,7 +280,19 @@ export function App() {
       if (!String(error).includes("application files are missing")) setError(String(error));
     });
   }, []);
-  // Open into the last workspace so the runtime can be warmed while the window is still loading.
+  // The prepare screen only mirrors the installer's own events; it never guesses progress.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const pending = listen<{ phase: string; downloaded?: number; total?: number | null }>("runtime-install-progress", event => {
+      setPrepare(current => ({
+        ...current,
+        phase: event.payload.phase,
+        downloaded: event.payload.downloaded ?? current.downloaded,
+        total: event.payload.total ?? current.total,
+      }));
+    });
+    return () => { pending.then(unlisten => unlisten()).catch(() => {}); };
+  }, []);
   const initialWorkspaceChosen = useRef(false);
   useEffect(() => {
     if (initialWorkspaceChosen.current || activePath || !state) return;
@@ -369,28 +388,33 @@ export function App() {
             <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
             <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
             <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
-          </div> : onboardingStep === "runtime" ? <div className="space-y-4">
-            <div className="overflow-hidden rounded-lg border border-border">
-              <ComponentSection
-                title={t.runtime}
-                status={runtime.state ? `${t.setupRuntimeReady} v${runtime.state.version}` : runtime.error ? t.setupRuntimeMissing : t.checking}
-                tone={runtime.state ? "ok" : "missing"}
-                note={runtime.state ? `${t.runtimePath}: ${runtime.state.root}` : undefined}
-                busy={runtime.busy}
-                error={runtime.error}
-                install={() => void installRuntime()}
-                installLabel={runtime.state ? t.runtimeRepair : t.runtimeInstall}
-              />
-              {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
-            </div>
-            <div className="flex justify-between pt-1"><Button variant="outline" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button><Button disabled={!runtime.state} onClick={() => setOnboardingStep("model")}>{t.setupContinue}</Button></div>
-          </div> : <>{!settingsOpen && providerContent}</>}
+          </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}</>}
         </div></ScrollArea>
       </LauncherPage>
     </div>
   </main>;
+  const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : 6;
+  // A launcher-style prepare page: banner, one bar, no choices. It belongs to the
+  // runtime step of the same state machine.
+  const prepareScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    <div className="relative flex min-h-72 flex-1 flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6">
+      <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl" aria-hidden="true" />
+      <div className="relative flex flex-col items-center gap-4 text-center">
+        <img src={jouzuIcon} alt="" draggable={false} className="size-24 drop-shadow-lg" />
+        <div><p className="text-3xl font-semibold tracking-tight">Jouzu Desktop</p><p className="mt-2 text-sm text-muted-foreground">{t.prepareTitle}</p></div>
+      </div>
+    </div>
+    <div className="flex justify-center px-6 pb-16 pt-8">
+      <div className="w-full max-w-xl space-y-3">
+        <div className="flex items-baseline justify-between"><span className="text-sm font-medium">{prepare.error ? t.prepareFailed : prepare.phase === "node" ? t.prepareNode : prepare.phase === "packages" ? t.preparePackages : prepare.phase === "verify" ? t.prepareVerify : t.prepareTitle}</span><span className="text-xs text-muted-foreground">{prepare.phase === "node" && prepare.total ? `${Math.round(prepare.downloaded / 1048576)} / ${Math.round(prepare.total / 1048576)} MB` : ""}</span></div>
+        <Progress value={prepare.phase === "packages" && !prepare.error ? null : preparePercent} className="h-2.5" />
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span className="break-all">{prepare.error ? prepare.error : t.prepareHint}</span>{prepare.error && <Button variant="outline" onClick={() => void runPrepare()}>{t.retry}</Button>}</div>
+      </div>
+    </div>
+  </main>;
   // One state machine: probing, then the setup service, then onboarding or the workspace.
   if (runtimePresent === null) return connectingScreen;
+  if (onboardingStep === "runtime" && !runtimePresent) return prepareScreen;
   if (runtimePresent && !setup) return connectingScreen;
   if (!runtimePresent || showSetup) return onboardingScreen;  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
