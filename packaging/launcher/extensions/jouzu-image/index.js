@@ -4,11 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const BASE = "https://api.shisa.ai/image";
-export const MODELS = [
-  { id: "gemini-3.1-flash-image", sizes: ["1K", "2K", "4K"] },
-  { id: "gemini-3.1-flash-lite-image", sizes: ["1K"] },
-  { id: "gemini-3-pro-image", sizes: ["1K", "2K", "4K"] },
-];
+const SIZES = ["1K", "2K", "4K"];
 const DEFAULT_MODEL = "gemini-3.1-flash-lite-image";
 const DEFAULT_SIZE = "1K";
 
@@ -59,9 +55,8 @@ function extensionFor(mime) {
 }
 
 export async function generate({ prompt, model, size }) {
-  const known = MODELS.find(entry => entry.id === model);
-  if (!known) throw new Error("Unknown image model.");
-  if (!known.sizes.includes(size)) throw new Error("That image size is not available for the model.");
+  if (typeof model !== "string" || !/^[A-Za-z0-9._/-]{1,128}$/.test(model)) throw new Error("Unknown image model.");
+  if (!SIZES.includes(size)) throw new Error("That image size is not available.");
   const text = String(prompt ?? "").trim();
   if (!text) throw new Error("Write a prompt first.");
   if (text.length > 32_000) throw new Error("The prompt is too large.");
@@ -101,7 +96,7 @@ export default function jouzuImage(pi) {
       type: "object",
       properties: {
         prompt: { type: "string", description: "What to draw." },
-        model: { type: "string", enum: MODELS.map(entry => entry.id), description: "Image model; defaults to the Control Center choice." },
+        model: { type: "string", description: "Image model; defaults to the Control Center choice." },
         size: { type: "string", enum: ["1K", "2K", "4K"], description: "Provider size setting; defaults to the Control Center choice." },
         confirm: { type: "boolean", description: "True only after the user approved the paid call." },
       },

@@ -7,7 +7,7 @@ async function openSetup(page:Page, initial:{profile?:string|null;modelReady?:bo
   (window as any).isTauri=true;
   (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
   const callbacks:Record<string,unknown>={};
-  const s={profile:state.profile ?? null,modelReady:state.modelReady ?? false,signedIn:false,recent:state.recent ?? []};
+  const s={profile:state.profile ?? null,modelReady:state.modelReady ?? false,signedIn:state.modelReady ?? false,recent:state.recent ?? []};
   let cancelPending:(()=>void)|null=null;
   const snapshot=()=>({schemaVersion:1,modelReady:s.modelReady,profile:s.profile,account:{signedIn:s.signedIn},credentials:[],customProviders:[],providers:[{id:'openai',name:'OpenAI'}],models:[]});
   (window as any).__TAURI_INTERNALS__={
@@ -23,7 +23,7 @@ async function openSetup(page:Page, initial:{profile?:string|null;modelReady?:bo
     if(command==='control_request'){
      const action=args?.request?.action;
      if(action==='profile')s.profile=String(args.request.profile);
-     if(action==='shisa-logout')s.signedIn=false;
+     if(action==='shisa-logout'){s.signedIn=false;s.modelReady=false;}
      if(action==='custom-provider')s.modelReady=true;
      if(action==='shisa-login'){
       s.signedIn=true;
@@ -63,80 +63,15 @@ async function openStartup(page:Page, status:'hang'|'fail') {
  },status);
  await page.goto('http://localhost:1420');
 }
-
-test('the window waits for the first status read without a page', async ({page}) => {
- await openStartup(page,'hang');
- await expect(page.locator('section[aria-label="Connecting to launcher…"]')).toBeVisible();
- await expect(page.locator('[data-slot="page-heading"]')).toHaveCount(0);
- await expect(page.locator('[data-slot="page-body"]')).toHaveCount(0);
- await expect(page.getByRole('button',{name:'Settings',exact:true})).toHaveCount(0);
- await expect(page.getByRole('button',{name:'Close launcher'})).toBeVisible();
-});
-
-test('a status read that fails keeps the loader and offers the message and a retry', async ({page}) => {
- await openStartup(page,'fail');
- await expect(page.locator('section[aria-label="Connecting to launcher…"]')).toBeVisible();
- await expect(page.getByRole('alert')).toHaveText('The launcher could not be reached.');
- const code=page.locator('code');
- await expect(code).toBeVisible();
- await expect(page.getByRole('button',{name:'Copy',exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeVisible();
- // A read that failed keeps the ways to diagnose it reachable.
- await expect(page.getByRole('button',{name:'Copy',exact:true})).toBeVisible();
-});
-
-test('routing follows usable model availability', async ({page}) => {
+test('a missing model opens the connect-a-model page, without a language step', async ({page}) => {
  await openSetup(page,{modelReady:false});
- await expect(page.getByRole('heading',{name:'Make Jouzu yours'})).toBeVisible();
- await expect(page.getByRole('heading',{name:'Where will you work?'})).toHaveCount(0);
-});
-
-test('a configured model opens the workspace directly', async ({page}) => {
- await openSetup(page,{modelReady:true,profile:'core',recent:[{id:'w1',path:'C:/Projects/Jouzu',environment:{kind:'windows'}}]});
- await expect(page.getByRole('button',{name:'Return to model setup',exact:true})).toHaveCount(0);
-});
-
-test('preferences lead to provider setup and the card keeps its place', async ({page}) => {
- await openSetup(page,{recent:[{id:'w1',path:'C:/Projects/Jouzu',environment:{kind:'windows'}}]});
- const body=async()=>await page.locator('[data-slot="page-body"]').boundingBox();
- const initial=(await body())!;
- await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Connect a model'})).toBeVisible();
- const next=(await body())!;
- expect(Math.round(next.x)).toBe(Math.round(initial.x));
- expect(Math.round(next.width)).toBe(Math.round(initial.width));
- await page.getByRole('button',{name:'Back',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Make Jouzu yours'})).toBeVisible();
-});
-
-test('languages are discoverable and custom providers accept a key', async ({page}) => {
- await openSetup(page,{});
- for(const name of ['English','日本語','简体中文','繁體中文']) await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Continue',exact:true}).click();
- await expect(page.getByRole('textbox',{name:'Search services'})).toHaveCount(0);
- await page.getByRole('combobox',{name:'Service',exact:true}).click();
- await page.getByRole('textbox',{name:'Search services'}).fill('custom');
- await page.getByRole('option',{name:'Custom provider',exact:true}).click();
- await expect(page.getByLabel('API key',{exact:true})).toBeVisible();
- await expect(page.getByRole('textbox',{name:'API base URL'})).toBeVisible();
-});
-
-test('Japanese-first follows the language until explicitly chosen', async ({page}) => {
- await openSetup(page,{});
- const toggle=page.getByRole('switch');
- await expect(toggle).not.toBeChecked();
- await page.getByRole('button',{name:'日本語',exact:true}).click();
- await expect(toggle).toBeChecked();
- await page.getByRole('button',{name:'English',exact:true}).click();
- await expect(toggle).not.toBeChecked();
- await toggle.click();
- await page.getByRole('button',{name:'简体中文',exact:true}).click();
- await expect(toggle).toBeChecked();
+ await expect(page.getByRole('button',{name:'Sign in to Shisa.AI',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'English',exact:true})).toHaveCount(0);
 });
 
 test('Shisa.AI authorization keeps its actions together and cancels cleanly', async ({page}) => {
- await openSetup(page,{profile:'core'});
- await page.getByRole('button',{name:'Continue',exact:true}).click();
+ await openSetup(page,{modelReady:false});
  await page.getByRole('button',{name:'Sign in to Shisa.AI',exact:true}).click();
  const open=page.getByRole('button',{name:'Open in browser',exact:true});
  const cancel=page.getByRole('button',{name:'Cancel',exact:true});
@@ -147,4 +82,10 @@ test('Shisa.AI authorization keeps its actions together and cancels cleanly', as
  await cancel.click();
  await expect(open).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Sign in to Shisa.AI',exact:true})).toBeVisible();
+});
+
+test('a configured model opens the workspace', async ({page}) => {
+ await openSetup(page,{modelReady:true,recent:[{id:'w1',path:'C:/Projects/Jouzu',environment:{kind:'windows'}}]});
+ await expect(page.getByRole('button',{name:'New session',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Connect a model'})).toHaveCount(0);
 });

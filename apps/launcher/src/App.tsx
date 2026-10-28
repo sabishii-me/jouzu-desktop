@@ -38,40 +38,48 @@ interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Works
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
 interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
 
-const IMAGE_MODELS = [
-  { id: "gemini-3.1-flash-image", sizes: ["1K", "2K", "4K"] },
-  { id: "gemini-3.1-flash-lite-image", sizes: ["1K"] },
-  { id: "gemini-3-pro-image", sizes: ["1K", "2K", "4K"] },
-];
+const IMAGE_SIZES = ["1K", "2K", "4K"];
 
-/** The generate_image tool's defaults: which model and provider size it uses. */
+/** The generate_image tool's defaults, listed by the signed-in image service. */
 function ImageModelSettings() {
-  const [model, setModel] = useState(IMAGE_MODELS[0].id);
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState("");
   const [size, setSize] = useState("1K");
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void invoke<{ model: string; size: string }>("image_settings_read")
-      .then(value => { setModel(value.model); setSize(value.size); setLoaded(true); })
-      .catch(failure => setError(String(failure)));
+    void (async () => {
+      try {
+        const saved = await invoke<{ model: string; size: string }>("image_settings_read");
+        setModel(saved.model);
+        setSize(saved.size);
+        const listed = await invoke<{ models: string[] }>("image_models");
+        const options = listed.models ?? [];
+        setModels(saved.model && !options.includes(saved.model) ? [saved.model, ...options] : options);
+      } catch (failure) {
+        setError(String(failure));
+      } finally {
+        setLoaded(true);
+      }
+    })();
   }, []);
   const save = async (nextModel: string, nextSize: string) => {
     setModel(nextModel); setSize(nextSize); setError(null);
     try { await invoke("image_settings_save", { model: nextModel, size: nextSize }); }
     catch (failure) { setError(String(failure)); }
   };
-  const sizes = IMAGE_MODELS.find(item => item.id === model)?.sizes ?? ["1K"];
   return <div className="space-y-3 border-t border-border pt-4">
     <div><p className="text-sm font-medium">Image generation</p><p className="text-xs text-muted-foreground">Model and size for the generate_image tool. Each run uses image tokens and asks for approval.</p></div>
     <div className="grid grid-cols-2 gap-3">
       <label className="space-y-1 text-sm"><span className="text-muted-foreground">Image model</span>
-        <select aria-label="Image model" disabled={!loaded} value={model} onChange={event => { const next = event.target.value; const first = IMAGE_MODELS.find(item => item.id === next)?.sizes[0] ?? "1K"; void save(next, first); }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-          {IMAGE_MODELS.map(item => <option key={item.id} value={item.id}>{item.id}</option>)}
+        <select aria-label="Image model" disabled={!loaded || !models.length} value={model} onChange={event => void save(event.target.value, size)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+          {!models.length && <option value="">No image models</option>}
+          {models.map(id => <option key={id} value={id}>{id}</option>)}
         </select>
       </label>
       <label className="space-y-1 text-sm"><span className="text-muted-foreground">Image size</span>
-        <select aria-label="Image size" disabled={!loaded} value={size} onChange={event => void save(model, event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-          {sizes.map(value => <option key={value} value={value}>{value}</option>)}
+        <select aria-label="Image size" disabled={!loaded || !model} value={size} onChange={event => void save(model, event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+          {IMAGE_SIZES.map(value => <option key={value} value={value}>{value}</option>)}
         </select>
       </label>
     </div>
@@ -131,21 +139,10 @@ export function App() {
   const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
   // One prepare surface: real download bytes, then package and verification phases.
   const [prepare, setPrepare] = useState<{ phase: string; downloaded: number; total: number | null; error: string | null }>({ phase: "", downloaded: 0, total: null, error: null });
-  const prepareStarted = useRef(false);
-  type OnboardingStep = "language" | "runtime" | "model";
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("language");
-  const onboardingInitialized = useRef(false);
+  // There is no setup wizard: a missing runtime auto-prepares, and a missing
+  // model is handled in the workspace, where Settings remains reachable.
   const modelReady = setup?.modelReady;
   const needsSetup = modelReady === false;
-  const showSetup = needsSetup;
-  // The wizard is open for a missing runtime too, so the first step is chosen once,
-  // when the wizard opens, not each time the setup status arrives.
-  const wizardOpen = !runtimePresent || showSetup;
-  useEffect(() => {
-    if (!wizardOpen || onboardingInitialized.current) return;
-    onboardingInitialized.current = true;
-    setOnboardingStep("language");
-  }, [wizardOpen]);
   const [device, setDevice] = useState<{url:string;code:string} | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
@@ -243,19 +240,18 @@ export function App() {
       await configure({ action: "profile", profile: japaneseChoice ? "ja" : "core" });
       void loadComponents();
       await readStatus();
-      setOnboardingStep("model");
     } catch (error) {
       prepareStarted.current = false;
       setPrepare(current => ({ ...current, error: String(error) }));
     }
   }
+  const prepareStarted = useRef(false);
   useEffect(() => {
-    if (onboardingStep !== "runtime") { prepareStarted.current = false; return; }
-    if (runtimePresent) { setOnboardingStep("model"); return; }
+    if (runtimePresent !== false) { prepareStarted.current = false; return; }
     if (prepareStarted.current) return;
     prepareStarted.current = true;
     void runPrepare();
-  }, [onboardingStep, runtimePresent]);
+  }, [runtimePresent]);
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
     const mutates = request.action !== "status";
@@ -404,7 +400,7 @@ export function App() {
   if (sort === "name") recent.sort((a,b) => a.path.replaceAll(String.fromCharCode(92), "/").split("/").at(-1)!.localeCompare(b.path.replaceAll(String.fromCharCode(92), "/").split("/").at(-1)!, locale));
   if (sort === "path") recent.sort((a,b) => a.path.localeCompare(b.path, locale));
   const development = components?.development ?? import.meta.env.DEV;
-  const inlineProviders = showSetup && !settingsOpen;
+  const inlineProviders = !settingsOpen;
   const providerContent = <div className="space-y-4">                  {(inlineProviders || !addingConnection) && <><Card className={inlineProviders ? "gap-3 rounded-none border-0 bg-transparent p-0 shadow-none" : "border-border gap-4 py-5 shadow-none"}><CardHeader className={inlineProviders ? "px-0" : undefined}><CardTitle>Shisa.AI</CardTitle><CardDescription>{device ? t.waitingAuthorization : setup?.account.signedIn ? t.shisaConnected : t.shisaHint}</CardDescription></CardHeader><CardContent className={inlineProviders ? "space-y-3 px-0" : "space-y-3"}>{!device && setup?.account.revocation === "unconfirmed" && <p role="status" className="text-sm text-muted-foreground">{t.signOutUnconfirmed}</p>}{!device && <div className="flex justify-end"><Button disabled={busy || !setup} onClick={() => void configure({ action: setup?.account.signedIn ? "shisa-logout" : "shisa-login" })}>{setup?.account.signedIn ? t.signOut : t.signIn}</Button></div>}{device && <div className="space-y-3"><Input readOnly aria-label={t.loginUrl} value={device.url} onFocus={event => event.target.select()} /><Input readOnly aria-label={t.deviceCode} value={device.code} onFocus={event => event.target.select()} /><p className="text-xs text-muted-foreground">{t.loginHint}</p><div className="flex items-center justify-end gap-2"><Button variant="outline" onClick={() => void invoke("cancel_control")}>{t.cancel}</Button><Button onClick={async () => { try { const url = new URL(device.url); if (url.origin !== "https://platform.shisa.ai" || url.pathname !== "/connect" || url.username || url.password) throw new Error(t.loginUrl); await openUrl(url.href); } catch (error) { setError(String(error)); } }}><ArrowUpRight />{t.openBrowser}</Button></div></div>}</CardContent></Card>
                   {!inlineProviders && <>                  <Card className="border-border gap-4 py-5 shadow-none"><CardHeader><CardTitle>{t.connections}</CardTitle></CardHeader><CardContent className="space-y-2">{!!setup && setup.credentials.length + setup.customProviders.length > 5 && <Input aria-label={t.searchProviders} placeholder={t.searchProviders} value={providerQuery} onChange={event => setProviderQuery(event.target.value)} />}{!addingConnection && setup && [...new Set([...setup.credentials.map(c => c.providerId), ...setup.customProviders.map(c => c.id)])].filter(id => `${id} ${setup.providers.find(p => p.id === id)?.name ?? ""}`.toLowerCase().includes(providerQuery.toLowerCase())).map(id => ({providerId:id})).map(c => <div key={c.providerId} className="flex items-center gap-2"><Button variant="outline" className="h-auto min-w-0 flex-1 justify-between gap-2 py-3" disabled={busy} onClick={() => { setProvider(c.providerId); setToken(""); const saved = setup?.customProviders.find(p => p.id === c.providerId); setConnectionMode(saved?.editable ? "custom" : "builtin"); setCustom(saved?.editable ? {provider:saved.id,url:saved.url,model:saved.model,edit:true} : {provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><span>{setup.providers.find(p => p.id === c.providerId)?.name ?? c.providerId}</span><span className="text-xs text-muted-foreground">{setup.credentials.some(key => key.providerId === c.providerId) ? t.credentialSaved : t.configuredNoKey}</span></Button></div>)}<Button variant="outline" disabled={busy || !setup} onClick={() => { setProviderQuery(""); setProvider(""); setConnectionMode("builtin"); setCustom({provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><Plus />{t.addConnection}</Button></CardContent></Card></>}</>}
                   {(inlineProviders || addingConnection) && <section className={inlineProviders ? "space-y-3 border-t border-border pt-4" : "space-y-4 rounded-xl border border-border bg-card p-5"}><div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">{inlineProviders ? t.connections : custom.edit ? t.editConnection : t.addConnection}</h3>{!inlineProviders && <Button variant="ghost" disabled={busy} onClick={() => setAddingConnection(false)}>{t.backConnections}</Button>}</div><div className="space-y-4">
@@ -447,31 +443,6 @@ export function App() {
       {statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}
     </section>
   </main>;
-  const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 2;
-  const onboardingTitle = onboardingStep === "language" ? t.setupMake : onboardingStep === "runtime" ? t.setupRuntime : t.setupConnect;
-  const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
-  const onboardingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
-    {errorBanner}
-    {onboardingBanner(onboardingTitle, undefined, 0.55, false, true)}
-    <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-6 py-8">
-      <div data-slot="page-body" className="onboarding-card w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
-        <div className="mb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`${onboardingStepNumber} / 2`}>
-            <span className={`size-2 rounded-full ${onboardingStepNumber >= 1 ? "bg-primary" : "bg-muted"}`} />
-            <span className={`size-2 rounded-full ${onboardingStepNumber >= 2 ? "bg-primary" : "bg-muted"}`} />
-            <span className="ml-1 tabular-nums">{onboardingStepNumber} / 2</span>
-          </div>
-          {onboardingStep === "model" && <Button variant="ghost" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button>}
-        </div>
-        <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{onboardingDescription}</p>
-        {onboardingStep === "language" ? <div className="space-y-6">
-          <div className="space-y-3"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="grid grid-cols-2 gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="w-full" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
-          <div className="flex items-start justify-between gap-4 border-t border-border pt-5"><div className="space-y-1"><Label htmlFor="onboarding-japanese">{t.profile}</Label><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div>
-          <div className="flex justify-end border-t border-border pt-5"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("model"); }}>{t.setupContinue}</Button></div>
-        </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}{!settingsOpen && <ImageModelSettings />}</>}
-      </div>
-    </div>
-  </main>;
   const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : prepare.phase === "tools" ? 95 : 6;
   // A launcher-style prepare page: banner, one bar, no choices. It belongs to the
   // runtime step of the same state machine.
@@ -485,11 +456,22 @@ export function App() {
       </div>
     </div>
   </main>;
-  // One state machine: probing, then the setup service, then onboarding or the workspace.
+  // No language step: the one setup page left is connecting a model.
+  const modelSetupScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {firstRunControls}
+    {errorBanner}
+    {onboardingBanner(t.setupConnect, undefined, 0.55, false, true)}
+    <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-8">
+      <div data-slot="page-body" className="onboarding-card m-auto w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
+        <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{t.setupHint}</p>
+        {providerContent}
+      </div>
+    </div>
+  </main>;
   if (runtimePresent === null) return connectingScreen;
-  if (onboardingStep === "runtime" && !runtimePresent) return prepareScreen;
-  if (runtimePresent && !setup) return connectingScreen;
-  if (!runtimePresent || showSetup) return onboardingScreen;  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
+  if (runtimePresent === false) return prepareScreen;
+  if (setup && setup.modelReady === false) return modelSetupScreen;
+  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-4 py-2">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
@@ -511,7 +493,7 @@ export function App() {
               <div className="px-5 pb-6 pt-14 sm:px-6">
                 <TabsContent value="providers" className="m-0 space-y-4">
                   {providerContent}
-                  <ImageModelSettings />
+                  {setup?.account.signedIn === true && <ImageModelSettings />}
                 </TabsContent>
                 <TabsContent value="environment" className="m-0 space-y-4"><Card className="border-border shadow-none"><CardHeader><CardTitle>{t.environment}</CardTitle><CardDescription>{t.envHint}</CardDescription></CardHeader><CardContent className="space-y-3">
                   {envRows.map((row,index) => <div key={index} className="space-y-2 rounded-lg border border-border p-3"><div className="flex items-center gap-2">{editingEnv === index ? <Input aria-label={t.variableName} placeholder={t.variableName} value={row.name} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,name:event.target.value} : r))} /> : <span className="min-w-0 flex-1 truncate text-sm font-medium" title={row.name}>{row.name}</span>}<Button variant="ghost" disabled={busy} onClick={() => setEditingEnv(index)}>{t.editValue}</Button><Switch aria-label={t.enabled} checked={row.enabled} disabled={busy} onCheckedChange={enabled => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,enabled} : r))} /><Button variant="ghost" disabled={busy} aria-label={t.deleteEntry} onClick={() => { setEnvRows(rows => rows.filter((_,i) => i !== index)); setEditingEnv(null); }}><X /></Button></div>{editingEnv === index && <Input type="password" autoComplete="off" aria-label={t.variableValue} placeholder={t.variableValue} value={row.value} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,value:event.target.value} : r))} />}</div>)}

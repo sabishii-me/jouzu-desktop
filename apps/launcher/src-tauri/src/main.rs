@@ -602,6 +602,7 @@ fn main() {
             runtime_install,
             mcp_config,
             image_tool::image_settings_read,
+            image_tool::image_models,
             image_tool::image_settings_save,
             image_tool::image_tool_ensure,
             recovery::repair_jouzu,
