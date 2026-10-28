@@ -79,17 +79,23 @@ export function App() {
   const [addingConnection, setAddingConnection] = useState(false);
   const [query, setQuery] = useState("");
   const [setup, setSetup] = useState<ControlState | null>(null);
+  // One state machine: the runtime is an input to it, not a second screen.
+  // null = still probing, false = onboarding installs it, true = the service can run.
+  const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
   type OnboardingStep = "language" | "runtime" | "model";
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("language");
   const onboardingInitialized = useRef(false);
   const modelReady = setup?.modelReady;
   const needsSetup = modelReady === false;
   const showSetup = needsSetup;
+  // The wizard is open for a missing runtime too, so the first step is chosen once,
+  // when the wizard opens, not each time the setup status arrives.
+  const wizardOpen = !runtimePresent || showSetup;
   useEffect(() => {
-    if (!showSetup || onboardingInitialized.current) return;
+    if (!wizardOpen || onboardingInitialized.current) return;
     onboardingInitialized.current = true;
     setOnboardingStep("language");
-  }, [showSetup]);
+  }, [wizardOpen]);
   const [device, setDevice] = useState<{url:string;code:string} | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
@@ -180,11 +186,22 @@ export function App() {
   }
   /** Installs the official npm runtime when none is present; repairs an existing one. */
   async function installRuntime() {
+    const wasMissing = !runtimePresent;
+    let installed = false;
     await runtime.run(async () => {
       if (runtime.state) await invoke("repair_jouzu");
       else await invoke<string>("runtime_install");
+      installed = true;
       return invoke<RuntimeReport>("runtime_report");
     });
+    // `run` records its own failure; a state that never arrived leaves the step as is.
+    if (installed) {
+      setRuntimePresent(true);
+      // The language step could not save its profile without the runtime.
+      if (wasMissing) await configure({ action: "profile", profile: japaneseChoice ? "ja" : "core" });
+      void loadComponents();
+      await readStatus();
+    }
   }
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
@@ -232,6 +249,9 @@ export function App() {
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 4000); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { if (settingsOpen && isTauri()) { if (!setup && !busyRef.current) void configure({ action: "status" }); void readEnvironment(); } }, [settingsOpen]);
   const refresh = async () => setState(await invoke<LauncherState>("launcher_state"));
+  const loadComponents = () => invoke<Components>("component_versions")
+    .then(setComponents)
+    .catch(error => setError(String(error)));
   // Diagnostics are separate from the launcher state: a missing record must not fail the window.
   const refreshDiagnostics = async () => {
     try { setDiagnostics(parseDiagnostics(await invoke<unknown>("diagnostics"))); }
@@ -241,9 +261,17 @@ export function App() {
     if (!isTauri()) return;
     refresh().catch(error => setError(String(error)));
     void refreshDiagnostics();
-    if (!initialStatusRequested.current) { initialStatusRequested.current = true; void readStatus(); }
     getVersion().then(setVersion).catch(error => setError(String(error)));
-    invoke<Components>("component_versions").then(setComponents).catch(error => setError(String(error)));
+    // The runtime decides whether the setup service exists; probing it first keeps a
+    // clean machine out of the status call instead of turning its absence into an alert.
+    void invoke("runtime_report").then(() => {
+      setRuntimePresent(true);
+      void loadComponents();
+      void readStatus();
+    }).catch(error => {
+      setRuntimePresent(false);
+      if (!String(error).includes("application files are missing")) setError(String(error));
+    });
   }, []);
   // Open into the last workspace so the runtime can be warmed while the window is still loading.
   const initialWorkspaceChosen = useRef(false);
@@ -340,7 +368,7 @@ export function App() {
           {onboardingStep === "language" ? <div className="space-y-6 pt-2">
             <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
             <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-            <div className="flex justify-end pt-1"><Button onClick={async () => { if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
+            <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
           </div> : onboardingStep === "runtime" ? <div className="space-y-4">
             <div className="overflow-hidden rounded-lg border border-border">
               <ComponentSection
@@ -361,9 +389,10 @@ export function App() {
       </LauncherPage>
     </div>
   </main>;
-  if (!setup) return connectingScreen;
-  if (showSetup) return onboardingScreen;
-  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
+  // One state machine: probing, then the setup service, then onboarding or the workspace.
+  if (runtimePresent === null) return connectingScreen;
+  if (runtimePresent && !setup) return connectingScreen;
+  if (!runtimePresent || showSetup) return onboardingScreen;  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-4 py-2">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />

@@ -1,6 +1,6 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -14,6 +14,10 @@ const MAX_TEXT: u64 = 2 * 1024 * 1024;
 const BOOTSTRAP: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../packaging/launcher/bootstrap.mjs"
+));
+const CONTROL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/control.mjs"
 ));
 const APP_MANIFEST: &str = "{\n  \"name\": \"jouzu-desktop-runtime\",\n  \"private\": true\n}\n";
 
@@ -149,6 +153,34 @@ fn npm_install(node: &Path, app: &Path) -> Result<(), String> {
             format!("The official package could not be installed: {detail}")
         });
     }
+    // The package ships its patched dependencies nested; the desktop's control
+    // service loads them from the app's node_modules, as the prepared prefix does.
+    flatten(&app.join("node_modules"))?;
+    Ok(())
+}
+
+fn flatten(node_modules: &Path) -> Result<(), String> {
+    let nested = node_modules.join("jouzu").join("node_modules");
+    if !nested.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(&nested).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        if name == ".bin" {
+            continue;
+        }
+        let target = node_modules.join(&name);
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        if kind.is_dir() {
+            if target.exists() {
+                std::fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
+            }
+            std::fs::rename(entry.path(), &target).map_err(|error| format!("Could not lay out the runtime packages: {error}"))?;
+        } else if kind.is_file() && !target.exists() {
+            std::fs::copy(entry.path(), &target).map_err(|error| error.to_string())?;
+        }
+    }
     Ok(())
 }
 
@@ -188,6 +220,44 @@ fn check_health(managed: &Path, node: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The setup service is what onboarding talks to next, so it must answer.
+fn check_control(managed: &Path, node: &Path) -> Result<(), String> {
+    let mut child = Command::new(node)
+        .arg("--input-type=module")
+        .arg("--eval")
+        .arg(CONTROL)
+        .arg("--")
+        .arg(managed)
+        .arg(managed.join("app"))
+        .env("JOUZU_HOME", managed.join("data"))
+        .env("JOUZU_NO_UPDATE", "1")
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "The installed runtime did not answer the setup service.".to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or("The setup service did not accept its request.")?
+        .write_all(br#"{"action":"status"}"#)
+        .map_err(|_| "The setup service did not accept its request.".to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "The setup service did not answer.".to_string())?;
+    if !output.status.success() {
+        return Err("The installed runtime did not answer the setup service.".into());
+    }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "The setup service answered in an unknown form.".to_string())?;
+    if let Some(error) = value.get("error").and_then(|item| item.as_str()) {
+        return Err(format!("The installed runtime cannot read its configuration: {error}"));
+    }
+    Ok(())
+}
+
 /// Install Node and the official npm package into the managed root.
 pub fn install(managed: &Path) -> Result<String, String> {
     let app = managed.join("app");
@@ -202,7 +272,7 @@ pub fn install(managed: &Path) -> Result<String, String> {
     npm_install(&node, &app)?;
     std::fs::write(app.join("bootstrap.mjs"), BOOTSTRAP).map_err(|error| error.to_string())?;
     let version = installed_version(&app)?;
-    if let Err(error) = check_health(managed, &node) {
+    if let Err(error) = check_health(managed, &node).and_then(|_| check_control(managed, &node)) {
         let _ = std::fs::remove_dir_all(&app);
         return Err(error);
     }
