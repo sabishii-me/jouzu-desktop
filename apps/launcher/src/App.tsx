@@ -178,6 +178,14 @@ export function App() {
     if (chatBusy) setRestartPending(true);
     else setSessionRevision(value => value + 1);
   }
+  /** Installs the official npm runtime when none is present; repairs an existing one. */
+  async function installRuntime() {
+    await runtime.run(async () => {
+      if (runtime.state) await invoke("repair_jouzu");
+      else await invoke<string>("runtime_install");
+      return invoke<RuntimeReport>("runtime_report");
+    });
+  }
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
     const mutates = request.action !== "status";
@@ -342,8 +350,8 @@ export function App() {
                 note={runtime.state ? `${t.runtimePath}: ${runtime.state.root}` : undefined}
                 busy={runtime.busy}
                 error={runtime.error}
-                install={runtime.state ? () => void runtime.run(async () => { await invoke("repair_jouzu"); return invoke<RuntimeReport>("runtime_report"); }) : undefined}
-                installLabel={t.runtimeRepair}
+                install={() => void installRuntime()}
+                installLabel={runtime.state ? t.runtimeRepair : t.runtimeInstall}
               />
               {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
             </div>
