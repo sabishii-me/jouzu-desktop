@@ -391,19 +391,27 @@ export function App() {
       {statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}
     </section>
   </main>;
-  const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 3;
+  const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 2;
   const onboardingTitle = onboardingStep === "language" ? t.setupMake : onboardingStep === "runtime" ? t.setupRuntime : t.setupConnect;
   const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
   const onboardingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
     {errorBanner}
-    {onboardingBanner(onboardingTitle, <span className="text-xs text-muted-foreground">{onboardingStepNumber} / 3</span>)}
+    {onboardingBanner(onboardingTitle)}
     <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
       <div className="mx-auto w-full max-w-xl space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`${onboardingStepNumber} / 2`}>
+            <span className={`size-2 rounded-full ${onboardingStepNumber >= 1 ? "bg-primary" : "bg-muted"}`} />
+            <span className={`size-2 rounded-full ${onboardingStepNumber >= 2 ? "bg-primary" : "bg-muted"}`} />
+            <span className="ml-1 tabular-nums">{onboardingStepNumber} / 2</span>
+          </div>
+          {onboardingStep === "model" && <Button variant="ghost" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button>}
+        </div>
         <p className="text-sm text-muted-foreground">{onboardingDescription}</p>
         {onboardingStep === "language" ? <div className="space-y-6">
           <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
           <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-          <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
+          <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("model"); }}>{t.setupContinue}</Button></div>
         </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}</>}
       </div>
     </div>
