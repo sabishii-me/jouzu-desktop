@@ -56,6 +56,7 @@ async function setup(page: Page) {
     w.abortCalls = [];
     w.stopCalls = [];
     w.dialogReplies = [];
+    w.capacityError = null;
     if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     const alpha = "C:/sessions/alpha.jsonl";
     const beta = "C:/sessions/beta.jsonl";
@@ -138,6 +139,10 @@ async function setup(page: Page) {
           else if (request.type === "get_available_thinking_levels") response(state, request, { levels: [] });
           else if (request.type === "get_session_stats") response(state, request, { userMessages: 2, assistantMessages: 2, toolCalls: 0 });
           else if (request.type === "prompt") {
+            if (w.capacityError) {
+              state.queue.push({ type: "response", id: request.id, command: request.type, success: false, error: w.capacityError });
+              return;
+            }
             w.promptCalls.push({ handle: args.handle, message: request.message, imageBytes: (request.images ?? []).reduce((sum: number, image: any) => sum + String(image?.data ?? "").length, 0) });
             const text = String(request.message);
             state.running = true;
@@ -289,6 +294,27 @@ test("an oversized image is shrunk before it reaches the runtime", async ({ page
   // must arrive well under it.
   expect(calls[0].imageBytes).toBeGreaterThan(0);
   expect(calls[0].imageBytes).toBeLessThanOrEqual(200 * 1024);
+});
+
+test("a full flow store explains itself and offers a new session", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: "New session", exact: true }).click();
+  await page.waitForTimeout(600);
+  await page.evaluate(() => { (window as any).capacityError = "Submission retention limit reached; admission is held."; });
+
+  await page.getByLabel("Message Jouzu").fill("hello");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+
+  const alert = page.locator('[role="alert"]').first();
+  await expect(alert).toContainText("used up its stored message budget");
+  await expect(alert).not.toContainText("Submission retention");
+  await expect(alert.getByRole("button", { name: "New session" })).toBeVisible();
+  await expect(alert.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  // The toast must not leak the raw runtime text either.
+  await expect(page.getByText("Submission retention limit reached")).toHaveCount(0);
+
+  await alert.getByRole("button", { name: "New session" }).click();
+  await expect(page.getByText("What would you like to build?")).toBeVisible();
 });
 
 test("a dialog raised by a background session waits for that session", async ({ page }) => {

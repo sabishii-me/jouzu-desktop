@@ -13,6 +13,7 @@ import { chatPool } from "./chat-pool";
 import { fitsSendBudget, readImageAttachment, removeSubmittedImages, validateImageSelection, type ImageAttachment } from "./chat-attachments";
 import { emptyProjection, historyProjection, interruptUnfinishedTools, type ChatProjection, type FlowReportRecord, type WireObject } from "./chat-projection";
 import { clearDraft, draftKey, readDraft, writeDraft } from "./drafts";
+import { humanizeRuntimeError, isCapacityError } from "./runtime-errors";
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
@@ -447,7 +448,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       if (connection.current === client && /Flow attachment is closed|Flow session metadata is missing/u.test(message)) {
         try { if (await recoverSession()) return; } catch (recoveryError) { setNotification(String(recoveryError).replace(/^Error:\s*/u, "")); return; }
       }
-      if (connection.current === client) setNotification(message);
+      if (connection.current === client) setNotification(humanizeRuntimeError(message));
     } finally { setCommandBusy(false); }
   }
   const name = workspaceLabel(path);
@@ -505,7 +506,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       setHero(!previousFile);
       setSelectedSession(previousFile);
       setPreview(null);
-      setNotification(String(error).replace(/^Error:\s*/u, ""));
+      setNotification(humanizeRuntimeError(String(error).replace(/^Error:\s*/u, "")));
     } finally {
       switchingRef.current = false;
       switchingTarget.current = null;
@@ -661,7 +662,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       }
       previewRequest.current += 1;
       setPreview(null);
-      setNotification(message);
+      setNotification(humanizeRuntimeError(message));
     } finally {
       switchingRef.current = false;
       switchingTarget.current = null;
@@ -887,10 +888,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const workspaceError = snapshot.error;
   // The runtime's Flow submission budget is per session and never reclaimed; a full
   // store cannot be retried, so the banner offers the only way out.
-  const capacityError = /Submission retention limit reached/iu.test(sessionError ?? "") || /Submission retention limit reached/iu.test(snapshot.error ?? "");
-  const readableError = (message: string) => capacityError
-    ? "This session has used up its stored message budget, so it cannot accept another message. Start a new session to keep working."
-    : message;
+  const capacityError = isCapacityError(sessionError) || isCapacityError(snapshot.error);
+  const readableError = (message: string) => humanizeRuntimeError(message);
   const textguardKey = snapshot.sessionId && selectedKey === activeSession ? snapshot.sessionId : "";
   const textguardView = textguardKey ? textguardBySession[textguardKey] : undefined;
   const textguardItems = textguardView?.data?.items.length ?? 0;

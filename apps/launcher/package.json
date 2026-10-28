@@ -8,7 +8,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:session": "playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts e2e/session-metrics.spec.ts e2e/session-start-lock.spec.ts"
+    "test:session": "playwright test e2e/session-matrix.spec.ts e2e/session-switch.spec.ts e2e/session-metrics.spec.ts e2e/session-start-lock.spec.ts",
+    "test:acceptance": "npm run build && npm test && playwright test e2e/chat.spec.ts e2e/session-matrix.spec.ts e2e/session-switch.spec.ts e2e/session-metrics.spec.ts e2e/session-start-lock.spec.ts"
   },
   "license": "Apache-2.0",
   "type": "module",
