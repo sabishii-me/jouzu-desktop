@@ -375,7 +375,7 @@ export function App() {
   // that a prepare or loading page would otherwise leave empty. The look is the
   // approved prepare page: cyan wash, one glow, mark and wordmark.
   const onboardingBanner = (title: string, action?: ReactNode, intensity = 0.55, fill = false) => <div className={`relative flex ${fill ? "min-h-0 flex-1" : "min-h-56 shrink-0"} items-center justify-center overflow-hidden border-b border-border bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6`}>
-    <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl transition-opacity duration-700" style={{ opacity: intensity }} aria-hidden="true" />
+    <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl transition-opacity duration-700 animate-[jouzu-glow_9s_ease-in-out_infinite]" style={{ opacity: intensity }} aria-hidden="true" />
     <div className="relative flex flex-col items-center gap-3 text-center">
       <img src={jouzuIcon} alt="" draggable={false} className="size-20 drop-shadow-lg" />
       <p className="text-2xl font-semibold tracking-tight">Jouzu Desktop</p>

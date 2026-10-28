@@ -57,3 +57,9 @@
   .jouzu-loader span { animation: none; opacity: 1; transform: none; }
   .jouzu-loader span:nth-child(2), .jouzu-loader span:nth-child(4) { opacity: 0.5; }
 }
+
+@keyframes jouzu-glow {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, 12px, 0) scale(1.07); }
+}
+
