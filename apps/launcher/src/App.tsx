@@ -16,7 +16,7 @@ import { parseControlState, type ControlState } from "./control-state";
 import { Switch } from "./components/ui/switch";
 import { listen } from "@tauri-apps/api/event";
 import jouzuIcon from "./assets/jouzu.svg";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Input } from "./components/ui/input";
@@ -371,40 +371,49 @@ export function App() {
                   </div></section>}
 </div>;
   const errorBanner = error && <div role="alert" className="fixed left-1/2 top-4 z-[60] flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900 shadow-xl"><div><p className="font-medium">{t.error}</p><details className="mt-2 break-all"><summary className="cursor-pointer">{t.details}</summary><p className="mt-2">{error}</p></details></div><button onClick={() => setError(null)} aria-label={t.dismiss}><X className="size-4" /></button></div>;
-  const connectingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
-    <div data-tauri-drag-region className="h-10 shrink-0" />
-    <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section>
+  // One banner for every first-run screen. `fill` lets the banner take the height
+  // that a prepare or loading page would otherwise leave empty. The look is the
+  // approved prepare page: cyan wash, one glow, mark and wordmark.
+  const onboardingBanner = (title: string, action?: ReactNode, intensity = 0.55, fill = false) => <div className={`relative flex ${fill ? "min-h-0 flex-1" : "min-h-56 shrink-0"} items-center justify-center overflow-hidden border-b border-border bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6`}>
+    <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl transition-opacity duration-700" style={{ opacity: intensity }} aria-hidden="true" />
+    <div className="relative flex flex-col items-center gap-3 text-center">
+      <img src={jouzuIcon} alt="" draggable={false} className="size-20 drop-shadow-lg" />
+      <p className="text-2xl font-semibold tracking-tight">Jouzu Desktop</p>
+      <p className="text-sm text-muted-foreground">{title}</p>
+    </div>
+    {action && <div className="absolute right-6 top-6">{action}</div>}
+  </div>;
+  const connectingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {onboardingBanner(t.connecting, undefined, 0.7, true)}
+    <section aria-label={t.connecting} className="flex shrink-0 flex-col items-center gap-4 px-6 pb-14 pt-8">
+      <span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>
+      <Progress value={null} className="w-full max-w-xl" />
+      {statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}
+    </section>
   </main>;
   const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 3;
   const onboardingTitle = onboardingStep === "language" ? t.setupMake : onboardingStep === "runtime" ? t.setupRuntime : t.setupConnect;
   const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
-  const onboardingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
-    <div data-tauri-drag-region className="h-10 shrink-0" />
+  const onboardingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
     {errorBanner}
-    <div className="flex min-h-0 flex-1 flex-col pb-4">
-      <LauncherPage title={onboardingTitle} description={onboardingDescription} action={<span className="text-xs text-muted-foreground">{onboardingStepNumber} / 3</span>}>
-        <ScrollArea className="min-h-0 flex-1"><div className="p-5 sm:p-6">
-          {onboardingStep === "language" ? <div className="space-y-6 pt-2">
-            <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
-            <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-            <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
-          </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}</>}
-        </div></ScrollArea>
-      </LauncherPage>
+    {onboardingBanner(onboardingTitle, <span className="text-xs text-muted-foreground">{onboardingStepNumber} / 3</span>)}
+    <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
+      <div className="mx-auto w-full max-w-xl space-y-6">
+        <p className="text-sm text-muted-foreground">{onboardingDescription}</p>
+        {onboardingStep === "language" ? <div className="space-y-6">
+          <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
+          <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
+          <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
+        </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}</>}
+      </div>
     </div>
   </main>;
   const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : prepare.phase === "tools" ? 95 : 6;
   // A launcher-style prepare page: banner, one bar, no choices. It belongs to the
   // runtime step of the same state machine.
   const prepareScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
-    <div className="relative flex min-h-72 flex-1 flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6">
-      <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl" aria-hidden="true" />
-      <div className="relative flex flex-col items-center gap-4 text-center">
-        <img src={jouzuIcon} alt="" draggable={false} className="size-24 drop-shadow-lg" />
-        <div><p className="text-3xl font-semibold tracking-tight">Jouzu Desktop</p><p className="mt-2 text-sm text-muted-foreground">{t.prepareTitle}</p></div>
-      </div>
-    </div>
-    <div className="flex justify-center px-6 pb-16 pt-8">
+    {onboardingBanner(t.prepareTitle, undefined, 0.45 + preparePercent / 200, true)}
+    <div className="flex shrink-0 justify-center px-6 pb-16 pt-8">
       <div className="w-full max-w-xl space-y-3">
         <div className="flex items-baseline justify-between"><span className="text-sm font-medium">{prepare.error ? t.prepareFailed : prepare.phase === "node" ? t.prepareNode : prepare.phase === "packages" ? t.preparePackages : prepare.phase === "verify" ? t.prepareVerify : prepare.phase === "tools" ? t.prepareTools : t.prepareTitle}</span><span className="text-xs text-muted-foreground">{prepare.phase === "node" && prepare.total ? `${Math.round(prepare.downloaded / 1048576)} / ${Math.round(prepare.total / 1048576)} MB` : ""}</span></div>
         <Progress value={prepare.phase === "packages" && !prepare.error ? null : preparePercent} className="h-2.5" />
