@@ -45,6 +45,10 @@ export function App() {
   const [maximized, setMaximized] = useState(false);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
+  // The entry session connects behind the same loader the launcher starts with; after
+  // that first connect, a session switch shows the chat's own "Starting session…".
+  const [entryBooting, setEntryBooting] = useState(false);
+  const entryReady = useRef(false);
   const [restartPending, setRestartPending] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const catalogAttempted = useRef(false);
@@ -521,6 +525,10 @@ export function App() {
           </div>
         </DialogContent>
       </Dialog>
+    {entryBooting && !entryReady.current && <div className="fixed inset-0 z-40 flex h-screen w-full flex-col bg-background">
+      {onboardingBanner(t.connecting, undefined, 0.7, true)}
+      <div className="flex shrink-0 justify-center px-6 pb-14 pt-8"><Progress value={null} className="w-full max-w-xl" /></div>
+    </div>}
     {errorBanner}
     {activePath && <div className="flex min-h-0 flex-1">
       <ChatWorkspace
@@ -530,6 +538,7 @@ export function App() {
         onStartSession={() => setNewSession(false)}
         onRetry={() => setSessionRevision(value => value + 1)}
         onBusyChange={setChatBusy}
+        onBootChange={booting => { setEntryBooting(booting); if (!booting) entryReady.current = true; }}
         catalogRefreshing={catalogRefreshing}
         canRefreshModels={setup?.account.signedIn === true}
         onModelsMissing={() => void refreshModelCatalog()}
