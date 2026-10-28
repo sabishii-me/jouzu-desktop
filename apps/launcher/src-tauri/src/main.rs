@@ -18,7 +18,6 @@ mod command_path;
 mod managed_paths;
 mod migration;
 mod recovery;
-mod provision;
 mod node_path;
 mod renderer;
 mod update_lock;
@@ -371,15 +370,6 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn runtime_install(payload: String) -> Result<(), String> {
-    let source = std::path::PathBuf::from(payload);
-    let managed = runtime::managed_root()?;
-    tauri::async_runtime::spawn_blocking(move || provision::install_payload(&source, &managed))
-        .await
-        .map_err(|_| "Install task failed".to_string())?
-}
-
-#[tauri::command]
 fn mcp_config() -> Result<serde_json::Value, String> {
     let path = runtime::effective_home()?.join("agent/mcp.json");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -594,7 +584,6 @@ fn main() {
             add_workspaces,
             component_versions,
             runtime_report,
-            runtime_install,
             mcp_config,
             recovery::repair_jouzu,
             diagnostics,
