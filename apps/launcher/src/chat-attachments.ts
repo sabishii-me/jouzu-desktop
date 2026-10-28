@@ -4,6 +4,15 @@ export const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
 export const MAX_IMAGES = 4;
+/**
+ * What one message may add to the runtime's Flow submission budget. That budget is
+ * 4 MiB for the whole session lifetime and is never reclaimed, so an image has to
+ * stay small enough that a normal session keeps working.
+ */
+export const MAX_SEND_IMAGE_BASE64 = 200 * 1024;
+export const MAX_SEND_TOTAL_BASE64 = 600 * 1024;
+const MAX_EDGE = 1536;
+const MIN_SCALE = 0.2;
 export interface ImageAttachment { id: string; name: string; size: number; image: ChatImage }
 type ImageFile = { type: string; size: number };
 
@@ -31,25 +40,71 @@ export function validateImageBytes(bytes: Uint8Array, mimeType: string): ChatIma
   return mimeType as ChatImage["mimeType"];
 }
 
-export function readImageAttachment(file: File): Promise<ImageAttachment> {
+export function base64Length(bytes: number): number {
+  return Math.ceil(bytes / 3) * 4;
+}
+
+export function fitsSendBudget(images: readonly ImageAttachment[]): boolean {
+  const total = images.reduce((sum, item) => sum + item.image.data.length, 0);
+  return total <= MAX_SEND_TOTAL_BASE64;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  return btoa(binary);
+}
+
+async function encode(bitmap: ImageBitmap, scale: number): Promise<Uint8Array | undefined> {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/webp", 0.85));
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined;
+}
+
+/** Shrink an oversized image until one message stays inside the runtime's budget. */
+export async function fitForSend(bytes: Uint8Array, mimeType: ChatImage["mimeType"]): Promise<{ bytes: Uint8Array; mimeType: ChatImage["mimeType"] }> {
+  if (base64Length(bytes.length) <= MAX_SEND_IMAGE_BASE64) return { bytes, mimeType };
+  // Re-encoding a still GIF would drop the animation; leave small ones alone and refuse huge ones.
+  if (mimeType === "image/gif") throw new Error("This GIF is too large to send. Use a smaller GIF or a still image.");
+  let bitmap: ImageBitmap | undefined;
+  try {
+    const copy = new Uint8Array(bytes.length);
+    copy.set(bytes);
+    bitmap = await createImageBitmap(new Blob([copy.buffer], { type: mimeType }));
+  } catch {
+    throw new Error("This image could not be read.");
+  }
+  try {
+    let scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const encoded = await encode(bitmap, scale);
+      if (encoded && base64Length(encoded.length) <= MAX_SEND_IMAGE_BASE64) return { bytes: encoded, mimeType: "image/webp" };
+      if (scale <= MIN_SCALE) break;
+      scale *= 0.8;
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error("This image is too large to send. Crop it or choose a smaller one.");
+}
+
+export async function readImageAttachment(file: File): Promise<ImageAttachment> {
   validateImageSelection([], [file]);
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
-    reader.onabort = () => reject(new Error(`Reading ${file.name} was cancelled.`));
-    reader.onload = () => {
-      try {
-        if (!(reader.result instanceof ArrayBuffer)) throw new Error("Could not read image bytes.");
-        const bytes = new Uint8Array(reader.result);
-        if (bytes.length !== file.size) throw new Error("Image size changed while reading.");
-        const mimeType = validateImageBytes(bytes, file.type);
-        let binary = "";
-        for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-        resolve({ id: crypto.randomUUID(), name: file.name, size: bytes.length, image: { type: "image", data: btoa(binary), mimeType } });
-      } catch (error) { reject(error); }
-    };
-    reader.readAsArrayBuffer(file);
-  });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length !== file.size) throw new Error("Image size changed while reading.");
+  const mimeType = validateImageBytes(bytes, file.type);
+  const prepared = await fitForSend(bytes, mimeType);
+  return {
+    id: crypto.randomUUID(),
+    name: file.name,
+    size: prepared.bytes.length,
+    image: { type: "image", data: toBase64(prepared.bytes), mimeType: prepared.mimeType },
+  };
 }
 
 export function removeSubmittedImages(current: readonly ImageAttachment[], submitted: readonly ImageAttachment[]) {

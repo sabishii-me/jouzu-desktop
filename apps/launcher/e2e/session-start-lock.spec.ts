@@ -1,8 +1,43 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
+import { deflateSync } from "node:zlib";
 
 test.use({ channel: process.env.JOUZU_UI_TEST_BROWSER });
+
+function crc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** A PNG of noise: it must be genuinely large, so the attachment pipeline has to shrink it. */
+function noisyPng(size = 900): Buffer {
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  let seed = 123456789;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const offset = y * (size * 4 + 1) + 1 + x * 4;
+      raw[offset] = seed & 0xff;
+      raw[offset + 1] = (seed >> 8) & 0xff;
+      raw[offset + 2] = (seed >> 16) & 0xff;
+      raw[offset + 3] = 255;
+    }
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
+}
 
 /**
  * A per-handle fixture: every `chat_start` gets its own record queue and session,
@@ -103,7 +138,7 @@ async function setup(page: Page) {
           else if (request.type === "get_available_thinking_levels") response(state, request, { levels: [] });
           else if (request.type === "get_session_stats") response(state, request, { userMessages: 2, assistantMessages: 2, toolCalls: 0 });
           else if (request.type === "prompt") {
-            w.promptCalls.push({ handle: args.handle, message: request.message });
+            w.promptCalls.push({ handle: args.handle, message: request.message, imageBytes: (request.images ?? []).reduce((sum: number, image: any) => sum + String(image?.data ?? "").length, 0) });
             const text = String(request.message);
             state.running = true;
             const user = { role: "user", content: [{ type: "text", text }] };
@@ -234,6 +269,26 @@ test("two sessions in one workspace run turns side by side", async ({ page }) =>
   await expect.poll(() => page.evaluate(() => (window as any).abortCalls.length)).toBe(2);
   expect(await page.evaluate(() => (window as any).abortCalls)).toEqual([prompts[0].handle, prompts[1].handle]);
   await expect(page.locator("[data-session-running]")).toHaveCount(0);
+});
+
+test("an oversized image is shrunk before it reaches the runtime", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: "New session", exact: true }).click();
+  await page.waitForTimeout(600);
+
+  await page.locator('input[aria-label="Choose images"]').setInputFiles({ name: "big.png", mimeType: "image/png", buffer: noisyPng() });
+  await expect(page.getByRole("img", { name: "Preview of big.png" })).toBeVisible({ timeout: 20000 });
+
+  await page.getByLabel("Message Jouzu").fill("describe this image");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.length)).toBe(1);
+
+  const calls = await page.evaluate(() => (window as any).promptCalls);
+  expect(calls[0].message).toBe("describe this image");
+  // The runtime keeps this payload against a 4 MiB per-session budget, so one image
+  // must arrive well under it.
+  expect(calls[0].imageBytes).toBeGreaterThan(0);
+  expect(calls[0].imageBytes).toBeLessThanOrEqual(200 * 1024);
 });
 
 test("a dialog raised by a background session waits for that session", async ({ page }) => {
