@@ -371,7 +371,7 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn runtime_install(app: tauri::AppHandle, payload: String) -> Result<(), String> {
+async fn runtime_install(payload: String) -> Result<(), String> {
     let source = std::path::PathBuf::from(payload);
     let managed = runtime::managed_root()?;
     tauri::async_runtime::spawn_blocking(move || provision::install_payload(&source, &managed))
