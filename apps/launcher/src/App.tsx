@@ -81,8 +81,10 @@ export function App() {
   const [query, setQuery] = useState("");
   const [setup, setSetup] = useState<ControlState | null>(null);
   // One state machine: the runtime is an input to it, not a second screen.
-  // null = still probing, false = onboarding installs it, true = the service can run.
-  const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
+  // Null = still probing, false = onboarding installs it, true = the service can run.
+  // It starts true so a normal start opens the workspace at once; the probe only
+  // lowers it when the runtime is actually missing.
+  const [runtimePresent, setRuntimePresent] = useState<boolean | null>(true);
   // One prepare surface: real download bytes, then package and verification phases.
   const [prepare, setPrepare] = useState<{ phase: string; downloaded: number; total: number | null; error: string | null }>({ phase: "", downloaded: 0, total: null, error: null });
   const prepareStarted = useRef(false);
@@ -430,9 +432,9 @@ export function App() {
     </div>
   </main>;
   // One state machine: probing, then the setup service, then onboarding or the workspace.
+  // Once the runtime is here the workspace opens; its own boot line is the only wait.
   if (runtimePresent === null) return connectingScreen;
   if (onboardingStep === "runtime" && !runtimePresent) return prepareScreen;
-  if (runtimePresent && !setup) return connectingScreen;
   if (!runtimePresent || showSetup) return onboardingScreen;  return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-4 py-2">
