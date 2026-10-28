@@ -397,9 +397,9 @@ export function App() {
   const onboardingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
     {errorBanner}
     {onboardingBanner(onboardingTitle)}
-    <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
-      <div className="mx-auto w-full max-w-xl space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-6 py-8">
+      <div className="onboarding-card w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
+        <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`${onboardingStepNumber} / 2`}>
             <span className={`size-2 rounded-full ${onboardingStepNumber >= 1 ? "bg-primary" : "bg-muted"}`} />
             <span className={`size-2 rounded-full ${onboardingStepNumber >= 2 ? "bg-primary" : "bg-muted"}`} />
@@ -407,11 +407,11 @@ export function App() {
           </div>
           {onboardingStep === "model" && <Button variant="ghost" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button>}
         </div>
-        <p className="text-sm text-muted-foreground">{onboardingDescription}</p>
+        <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{onboardingDescription}</p>
         {onboardingStep === "language" ? <div className="space-y-6">
-          <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
-          <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-          <div className="flex justify-end pt-1"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("model"); }}>{t.setupContinue}</Button></div>
+          <div className="space-y-3"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="grid grid-cols-2 gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="w-full" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
+          <div className="flex items-start justify-between gap-4 border-t border-border pt-5"><div className="space-y-1"><Label htmlFor="onboarding-japanese">{t.profile}</Label><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div>
+          <div className="flex justify-end border-t border-border pt-5"><Button onClick={async () => { if (!runtimePresent) { setOnboardingStep("runtime"); return; } if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("model"); }}>{t.setupContinue}</Button></div>
         </div> : onboardingStep === "runtime" ? <></> : <>{!settingsOpen && providerContent}</>}
       </div>
     </div>
