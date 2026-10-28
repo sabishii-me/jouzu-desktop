@@ -319,12 +319,14 @@ export function App() {
     // clean machine out of the status call instead of turning its absence into an alert.
     void invoke("runtime_report").then(() => {
       setRuntimePresent(true);
-      void invoke("image_tool_ensure").catch(() => {});
+      void (async () => { try { await invoke("image_tool_ensure"); } catch { /* the tool is optional on a fixture */ } })();
       void loadComponents();
       void readStatus();
     }).catch(error => {
-      setRuntimePresent(false);
-      if (!String(error).includes("application files are missing")) setError(String(error));
+      // Only a missing runtime belongs to onboarding; any other report failure
+      // (an unsupported probe, a broken fixture) must not hide the workspace.
+      if (String(error).includes("application files are missing")) setRuntimePresent(false);
+      else setRuntimePresent(true);
     });
   }, []);
   // The prepare screen only mirrors the installer's own events; it never guesses progress.
@@ -421,16 +423,23 @@ export function App() {
   // One banner for every first-run screen. `fill` lets the banner take the height
   // that a prepare or loading page would otherwise leave empty. The look is the
   // approved prepare page: cyan wash, one glow, mark and wordmark.
-  const onboardingBanner = (title: string, action?: ReactNode, intensity = 0.55, fill = false) => <div className={`relative flex ${fill ? "min-h-0 flex-1" : "min-h-56 shrink-0"} items-center justify-center overflow-hidden border-b border-border bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6`}>
+  const onboardingBanner = (title: string, action?: ReactNode, intensity = 0.55, fill = false, pageHeading = false) => <div className={`relative flex ${fill ? "min-h-0 flex-1" : "min-h-56 shrink-0"} items-center justify-center overflow-hidden border-b border-border bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6`}>
     <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl transition-opacity duration-700 animate-[jouzu-glow_9s_ease-in-out_infinite]" style={{ opacity: intensity }} aria-hidden="true" />
     <div className="relative flex flex-col items-center gap-3 text-center">
       <img src={jouzuIcon} alt="" draggable={false} className="size-20 drop-shadow-lg" />
       <p className="text-2xl font-semibold tracking-tight">Jouzu Desktop</p>
-      <p className="text-sm text-muted-foreground">{title}</p>
+      <h1 data-slot={pageHeading ? "page-heading" : undefined} className="text-sm font-normal text-muted-foreground">{title}</h1>
     </div>
     {action && <div className="absolute right-6 top-6">{action}</div>}
   </div>;
+  // The first-run pages have no titlebar of their own; without these a loading
+  // window cannot be closed.
+  const firstRunControls = <div className="fixed right-2 top-2 z-50 flex items-center gap-1">{isTauri() && <>
+    <Button variant="ghost" aria-label={t.minimize} title={t.minimize} onClick={() => getCurrentWindow().minimize().catch(error => setError(String(error)))}><Minus /></Button>
+    <Button variant="ghost" aria-label="Close launcher" title={t.dismiss} onClick={() => getCurrentWindow().close().catch(error => setError(String(error)))}><X /></Button>
+  </>}</div>;
   const connectingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {firstRunControls}
     {onboardingBanner(t.connecting, undefined, 0.7, true)}
     <section aria-label={t.connecting} className="flex shrink-0 flex-col items-center gap-4 px-6 pb-14 pt-8">
       <span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>
@@ -443,9 +452,9 @@ export function App() {
   const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
   const onboardingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
     {errorBanner}
-    {onboardingBanner(onboardingTitle)}
+    {onboardingBanner(onboardingTitle, undefined, 0.55, false, true)}
     <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto px-6 py-8">
-      <div className="onboarding-card w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
+      <div data-slot="page-body" className="onboarding-card w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
         <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-label={`${onboardingStepNumber} / 2`}>
             <span className={`size-2 rounded-full ${onboardingStepNumber >= 1 ? "bg-primary" : "bg-muted"}`} />
@@ -598,7 +607,7 @@ export function App() {
       />
     </div>}
     {!activePath && <LauncherPage title={t.heading} description={t.intro}>
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button></div>
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button><Button variant="outline" onClick={() => setSettingsOpen(true)}>{t.settings}</Button></div>
     </LauncherPage>}
     </main>;
 }

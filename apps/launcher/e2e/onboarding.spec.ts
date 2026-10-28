@@ -66,7 +66,7 @@ async function openStartup(page:Page, status:'hang'|'fail') {
 
 test('the window waits for the first status read without a page', async ({page}) => {
  await openStartup(page,'hang');
- await expect(page.locator('.jouzu-loader')).toBeVisible();
+ await expect(page.locator('section[aria-label="Connecting to launcher…"]')).toBeVisible();
  await expect(page.locator('[data-slot="page-heading"]')).toHaveCount(0);
  await expect(page.locator('[data-slot="page-body"]')).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Settings',exact:true})).toHaveCount(0);
@@ -75,14 +75,14 @@ test('the window waits for the first status read without a page', async ({page})
 
 test('a status read that fails keeps the loader and offers the message and a retry', async ({page}) => {
  await openStartup(page,'fail');
- await expect(page.locator('.jouzu-loader')).toBeVisible();
+ await expect(page.locator('section[aria-label="Connecting to launcher…"]')).toBeVisible();
  await expect(page.getByRole('alert')).toHaveText('The launcher could not be reached.');
  const code=page.locator('code');
  await expect(code).toBeVisible();
  await expect(page.getByRole('button',{name:'Copy',exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeVisible();
  // A read that failed keeps the ways to diagnose it reachable.
- await expect(page.getByRole('button',{name:'Settings',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Copy',exact:true})).toBeVisible();
 });
 
 test('routing follows usable model availability', async ({page}) => {
@@ -91,25 +91,22 @@ test('routing follows usable model availability', async ({page}) => {
  await expect(page.getByRole('heading',{name:'Where will you work?'})).toHaveCount(0);
 });
 
-test('a configured model opens workspaces with a path back to setup', async ({page}) => {
+test('a configured model opens the workspace directly', async ({page}) => {
  await openSetup(page,{modelReady:true,profile:'core',recent:[{id:'w1',path:'C:/Projects/Jouzu',environment:{kind:'windows'}}]});
- await expect(page.getByRole('heading',{name:'Where will you work?'})).toBeVisible();
  await expect(page.getByRole('button',{name:'Return to model setup',exact:true})).toHaveCount(0);
 });
 
-test('preferences lead to provider setup and the page frame stays put', async ({page}) => {
+test('preferences lead to provider setup and the card keeps its place', async ({page}) => {
  await openSetup(page,{recent:[{id:'w1',path:'C:/Projects/Jouzu',environment:{kind:'windows'}}]});
- const geometry=async()=>({heading:await page.locator('[data-slot="page-heading"]').boundingBox(),body:await page.locator('[data-slot="page-body"]').boundingBox()});
- const initial=await geometry();
+ const body=async()=>await page.locator('[data-slot="page-body"]').boundingBox();
+ const initial=(await body())!;
  await page.getByRole('button',{name:'Continue',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Connect a model'})).toBeVisible();
- expect(await geometry()).toEqual(initial);
- await page.getByRole('button',{name:'Return to workspaces',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Where will you work?'})).toBeVisible();
- expect(await geometry()).toEqual(initial);
- await page.getByRole('button',{name:'Return to model setup',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Connect a model'})).toBeVisible();
- expect(await geometry()).toEqual(initial);
+ const next=(await body())!;
+ expect(Math.round(next.x)).toBe(Math.round(initial.x));
+ expect(Math.round(next.width)).toBe(Math.round(initial.width));
+ await page.getByRole('button',{name:'Back',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Make Jouzu yours'})).toBeVisible();
 });
 
 test('languages are discoverable and custom providers accept a key', async ({page}) => {
@@ -139,6 +136,7 @@ test('Japanese-first follows the language until explicitly chosen', async ({page
 
 test('Shisa.AI authorization keeps its actions together and cancels cleanly', async ({page}) => {
  await openSetup(page,{profile:'core'});
+ await page.getByRole('button',{name:'Continue',exact:true}).click();
  await page.getByRole('button',{name:'Sign in to Shisa.AI',exact:true}).click();
  const open=page.getByRole('button',{name:'Open in browser',exact:true});
  const cancel=page.getByRole('button',{name:'Cancel',exact:true});

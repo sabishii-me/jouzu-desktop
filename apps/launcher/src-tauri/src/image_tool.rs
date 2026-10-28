@@ -35,11 +35,8 @@ fn settings_path(managed: &Path) -> PathBuf {
     agent_dir(managed).join("image-generation.json")
 }
 
-/// The Control Center choice, also read by the extension at call time.
-#[tauri::command]
-pub fn image_settings_read() -> Result<serde_json::Value, String> {
-    let managed = crate::runtime::managed_root()?;
-    let path = settings_path(&managed);
+pub fn read_settings(managed: &Path) -> Result<serde_json::Value, String> {
+    let path = settings_path(managed);
     let value: serde_json::Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
@@ -47,23 +44,32 @@ pub fn image_settings_read() -> Result<serde_json::Value, String> {
     Ok(normalize(value))
 }
 
-#[tauri::command]
-pub fn image_settings_save(model: String, size: String) -> Result<serde_json::Value, String> {
+pub fn save_settings(managed: &Path, model: &str, size: &str) -> Result<serde_json::Value, String> {
     let sizes = MODELS
         .iter()
         .find(|(id, _)| *id == model)
         .map(|(_, sizes)| *sizes)
         .ok_or_else(|| "Unknown image model.".to_string())?;
-    if !sizes.contains(&size.as_str()) {
+    if !sizes.contains(&size) {
         return Err("That image size is not available for the model.".into());
     }
-    let managed = crate::runtime::managed_root()?;
-    let directory = agent_dir(&managed);
+    let directory = agent_dir(managed);
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let value = serde_json::json!({ "model": model, "size": size });
-    std::fs::write(settings_path(&managed), format!("{}\n", serde_json::to_string_pretty(&value).unwrap()))
+    std::fs::write(settings_path(managed), format!("{}\n", serde_json::to_string_pretty(&value).unwrap()))
         .map_err(|error| error.to_string())?;
     Ok(value)
+}
+
+/// The Control Center choice, also read by the extension at call time.
+#[tauri::command]
+pub fn image_settings_read() -> Result<serde_json::Value, String> {
+    read_settings(&crate::runtime::managed_root()?)
+}
+
+#[tauri::command]
+pub fn image_settings_save(model: String, size: String) -> Result<serde_json::Value, String> {
+    save_settings(&crate::runtime::managed_root()?, &model, &size)
 }
 
 fn normalize(value: serde_json::Value) -> serde_json::Value {
@@ -104,6 +110,18 @@ mod tests {
         assert!(directory.join("index.js").is_file());
         let manifest = std::fs::read_to_string(directory.join("package.json")).unwrap();
         assert!(manifest.contains("pi"));
+    }
+
+    #[test]
+    fn settings_round_trip_and_reject_unknown_models() {
+        let managed = tempfile::tempdir().unwrap();
+        let saved = save_settings(managed.path(), "gemini-3-pro-image", "2K").unwrap();
+        assert_eq!(saved["size"], "2K");
+        let read = read_settings(managed.path()).unwrap();
+        assert_eq!(read["model"], "gemini-3-pro-image");
+        assert_eq!(read["size"], "2K");
+        assert!(save_settings(managed.path(), "nope", "1K").is_err());
+        assert!(save_settings(managed.path(), "gemini-3.1-flash-lite-image", "4K").is_err());
     }
 
     #[test]
