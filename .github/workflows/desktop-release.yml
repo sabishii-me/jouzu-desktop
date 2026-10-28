@@ -1,11 +1,19 @@
 name: Desktop release
 
-# One desktop-only installer per release, and that installer is also the self-update payload.
-# The package carries no runtime (ADR 0003), so there is no full/update pair.
+# Jouzu Desktop is its own product: a Tauri shell plus the chat UI and its
+# installer. It is not the launcher that ships Jouzu, and these gates are the
+# desktop's own (ADR 0006), not the launcher's.
 #
-# Manual until the first release exists. `publish` is the only path that writes to the
-# repository: it creates `v<version>` and replaces the feed on the stable `desktop-update`
-# release. Without `publish`, the run only proves the build and keeps a workflow artifact.
+# Build gate: typecheck, unit tests, chat/session acceptance tests, native tests,
+# and an unsigned NSIS build. Signing and the feed are release steps only.
+# Release gate adds: the updater configuration, the signature, notes, and the
+# published feed. Runtime provisioning is still open (0065); until it lands a
+# shell-only release cannot start chat on a clean machine.
+#
+# Manual until the first release exists. `publish` is the only path that writes to
+# the repository: it creates `v<version>` and replaces the feed on the stable
+# `desktop-update` release. Without `publish`, the run only proves the build and
+# keeps a workflow artifact.
 
 on:
   workflow_dispatch:
@@ -14,7 +22,12 @@ on:
         description: Version to release; must match apps/launcher/package.json
         required: true
         type: string
-        default: '1.0.1'
+        default: '1.0.3'
+      notes:
+        description: Release notes for the feed; empty uses the CHANGELOG section when it exists
+        required: false
+        type: string
+        default: ''
       publish:
         description: Create the version release and replace the desktop-update feed
         required: true
@@ -42,7 +55,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.19.0'
-      - name: Check the version, notes and updater configuration
+      - name: Check the dispatched version
         id: check
         shell: bash
         env:
@@ -53,22 +66,6 @@ jobs:
             echo "::error::Input version $INPUT_VERSION does not match apps/launcher/package.json ($version)"
             exit 1
           fi
-          node - <<'NODE'
-          const { readFileSync } = require('node:fs');
-          const version = require('./apps/launcher/package.json').version;
-          const cargo = readFileSync('apps/launcher/src-tauri/Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)?.[1];
-          const lock = readFileSync('apps/launcher/src-tauri/Cargo.lock', 'utf8').match(/name = "jouzu-desktop"\nversion = "([^"]+)"/)?.[1];
-          if (cargo !== version || lock !== version) {
-            throw new Error(`Version mismatch: package.json ${version}, Cargo.toml ${cargo}, Cargo.lock ${lock}`);
-          }
-          const updater = require('./apps/launcher/src-tauri/tauri.conf.json').plugins?.updater;
-          if (!updater?.pubkey) throw new Error('The updater public key is not configured');
-          const endpoint = String(updater.endpoints?.[0] ?? '');
-          if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/desktop-update\/latest\.json$/.test(endpoint)) {
-            throw new Error(`Unexpected update endpoint: ${endpoint}`);
-          }
-          NODE
-          node packaging/launcher/launcher-notes.mjs CHANGELOG.md "$version" > /dev/null
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   windows:
@@ -87,25 +84,30 @@ jobs:
           node-version: '24.19.0'
       - name: Install frontend dependencies
         run: npm ci --prefix apps/launcher
-      - name: Frontend tests and build
-        run: |
-          npm --prefix apps/launcher run build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm --prefix apps/launcher test
+      - name: Install the acceptance browser
+        working-directory: apps/launcher
+        run: npx playwright install chromium
+      - name: Frontend build, unit tests and acceptance tests
+        run: npm --prefix apps/launcher run test:acceptance
       - name: Native tests
         working-directory: apps/launcher/src-tauri
         run: cargo test --locked --bins
-      - name: Build the signed updater artifact
+      - name: Build the installer
         working-directory: apps/launcher
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          # createUpdaterArtifacts is a build-time overlay: a local build without the key
-          # still works, while a release always produces the .sig the feed points at.
-          $overlay = Join-Path $env:RUNNER_TEMP 'updater.json'
-          '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -LiteralPath $overlay -Encoding utf8NoBOM
-          npx tauri build --bundles nsis --config $overlay
+          if ('${{ inputs.publish }}' -eq 'true') {
+            # createUpdaterArtifacts is a build-time overlay, so the release always
+            # produces the .sig the feed points at.
+            $overlay = Join-Path $env:RUNNER_TEMP 'updater.json'
+            '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -LiteralPath $overlay -Encoding utf8NoBOM
+            npx tauri build --bundles nsis --config $overlay
+          } else {
+            # A test build proves the installer without the signing key.
+            npx tauri build --bundles nsis
+          }
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Name and verify the installer
         working-directory: apps/launcher
@@ -114,22 +116,25 @@ jobs:
           $directory = 'src-tauri/target/release/bundle/nsis'
           $built = Join-Path $directory "Jouzu Desktop_${version}_x64-setup.exe"
           $asset = Join-Path $directory "JouzuDesktop_${version}_x64-setup.exe"
-          if (-not (Test-Path -LiteralPath "$built.sig")) { throw 'The updater signature was not produced' }
+          if (-not (Test-Path -LiteralPath $built)) { throw 'The installer was not produced' }
           Copy-Item -LiteralPath $built -Destination $asset -Force
-          Copy-Item -LiteralPath "$built.sig" -Destination "$asset.sig" -Force
-          $publicKey = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).plugins.updater.pubkey
-          node ../../packaging/launcher/verify-updater-signature.mjs $asset "$asset.sig" $publicKey
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ('${{ inputs.publish }}' -eq 'true') {
+            if (-not (Test-Path -LiteralPath "$built.sig")) { throw 'The updater signature was not produced' }
+            Copy-Item -LiteralPath "$built.sig" -Destination "$asset.sig" -Force
+            $publicKey = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).plugins.updater.pubkey
+            node ../../packaging/launcher/verify-updater-signature.mjs $asset "$asset.sig" $publicKey
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
           "$((Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLower())  JouzuDesktop_${version}_x64-setup.exe" |
             Set-Content -LiteralPath SHA256SUMS.txt -Encoding ascii
       - name: Stage the release artifacts flat
         run: |
           $stage = Join-Path $env:RUNNER_TEMP 'release'
           New-Item -ItemType Directory $stage -Force | Out-Null
-          Copy-Item apps/launcher/src-tauri/target/release/bundle/nsis/JouzuDesktop_*.exe $stage
-          Copy-Item apps/launcher/src-tauri/target/release/bundle/nsis/JouzuDesktop_*.exe.sig $stage
+          Get-ChildItem apps/launcher/src-tauri/target/release/bundle/nsis -Filter 'JouzuDesktop_*' |
+            Copy-Item -Destination $stage
           Copy-Item apps/launcher/SHA256SUMS.txt $stage
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@ea165f8d65e6e75b540449e92b4886f43607fa02
         with:
           name: windows-release
           path: ${{ runner.temp }}/release
@@ -152,15 +157,34 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.19.0'
+      - name: Check the updater configuration
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const updater = require('./apps/launcher/src-tauri/tauri.conf.json').plugins?.updater;
+          if (!updater?.pubkey) throw new Error('The updater public key is not configured');
+          const endpoint = String(updater.endpoints?.[0] ?? '');
+          if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/desktop-update\/latest\.json$/.test(endpoint)) {
+            throw new Error(`Unexpected update endpoint: ${endpoint}`);
+          }
+          NODE
       - name: Download the Windows artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-release --dir release
       - name: Write the release notes and the feed
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
         run: |
           version='${{ needs.prepare.outputs.version }}'
           asset="JouzuDesktop_${version}_x64-setup.exe"
-          node packaging/launcher/launcher-notes.mjs CHANGELOG.md "$version" > notes.md
+          if [ -n "$INPUT_NOTES" ]; then
+            printf '%s\n' "$INPUT_NOTES" > notes.md
+          elif node packaging/launcher/launcher-notes.mjs CHANGELOG.md "$version" > notes.md 2>/dev/null; then
+            :
+          else
+            printf 'Jouzu Desktop %s\n' "$version" > notes.md
+          fi
           node packaging/launcher/desktop-feed.mjs "$version" notes.md "$GITHUB_REPOSITORY" "$asset" "release/$asset.sig" latest.json
           cat latest.json
       - name: Publish the version release
