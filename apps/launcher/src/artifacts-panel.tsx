@@ -34,14 +34,14 @@ function Thumb({ id, alt, onOpen }: { id: string; alt: string; onOpen: () => voi
 }
 
 /** Everything the artifact store holds, newest first (0072). */
-export function ArtifactsPanel() {
+export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   const [items, setItems] = useState<ArtifactRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ src: string; title: string } | null>(null);
 
   async function load() {
     try {
-      const result = await invoke<{ artifacts: ArtifactRecord[] }>("artifact_list", { kind: "images" });
+      const result = await invoke<{ artifacts: ArtifactRecord[] }>("artifact_list", { kind: "images", ...(sessionId ? { sessionId } : {}) });
       setItems(result.artifacts ?? []);
       setError(null);
     } catch (failure) {
@@ -50,7 +50,7 @@ export function ArtifactsPanel() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [sessionId]);
 
   async function view(item: ArtifactRecord) {
     try {
@@ -75,7 +75,7 @@ export function ArtifactsPanel() {
   return <Card className="border-border shadow-none">
     <CardHeader>
       <CardTitle>Artifacts</CardTitle>
-      <CardDescription>Generated files stored under the agent's artifacts folder, newest first.</CardDescription>
+      <CardDescription>{sessionId ? "Images produced in this session." : "Generated files stored under the agent's artifacts folder, newest first."}</CardDescription>
     </CardHeader>
     <CardContent className="space-y-4">
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}

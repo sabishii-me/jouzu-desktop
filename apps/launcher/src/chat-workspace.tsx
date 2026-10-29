@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, X } from "lucide-react";
+import { ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, PanelRight, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -8,6 +8,7 @@ import { Input } from "./components/ui/input";
 import { McpMenu } from "./mcp-menu";
 import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
+import { ArtifactsPanel } from "./artifacts-panel";
 import { ToolReviewDialog } from "./tool-review-dialog";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
 import { chatPool } from "./chat-pool";
@@ -875,6 +876,29 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   // Stop belongs to the session on screen. A running turn in the background must
   // not put a Stop button under a transcript the button would not stop.
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(420);
+  const resizingPanel = useRef(false);
+  useEffect(() => {
+    const key = snapshot.sessionId ? `jouzu.ui.panel.${snapshot.sessionId}` : "";
+    try {
+      const raw = key ? localStorage.getItem(key) : null;
+      const saved = raw ? JSON.parse(raw) : null;
+      setPanelOpen(saved?.open === true);
+      setPanelWidth(typeof saved?.width === "number" ? Math.min(720, Math.max(320, saved.width)) : 420);
+    } catch { setPanelOpen(false); }
+  }, [snapshot.sessionId]);
+  useEffect(() => {
+    if (!snapshot.sessionId) return;
+    try { localStorage.setItem(`jouzu.ui.panel.${snapshot.sessionId}`, JSON.stringify({ open: panelOpen, width: panelWidth })); } catch { /* a webview without storage keeps the session value */ }
+  }, [snapshot.sessionId, panelOpen, panelWidth]);
+  useEffect(() => {
+    const move = (event: PointerEvent) => { if (!resizingPanel.current) return; setPanelWidth(Math.min(720, Math.max(320, window.innerWidth - event.clientX))); };
+    const stop = () => { resizingPanel.current = false; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); };
+  }, []);
   const reviewBody = dialog?.title.startsWith("Review tool call") ? dialog.title.split("\n").slice(1).join("\n") : null;
   const dialogNode = !dialog ? null : reviewBody !== null
     ? <ToolReviewDialog title="Review tool call" body={reviewBody} options={dialog.options ?? []} disabled={dialog.responding || !snapshot.transportReady} onSelect={value => void reply({ value })} onCancel={() => void reply({ cancelled: true })} />
@@ -1024,7 +1048,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <McpMenu onReload={() => void reloadSession()} onAsk={() => updateDraft("Add an MCP server to this workspace. Ask me for the name, transport, target, and any required environment variables.")} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Toggle artifacts panel" title="Artifacts panel" aria-pressed={panelOpen} onClick={() => setPanelOpen(value => !value)}><PanelRight className="size-3.5" /></Button>
         </div>
       </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
@@ -1042,7 +1067,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
-      </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <>
+      </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <div className="flex min-h-0 flex-1"><div className="flex min-w-0 flex-1 flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col">
           <ChatConversation key={conversationKey} projection={conversationProjection} pending={snapshot.pending} startedAt={workingStartedAt} opening={false} onFork={(prompt, index) => void forkTurn(prompt, index)} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
@@ -1052,7 +1077,16 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview)} opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
         </div>
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
-      </>}
+        </div>
+        {panelOpen && <aside data-session={snapshot.sessionId ?? ""} style={{ width: panelWidth }} className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <span className="text-xs font-medium">Artifacts</span>
+            <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Close artifacts panel" title="Close" onClick={() => setPanelOpen(false)}><X className="size-3.5" /></Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3"><ArtifactsPanel sessionId={snapshot.sessionId} /></div>
+          <div role="separator" aria-orientation="vertical" aria-label="Resize artifacts panel" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPanel.current = true; event.preventDefault(); }} />
+        </aside>}
+      </div>}
     </section>
     {textguardPanel}
   </div>;
