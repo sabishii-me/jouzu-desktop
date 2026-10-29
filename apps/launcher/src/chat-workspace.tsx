@@ -878,7 +878,25 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(420);
+  const [panelTabs, setPanelTabs] = useState<string[]>(["artifacts"]);
+  const [activeTab, setActiveTab] = useState("artifacts");
   const resizingPanel = useRef(false);
+  function togglePanel() {
+    if (panelOpen) { setPanelOpen(false); return; }
+    if (!panelTabs.length) { setPanelTabs(["artifacts"]); setActiveTab("artifacts"); }
+    setPanelOpen(true);
+  }
+  function closePanelTab(id: string) {
+    const next = panelTabs.filter(tab => tab !== id);
+    setPanelTabs(next);
+    if (!next.length) setPanelOpen(false);
+    else if (activeTab === id) setActiveTab(next[next.length - 1]);
+  }
+  function addPanelTab() {
+    if (!panelTabs.includes("artifacts")) setPanelTabs([...panelTabs, "artifacts"]);
+    setActiveTab("artifacts");
+    setPanelOpen(true);
+  }
   useEffect(() => {
     const key = snapshot.sessionId ? `jouzu.ui.panel.${snapshot.sessionId}` : "";
     try {
@@ -886,12 +904,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const saved = raw ? JSON.parse(raw) : null;
       setPanelOpen(saved?.open === true);
       setPanelWidth(typeof saved?.width === "number" ? Math.min(720, Math.max(320, saved.width)) : 420);
+      setPanelTabs(Array.isArray(saved?.tabs) && saved.tabs.length ? saved.tabs.filter((tab: unknown) => typeof tab === "string") : ["artifacts"]);
+      setActiveTab(typeof saved?.active === "string" ? saved.active : "artifacts");
     } catch { setPanelOpen(false); }
   }, [snapshot.sessionId]);
   useEffect(() => {
     if (!snapshot.sessionId) return;
-    try { localStorage.setItem(`jouzu.ui.panel.${snapshot.sessionId}`, JSON.stringify({ open: panelOpen, width: panelWidth })); } catch { /* a webview without storage keeps the session value */ }
-  }, [snapshot.sessionId, panelOpen, panelWidth]);
+    try { localStorage.setItem(`jouzu.ui.panel.${snapshot.sessionId}`, JSON.stringify({ open: panelOpen, width: panelWidth, tabs: panelTabs, active: activeTab })); } catch { /* a webview without storage keeps the session value */ }
+  }, [snapshot.sessionId, panelOpen, panelWidth, panelTabs, activeTab]);
   useEffect(() => {
     const move = (event: PointerEvent) => { if (!resizingPanel.current) return; setPanelWidth(Math.min(720, Math.max(320, window.innerWidth - event.clientX))); };
     const stop = () => { resizingPanel.current = false; };
@@ -1049,7 +1069,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Toggle artifacts panel" title="Artifacts panel" aria-pressed={panelOpen} onClick={() => setPanelOpen(value => !value)}><PanelRight className="size-3.5" /></Button>
+          <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Toggle artifacts panel" title="Artifacts panel" aria-pressed={panelOpen} onClick={togglePanel}><PanelRight className="size-3.5" /></Button>
         </div>
       </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
@@ -1079,11 +1099,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
         {panelOpen && <aside data-session={snapshot.sessionId ?? ""} style={{ width: panelWidth }} className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-            <span className="text-xs font-medium">Artifacts</span>
-            <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Close artifacts panel" title="Close" onClick={() => setPanelOpen(false)}><X className="size-3.5" /></Button>
+          <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+            {panelTabs.map(tab => <div key={tab} className={`flex items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs ${activeTab === tab ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
+              <button type="button" onClick={() => setActiveTab(tab)}>{tab === "artifacts" ? "Artifacts" : tab}</button>
+              <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={`Close ${tab} tab`} title="Close tab" onClick={() => closePanelTab(tab)}><X className="size-3" /></button>
+            </div>)}
+            <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Add panel tab" title="Add tab" onClick={addPanelTab}><Plus className="size-3.5" /></Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3"><ArtifactsPanel sessionId={snapshot.sessionId} /></div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">{activeTab === "artifacts" && <ArtifactsPanel sessionId={snapshot.sessionId} />}</div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize artifacts panel" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPanel.current = true; event.preventDefault(); }} />
         </aside>}
       </div>}
