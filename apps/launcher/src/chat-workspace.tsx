@@ -882,11 +882,24 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   // not put a Stop button under a transcript the button would not stop.
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
   const [appView, setAppView] = useState<"chat" | "artifacts">("chat");
+  const [artifactCounts, setArtifactCounts] = useState<Record<string, number>>({});
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(420);
   const [panelTabs, setPanelTabs] = useState<string[]>(["start"]);
   const [activeTab, setActiveTab] = useState("start");
   const resizingPanel = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    void invoke<{ counts: Record<string, number> }>("artifact_counts")
+      .then(value => { if (alive) setArtifactCounts(value.counts ?? {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [sessions, revision, snapshot.projection.messages.length]);
+  function artifactCount(sessionPath: string) {
+    const file = sessionPath.split(/[\\/]/u).at(-1)?.replace(/\.jsonl$/u, "") ?? "";
+    const sessionId = file.includes("_") ? file.split("_").pop()! : file;
+    return artifactCounts[sessionId] ?? 0;
+  }
   function togglePanel() {
     if (panelOpen) { setPanelOpen(false); return; }
     if (!panelTabs.length) { setPanelTabs(["start"]); setActiveTab("start"); }
@@ -1051,7 +1064,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             {open && <div className="ml-4 border-l border-border pl-1.5">
               {group.sessions.map(session => <div key={session.path} ref={node => { if (selectedKey === normalizedPath(session.path)) selectedRowRef.current = node; }} data-session-selected={selectedKey === normalizedPath(session.path) || undefined} className={`group/session relative flex items-center rounded-md text-sm ${selectedKey === normalizedPath(session.path) ? "bg-accent text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "hover:bg-muted/60"} ${session.archived ? "opacity-60" : ""}`}>
                 <button type="button" onClick={() => void openSession(session.path)} title={session.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">
-                  {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span>{chatPool.isRunning(session.path) && <span role="img" aria-label="Running" title="Running" data-session-running className="size-1.5 shrink-0 rounded-full bg-primary" />}<span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>
+                  {session.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />}<span className="min-w-0 flex-1 truncate">{session.title}</span>{chatPool.isRunning(session.path) && <span role="img" aria-label="Running" title="Running" data-session-running className="size-1.5 shrink-0 rounded-full bg-primary" />}<span className="shrink-0 text-[11px] text-muted-foreground">{relativeTime(session.updated)}</span>{artifactCount(session.path) > 0 && <span className="shrink-0 rounded border border-border px-1 text-[10px] tabular-nums text-muted-foreground" title={`${artifactCount(session.path)} artifact${artifactCount(session.path) === 1 ? "" : "s"}`}>{artifactCount(session.path)}</span>}
                 </button>
                 <div className={`relative flex shrink-0 items-center gap-0.5 pr-1 transition-opacity focus-within:opacity-100 group-hover/session:opacity-100 ${sessionMenu === session.path ? "opacity-100" : "opacity-0"}`} data-session-menu>
                   <button type="button" className="flex size-6 items-center justify-center rounded hover:bg-background/60" aria-label={session.pinned ? "Unpin session" : "Pin session"} title={session.pinned ? "Unpin session" : "Pin session"} onClick={() => void updateSession(session.path, { pinned: !session.pinned })}><Pin className={`size-3.5 ${session.pinned ? "text-primary" : "text-muted-foreground"}`} /></button>
