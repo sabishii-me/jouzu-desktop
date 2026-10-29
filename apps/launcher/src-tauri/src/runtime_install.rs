@@ -360,6 +360,8 @@ fn install_runtime(managed: &Path, progress: Progress) -> Result<String, String>
 
 /// Install Node, the official npm package and the tools the workspace needs.
 pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
+    // The app may already be installed while its Node is old; replace Node first.
+    ensure_node(managed, progress)?;
     let app = managed.join("app");
     // A retry after a tool failure must not touch a runtime that is already there.
     let version = if app.join("bootstrap.mjs").is_file() {

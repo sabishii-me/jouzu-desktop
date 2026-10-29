@@ -38,7 +38,7 @@ import { type Workspace } from "./history";
 import { parseDiagnostics, type Diagnostics } from "./diagnostics";
 interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Workspace[]; ready: boolean; bash: boolean; bundled_git: boolean }
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
-interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
+interface RuntimeReport { status?: string; version: string | null; root: string | null; app: string | null; node: boolean; nodeVersion: string | null; nodeCurrent: boolean; git: boolean; terminal: boolean }
 
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => resolveLocale(localStorage.getItem("jouzu.ui.language") ?? navigator.language));
@@ -90,6 +90,7 @@ export function App() {
   // One state machine: the runtime is an input to it, not a second screen.
   // null = still probing, false = onboarding installs it, true = the service can run.
   const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
+  const [runtimeUpdating, setRuntimeUpdating] = useState<{ phase: string; error: string | null } | null>(null);
   // One prepare surface: real download bytes, then package and verification phases.
   const [prepare, setPrepare] = useState<{ phase: string; downloaded: number; total: number | null; error: string | null }>({ phase: "", downloaded: 0, total: null, error: null });
   // There is no setup wizard: a missing runtime auto-prepares, and a missing
@@ -198,6 +199,22 @@ export function App() {
       setPrepare(current => ({ ...current, error: String(error) }));
     }
   }
+
+  /** An outdated runtime is updated in place; the workspace stays open and new sessions wait. */
+  async function updateRuntime() {
+    setRuntimeUpdating({ phase: "start", error: null });
+    try {
+      await invoke<string>("runtime_install");
+      const report = await invoke<RuntimeReport>("runtime_report");
+      if (report && report.nodeCurrent === false) throw new Error("The runtime update did not finish.");
+      setRuntimeUpdating(null);
+      void (async () => { try { await invoke("image_tool_ensure"); } catch { /* the tool is optional on a fixture */ } })();
+      void loadComponents();
+      await readStatus();
+    } catch (error) {
+      setRuntimeUpdating({ phase: "error", error: String(error) });
+    }
+  }
   const prepareStarted = useRef(false);
   useEffect(() => {
     if (runtimePresent !== false) { prepareStarted.current = false; return; }
@@ -266,8 +283,9 @@ export function App() {
     getVersion().then(setVersion).catch(error => setError(String(error)));
     // The runtime decides whether the setup service exists; probing it first keeps a
     // clean machine out of the status call instead of turning its absence into an alert.
-    void invoke("runtime_report").then(() => {
+    void invoke<RuntimeReport>("runtime_report").then(report => {
       setRuntimePresent(true);
+      if (report && report.nodeCurrent === false) { void updateRuntime(); return; }
       void (async () => { try { await invoke("image_tool_ensure"); } catch { /* the tool is optional on a fixture */ } })();
       void loadComponents();
       void readStatus();
@@ -282,6 +300,7 @@ export function App() {
   useEffect(() => {
     if (!isTauri()) return;
     const pending = listen<{ phase: string; downloaded?: number; total?: number | null }>("runtime-install-progress", event => {
+      setRuntimeUpdating(current => current && !current.error ? { phase: event.payload.phase, error: null } : current);
       setPrepare(current => ({
         ...current,
         phase: event.payload.phase,
@@ -520,11 +539,16 @@ export function App() {
       <div className="flex shrink-0 justify-center px-6 pb-14 pt-8"><Progress value={null} className="w-full max-w-xl" /></div>
     </div>}
     {errorBanner}
+    {runtimeUpdating && <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2 text-sm">
+      <span className="min-w-0 flex-1 truncate" title={runtimeUpdating.error ?? undefined}>{runtimeUpdating.error ? `${t.runtimeUpdateFailed} ${runtimeUpdating.error}` : t.runtimeUpdating}</span>
+      {runtimeUpdating.error && <Button variant="outline" onClick={() => void updateRuntime()}>{t.retry}</Button>}
+    </div>}
     {activePath && <div className="flex min-h-0 flex-1">
       <ChatWorkspace
         path={activePath}
         revision={sessionRevision}
         newSession={newSession}
+        locked={runtimeUpdating !== null}
         onStartSession={() => setNewSession(false)}
         onRetry={() => setSessionRevision(value => value + 1)}
         onBusyChange={setChatBusy}
