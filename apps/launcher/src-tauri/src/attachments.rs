@@ -41,19 +41,30 @@ pub fn save_copy(from: String, to: String) -> Result<(), String> {
 /// Show an artifact in the platform's file browser.
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {
-    let path = Path::new(&path);
-    if !path.exists() {
+    let source = Path::new(&path);
+    if !source.exists() {
         return Err("That file no longer exists.".into());
     }
     #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("explorer.exe")
-        .arg(format!("/select,\"{}\"", path.display()))
-        .spawn();
+    let spawned = {
+        use std::os::windows::process::CommandExt;
+        // explorer.exe parses its own command line, and Rust's normal argument
+        // quoting makes /select, fail (the window then opens at the default
+        // folder). cmd passes the documented form through untouched.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let absolute = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        let display = absolute.to_string_lossy();
+        let display = display.strip_prefix(r"\\?\").unwrap_or(&display);
+        std::process::Command::new("cmd.exe")
+            .raw_arg(format!("/c explorer.exe /select,\"{display}\""))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+    };
     #[cfg(target_os = "macos")]
-    let spawned = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    let spawned = std::process::Command::new("open").arg("-R").arg(source).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let spawned = std::process::Command::new("xdg-open")
-        .arg(path.parent().unwrap_or(path))
+        .arg(source.parent().unwrap_or(source))
         .spawn();
     spawned.map(|_| ()).map_err(|_| "Could not open the folder.".to_string())
 }
