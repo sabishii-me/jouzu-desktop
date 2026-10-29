@@ -49,7 +49,7 @@ jobs:
         working-directory: apps/launcher
         run: npx tauri build --bundles nsis
       - name: Upload Windows installer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v7
         with:
           name: jouzu-desktop-windows-installer
           path: apps/launcher/src-tauri/target/release/bundle/nsis/*.exe
@@ -80,7 +80,7 @@ jobs:
         working-directory: apps/launcher
         run: npx tauri build --bundles dmg
       - name: Upload macOS installer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v7
         with:
           name: jouzu-desktop-macos-installer
           path: apps/launcher/src-tauri/target/release/bundle/dmg/*.dmg
