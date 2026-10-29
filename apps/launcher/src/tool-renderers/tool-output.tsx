@@ -91,7 +91,7 @@ function readPath(args: unknown): string | undefined {
   return typeof value?.path === "string" ? value.path : undefined;
 }
 
-function imageBlocks(result: unknown) {
+export function imageBlocks(result: unknown) {
   const value = record(result);
   const blocks = value && Array.isArray(value.content) ? value.content : [];
   return blocks.flatMap(block => {

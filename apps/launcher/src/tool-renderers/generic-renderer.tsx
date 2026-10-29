@@ -1,12 +1,13 @@
 import { ActivityRow } from "./activity-row";
 import { object } from "../chat-projection";
-import { ToolOutput } from "./tool-output";
+import { imageBlocks, ToolOutput } from "./tool-output";
 import type { ToolRendererProps } from "./types";
 
 export function GenericRenderer({ tool }: ToolRendererProps) {
   const result = tool.result;
   const blocks = object(result) && Array.isArray(result.content) ? result.content : [];
-  return <ActivityRow title={tool.name} summary={tool.phase === "running" ? "Running" : tool.phase === "error" ? "Failed" : "Completed"} state={tool.phase === "running" ? "running" : tool.phase === "error" ? "error" : "done"} defaultOpen={tool.phase === "error"}>
+  const images = imageBlocks(result);
+  return <ActivityRow title={tool.name} summary={tool.phase === "running" ? "Running" : tool.phase === "error" ? "Failed" : "Completed"} state={tool.phase === "running" ? "running" : tool.phase === "error" ? "error" : "done"} defaultOpen={tool.phase === "error" || images.length > 0}>
     <div className="space-y-2">
       <ToolOutput tool={tool} />
       {!blocks.length && !object(result) && <p className="text-[11px] text-muted-foreground">No structured result.</p>}
