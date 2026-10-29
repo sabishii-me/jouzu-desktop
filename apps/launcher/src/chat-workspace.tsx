@@ -894,7 +894,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     else if (activeTab === id) setActiveTab(next[next.length - 1]);
   }
   function openPanelView(id: string) {
-    if (!panelTabs.includes(id)) setPanelTabs([...panelTabs, id]);
+    if (panelTabs.includes(id)) { setActiveTab(id); setPanelOpen(true); return; }
+    // An entry chosen from Start replaces that Start tab instead of adding another.
+    const next = [...panelTabs];
+    const start = next.indexOf("start");
+    if (start >= 0) next[start] = id; else next.push(id);
+    setPanelTabs(next);
     setActiveTab(id);
     setPanelOpen(true);
   }
