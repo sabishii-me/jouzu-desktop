@@ -246,7 +246,7 @@ test("matrix: fork from a preview attaches and opens the branch", async ({ page 
   await page.getByRole("button", { name: "Branch into a new conversation" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
   await expect(page.getByText("Branched into a new conversation.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
   expect(await page.evaluate(() => (window as any).branchCalls))
@@ -301,18 +301,6 @@ test("matrix: export from a preview attaches before exporting", async ({ page })
     .toEqual([{ session: "00000000-0000-4000-8000-000000000002", path: "C:/tmp/export.html" }]);
 });
 
-test("matrix: reload from a preview attaches that session first", async ({ page }) => {
-  await setup(page);
-  await page.getByRole("button", { name: /^S1\b/ }).click();
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
-  await page.getByRole("button", { name: "Reload session" }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(2);
-  expect(await page.evaluate(() => (window as any).switchCalls))
-    .toEqual([
-      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
-      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
-    ]);
-});
 
 test("matrix: changing the model from a preview attaches that session first", async ({ page }) => {
   await setup(page);
@@ -359,7 +347,7 @@ test("matrix: fork at the selected turn keeps that turn", async ({ page }) => {
   await expect(page.getByText("second answer")).toBeVisible();
   await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByText("first answer")).toBeVisible();
   await expect(page.getByText("second answer")).toBeVisible();
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
@@ -373,7 +361,7 @@ test("matrix: fork on a single-turn session keeps its turn", async ({ page }) =>
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
   expect(await page.evaluate(() => (window as any).branchCalls))

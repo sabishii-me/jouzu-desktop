@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, SquareTerminal, X } from "lucide-react";
+import { ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -40,8 +40,7 @@ export interface ChatWorkspaceProps {
   workspaces: readonly WorkspaceItem[];
   onSelect: (path: string) => void;
   onAddFolder: () => void;
-  onRemove: (id: string) => void;
-  onTerminal?: (path: string) => void;
+  onRemove: (id: string) => void;
   onSettings: () => void;
   onUpdate?: () => void;
   updateAvailable?: boolean;
@@ -58,7 +57,7 @@ function relativeTime(updated: number) {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSession, onRetry, onBusyChange, onBootChange, catalogRefreshing = false, canRefreshModels = false, onModelsMissing, workspaces, onSelect, onAddFolder, onRemove, onTerminal, onSettings, onUpdate, updateAvailable = false, updateBusy = false }: ChatWorkspaceProps) {
+export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSession, onRetry, onBusyChange, onBootChange, catalogRefreshing = false, canRefreshModels = false, onModelsMissing, workspaces, onSelect, onAddFolder, onRemove, onSettings, onUpdate, updateAvailable = false, updateBusy = false }: ChatWorkspaceProps) {
   const [snapshot, setSnapshot] = useState<ChatSnapshot>({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
   const [draft, setDraft] = useState("");
   const draftRef = useRef(draft);
@@ -1018,17 +1017,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2 className="max-w-60 min-w-0 shrink-0 truncate text-sm font-semibold" title={`${name} · ${path}${snapshot.model ? ` · ${snapshot.model}` : ""}`}>{selectedTitle ?? name}</h2>
           {!snapshot.connected && <span className={`h-7 shrink-0 rounded-md border px-2 text-xs leading-7 ${workspaceError ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}>{workspaceError ? "Offline" : "Starting…"}</span>}
-          <div className="hidden min-w-0 items-center gap-1.5 md:flex">
-            <span className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">Standard mode</span>
+          <div className="hidden min-w-0 items-center gap-1.5 md:flex">
             <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <BackgroundMenu jobs={flow.background} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <FlowMenu key={snapshot.sessionId ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === activeSession ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
             <McpMenu onReload={() => void reloadSession()} onAsk={() => updateDraft("Add an MCP server to this workspace. Ask me for the name, transport, target, and any required environment variables.")} />
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Reload session" title="Reload session (extensions, skills, MCP and catalogs)" disabled={commandBusy || !snapshot.sessionFile || snapshot.pending || snapshot.projection.running} onClick={() => void reloadSession()}><RefreshCw className="size-3.5" /></Button>
-          {onTerminal && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Open in terminal" title="Open this session's workspace in a terminal" onClick={() => onTerminal(path)}><SquareTerminal className="size-3.5" /></Button>}
+        <div className="flex shrink-0 items-center gap-0.5">
         </div>
       </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
@@ -1041,7 +1037,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             <h1 className="text-2xl font-semibold tracking-tight">What would you like to build?</h1>
             <p className="max-w-md text-sm text-muted-foreground">Choose a workspace, then describe the task. Jouzu can explore code, explain it, or make a change.</p>
           </div>
-          <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}<span className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">Standard mode</span></div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1">{workspacePicker}</div>
           {dialogNode && <div className="mb-3">{dialogNode}</div>}
           <Composer hero connected={snapshot.connected} pending={snapshot.pending || commandBusy || switching} opening={false} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} />
           <SessionStatsBar stats={snapshot.stats} timing={timing} />

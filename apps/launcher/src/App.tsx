@@ -544,8 +544,7 @@ export function App() {
         workspaces={state?.recent ?? []}
         onSelect={setActivePath}
         onAddFolder={() => void chooseFolder()}
-        onRemove={id => { const workspace = state?.recent.find(item => item.id === id); if (workspace) void forget(workspace); }}
-        onTerminal={state?.platform === "windows" ? path => void launchTerminal(path) : undefined}
+        onRemove={id => { const workspace = state?.recent.find(item => item.id === id); if (workspace) void forget(workspace); }}
         onSettings={() => setSettingsOpen(true)}
         onUpdate={openUpdatePanel}
         updateAvailable={!!(updater.version || jouzuUpdater.version)}

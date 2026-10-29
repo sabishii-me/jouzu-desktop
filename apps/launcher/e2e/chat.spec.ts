@@ -122,7 +122,7 @@ test("the last workspace opens and prewarms chat without a workspace click", asy
   await expect(page.getByRole("dialog")).toContainText("200 tok");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("article", { name: "user message" })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Open in terminal", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open in terminal", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
   await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Fixture model");
   await page.getByLabel("Choose images").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
