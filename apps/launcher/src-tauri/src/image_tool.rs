@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 /// The desktop's own pi extension, installed into the agent's extension folder.
 const MANIFEST: &str = include_str!(concat!(
@@ -124,15 +126,32 @@ fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
     if !script.is_file() {
         return Err("The image tool is not installed yet.".into());
     }
-    let output = std::process::Command::new(node)
+    let mut child = std::process::Command::new(node)
         .arg(&script)
         .args(args)
         .env("JOUZU_HOME", &home)
         .env("PI_CODING_AGENT_DIR", home.join("agent"))
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|_| "The image tool could not be started.".to_string())?;
+    // Never wait forever on a provider that does not answer.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("The image tool did not answer in time.".into());
+            }
+            Err(_) => return Err("The image tool could not be started.".to_string()),
+        }
+    }
+    let output = child.wait_with_output().map_err(|_| "The image tool could not be started.".to_string())?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let value: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|_| {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -156,14 +175,20 @@ pub fn tools_settings_save(image: serde_json::Value) -> Result<serde_json::Value
 
 /// The image providers the extension offers, for the Tools page.
 #[tauri::command]
-pub fn image_providers() -> Result<serde_json::Value, String> {
-    run_cli(&crate::runtime::managed_root()?, &["--providers"])
+pub async fn image_providers() -> Result<serde_json::Value, String> {
+    let managed = crate::runtime::managed_root()?;
+    tauri::async_runtime::spawn_blocking(move || run_cli(&managed, &["--providers"]))
+        .await
+        .map_err(|_| "The image tool could not be started.".to_string())?
 }
 
 /// The signed-in provider's image models, for the Tools page.
 #[tauri::command]
-pub fn image_models(provider: String) -> Result<serde_json::Value, String> {
-    run_cli(&crate::runtime::managed_root()?, &["--models", &provider])
+pub async fn image_models(provider: String) -> Result<serde_json::Value, String> {
+    let managed = crate::runtime::managed_root()?;
+    tauri::async_runtime::spawn_blocking(move || run_cli(&managed, &["--models", &provider]))
+        .await
+        .map_err(|_| "The image tool could not be started.".to_string())?
 }
 
 /// Called after a runtime install and on app start, so existing installs get it too.
