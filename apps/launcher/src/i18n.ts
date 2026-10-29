@@ -1,6 +1,7 @@
 export const locales = { en: "English", ja: "日本語", "zh-Hans": "简体中文", "zh-Hant": "繁體中文" };
 export type Locale = keyof typeof locales;
 const en = {
+  toolsTab: "Tools",
 updateAvailable: "Update available", upToDate: "Up to date", updateCheckHint: "Check for a new launcher version.", updaterUnconfigured: "Launcher update source and signing key are not configured.", installingUpdate: "Installing…", downloadingUpdate: "Downloading…", checkUpdates: "Check for updates", updateReady: "An update is ready", installUpdate: "Update launcher", restartUpdateHint: "The launcher will close for installation. Save your work before continuing.", jouzuUpdatePending: "Jouzu updates: the qualified pnpm release source is not configured.",
  profileOffHint: "When disabled, no Japanese-first instructions are added. Reply language follows the conversation and other settings.",
 searchProviders: "Search services", credentialSaved: "Key saved", checkConnection: "Check", checkReachable: "Model endpoint reachable", checkAuthFailed: "Authentication rejected", checkNetworkFailed: "Network failed", checkServerFailed: "Service error", checkUnsupported: "Check unsupported", checkMissing: "Credential required", checkHint: "Check requests the model list; it does not generate text or verify every model.",
@@ -25,6 +26,7 @@ minimize: "Minimize", maximize: "Maximize or restore", closeWindow: "Close launc
 };
 type Messages = typeof en;
 const ja: Messages = {
+  toolsTab: "ツール",
 updateAvailable: "更新があります", upToDate: "最新です", updateCheckHint: "ランチャーの新しいバージョンを確認します。", updaterUnconfigured: "更新先と署名鍵が未設定です。", installingUpdate: "インストール中…", downloadingUpdate: "ダウンロード中…", checkUpdates: "更新を確認", updateReady: "更新があります", installUpdate: "ランチャーを更新", restartUpdateHint: "インストールのためランチャーを終了します。作業を保存してください。", jouzuUpdatePending: "Jouzu 更新：検証済み pnpm リリース元は未設定です。",
  profileOffHint: "無効にすると、日本語優先の指示を追加しません。応答言語は会話や他の設定に従います。",
 searchProviders: "サービスを検索", credentialSaved: "キー保存済み", checkConnection: "確認", checkReachable: "モデル一覧に接続可能", checkAuthFailed: "認証拒否", checkNetworkFailed: "通信失敗", checkServerFailed: "サービスエラー", checkUnsupported: "確認非対応", checkMissing: "認証情報が必要", checkHint: "モデル一覧への接続を確認します。生成や全モデルの検証は行いません。",
@@ -48,6 +50,7 @@ minimize: "最小化", maximize: "最大化・元に戻す", closeWindow: "ラ�
  language: "ランチャーの表示言語", languageHint: "ランチャーのメニューとボタンだけを変更します。Jouzu の応答言語は変更しません。", versionsHint: "ランチャーと Jouzu は別々のコンポーネントです。", launcher: "ランチャー", unavailable: "取得できません", checking: "確認中…", noUpdates: "アプリ内更新は準備中です。", devHint: "これは開発版です。インストール済みのリリース版ではありません。", tools: "コマンドツール", available: "利用可能", firstUse: "必要に応じて準備", back: "フォルダーに戻る", count: "最近使ったフォルダー", clear: "検索をクリア", preferences: "ランチャーを使いやすく設定しましょう。", refresh: "状態を更新", setupMake: "Jouzu の初期設定", setupConnect: "モデルに接続", setupHint: "Shisa.AI にログインするか、他のサービスに接続して始めましょう。", setupPreferencesHint: "表示言語と日本語優先の設定を選びます。後から設定で変更できます。", setupJapaneseHint: "説明やレポートでは日本語を優先します。会話中に別の言語を指定できます。", setupContinue: "次へ", setupBack: "戻る", setupRuntime: "ランタイムを準備", setupRuntimeHint: "モデルに接続する前に、Jouzu Desktop のランタイムと必要なツールを準備します。", setupRuntimeReady: "ランタイムとツールの準備ができています。", setupRuntimeMissing: "ランタイムがありません。続行するにはインストールしてください。", runtime: "Jouzu ランタイム", runtimePath: "場所", runtimeRepair: "ランタイムを修復", runtimeInstall: "ランタイムをインストール…", prepareTitle: "Jouzu を準備しています…", prepareNode: "Node をダウンロードしています…", preparePackages: "パッケージをインストールしています…", prepareVerify: "検証しています…", prepareFailed: "インストールに失敗しました", prepareHint: "1分ほどかかります。ウィンドウを開いたままにしてください。", prepareTools: "必要なツールをインストールしています…", setupWorkspaces: "ワークスペースに戻る", setupModels: "モデル設定に戻る"
 };
 const hans: Messages = {
+  toolsTab: "工具",
 updateAvailable: "发现更新", upToDate: "已是最新", updateCheckHint: "检查启动器新版本。", updaterUnconfigured: "尚未配置启动器更新源与签名公钥。", installingUpdate: "正在安装…", downloadingUpdate: "正在下载…", checkUpdates: "检查更新", updateReady: "有可用更新", installUpdate: "更新启动器", restartUpdateHint: "安装时会关闭启动器。请先保存工作。", jouzuUpdatePending: "Jouzu 更新：尚未配置经过验证的 pnpm 发布源。",
  profileOffHint: "关闭后不再添加日语优先指令，回复语言由对话及其他配置决定，不会自动固定为中文。",
 searchProviders: "搜索服务", credentialSaved: "密钥已保存", checkConnection: "检查连接", checking: "检查中…", checkReachable: "模型端点可访问", checkAuthFailed: "认证被拒绝", checkNetworkFailed: "网络连接失败", checkServerFailed: "服务端错误", checkUnsupported: "不支持此检查", checkMissing: "需要凭据", checkHint: "检查会请求模型列表，不生成内容，也不代表所有模型均可调用。",
@@ -71,6 +74,7 @@ minimize: "最小化", maximize: "最大化或还原", closeWindow: "关闭启�
  language: "启动器界面语言", languageHint: "仅影响启动器菜单和按钮，不决定 Jouzu 的回复语言。", versionsHint: "启动器与 Jouzu 是独立的组件。", launcher: "启动器", unavailable: "不可用", noUpdates: "应用内更新暂不可用。", devHint: "这是开发构建，不是已安装的发行版。", tools: "命令工具", available: "可用", firstUse: "需要时准备", back: "返回文件夹", count: "最近的文件夹", clear: "清除搜索", preferences: "按你的习惯设置启动器。", refresh: "刷新状态", setupMake: "按你的习惯设置 Jouzu", setupConnect: "连接模型", setupHint: "登录 Shisa.AI，或连接其他服务，即可开始使用。", setupPreferencesHint: "选择界面语言和日文优先偏好，之后可随时在设置中修改。", setupJapaneseHint: "优先使用日语解释和汇报。你仍可在对话中要求使用其他语言。", setupContinue: "继续", setupBack: "返回", setupRuntime: "准备运行时", setupRuntimeHint: "连接模型前，先准备 Jouzu Desktop 的运行时和必要工具。", setupRuntimeReady: "运行时和工具已就绪。", setupRuntimeMissing: "缺少运行时文件，请先安装。", runtime: "Jouzu 运行时", runtimePath: "位置", runtimeRepair: "修复运行时", runtimeInstall: "安装运行时…", prepareTitle: "正在准备 Jouzu…", prepareNode: "正在下载 Node…", preparePackages: "正在安装依赖…", prepareVerify: "正在校验…", prepareFailed: "安装失败", prepareHint: "大约需要一分钟，请保持窗口打开。", prepareTools: "正在安装必需工具…", setupWorkspaces: "返回工作区", setupModels: "返回模型设置"
 };
 const hant: Messages = {
+  toolsTab: "工具",
 updateAvailable: "發現更新", upToDate: "已是最新", updateCheckHint: "檢查啟動器新版本。", updaterUnconfigured: "尚未設定啟動器更新來源與簽章公鑰。", installingUpdate: "正在安裝…", downloadingUpdate: "正在下載…", checkUpdates: "檢查更新", updateReady: "有可用更新", installUpdate: "更新啟動器", restartUpdateHint: "安裝時會關閉啟動器。請先儲存工作。", jouzuUpdatePending: "Jouzu 更新：尚未設定經過驗證的 pnpm 發行來源。",
  profileOffHint: "關閉後不再加入日語優先指令，回覆語言由對話及其他設定決定，不會自動固定為中文。",
 searchProviders: "搜尋服務", credentialSaved: "金鑰已儲存", checkConnection: "檢查連接", checking: "檢查中…", checkReachable: "模型端點可存取", checkAuthFailed: "驗證被拒絕", checkNetworkFailed: "網路連接失敗", checkServerFailed: "伺服器錯誤", checkUnsupported: "不支援此檢查", checkMissing: "需要憑證", checkHint: "檢查會請求模型清單，不產生內容，也不代表所有模型皆可呼叫。",

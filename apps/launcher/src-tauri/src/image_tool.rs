@@ -18,16 +18,11 @@ const ARTIFACTS: &str = include_str!(concat!(
     "/../../../packaging/launcher/extensions/jouzu-image/artifacts.mjs"
 ));
 
-/// The provider's size settings; which model offers which size is the service's
-/// answer, not a desktop table.
 const SIZES: [&str; 3] = ["1K", "2K", "4K"];
-const DEFAULT_MODEL: &str = "gemini-3.1-flash-lite-image";
+const DEFAULT_PROVIDER: &str = "shisa";
 const DEFAULT_SIZE: &str = "1K";
-const BASE: &str = "https://api.shisa.ai/image";
-
-fn valid_model(model: &str) -> bool {
-    !model.is_empty() && model.len() <= 128 && model.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_' | '/'))
-}
+const DEFAULT_MAX_IMAGES: u64 = 3;
+const REVIEW_TOOLS: [&str; 1] = ["generate_image"];
 
 fn agent_dir(managed: &Path) -> PathBuf {
     managed.join("data").join("agent")
@@ -44,117 +39,131 @@ pub fn ensure(managed: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn settings_path(managed: &Path) -> PathBuf {
-    agent_dir(managed).join("image-generation.json")
+fn tools_path(managed: &Path) -> PathBuf {
+    agent_dir(managed).join("tools.json")
 }
 
-pub fn read_settings(managed: &Path) -> Result<serde_json::Value, String> {
-    let path = settings_path(managed);
-    let value: serde_json::Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_else(|| serde_json::json!({ "model": DEFAULT_MODEL, "size": DEFAULT_SIZE }));
-    Ok(normalize(value))
+fn valid_model(model: &str) -> bool {
+    model.len() <= 128 && model.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_' | '/'))
 }
 
-pub fn save_settings(managed: &Path, model: &str, size: &str) -> Result<serde_json::Value, String> {
-    if !valid_model(model) {
-        return Err("Choose an image model.".into());
-    }
-    if !SIZES.contains(&size) {
-        return Err("That image size is not available.".into());
-    }
-    let directory = agent_dir(managed);
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let value = serde_json::json!({ "model": model, "size": size });
-    std::fs::write(settings_path(managed), format!("{}\n", serde_json::to_string_pretty(&value).unwrap()))
-        .map_err(|error| error.to_string())?;
-    Ok(value)
-}
-
-/// The Control Center choice, also read by the extension at call time.
-#[tauri::command]
-pub fn image_settings_read() -> Result<serde_json::Value, String> {
-    read_settings(&crate::runtime::managed_root()?)
-}
-
-#[tauri::command]
-pub fn image_settings_save(model: String, size: String) -> Result<serde_json::Value, String> {
-    save_settings(&crate::runtime::managed_root()?, &model, &size)
-}
-
-fn normalize(value: serde_json::Value) -> serde_json::Value {
+fn normalize_image(value: &serde_json::Value) -> serde_json::Value {
+    let enabled = value.get("enabled").and_then(|enabled| enabled.as_bool()).unwrap_or(true);
+    let provider = value
+        .get("provider")
+        .and_then(|provider| provider.as_str())
+        .filter(|provider| !provider.trim().is_empty())
+        .unwrap_or(DEFAULT_PROVIDER);
     let model = value
         .get("model")
         .and_then(|model| model.as_str())
         .filter(|model| valid_model(model))
-        .unwrap_or(DEFAULT_MODEL);
+        .unwrap_or("");
     let size = value
         .get("size")
         .and_then(|size| size.as_str())
         .filter(|size| SIZES.contains(size))
         .unwrap_or(DEFAULT_SIZE);
-    serde_json::json!({ "model": model, "size": size })
+    let max_images = value
+        .get("maxImages")
+        .and_then(|max| max.as_u64())
+        .map(|max| max.clamp(1, 10))
+        .unwrap_or(DEFAULT_MAX_IMAGES);
+    serde_json::json!({ "enabled": enabled, "provider": provider, "model": model, "size": size, "maxImages": max_images })
 }
 
-fn token(managed: &Path) -> Result<String, String> {
-    if let Ok(entries) = crate::environment::environment_read() {
-        if let Some(entry) = entries.into_iter().find(|entry| entry.enabled && entry.name == "SHISA_API_KEY") {
-            let value = entry.value.trim().to_string();
-            if !value.is_empty() {
-                return Ok(value);
-            }
-        }
-    }
-    let path = agent_dir(managed).join("auth.json");
-    let bytes = std::fs::read(&path).map_err(|_| "Sign in to Shisa.AI first.".to_string())?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| "The Shisa.AI sign-in record could not be read.".to_string())?;
-    value
-        .get("shisa")
-        .and_then(|shisa| shisa.get("access"))
-        .and_then(|access| access.as_str())
-        .filter(|access| !access.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "Sign in to Shisa.AI first.".to_string())
-}
-
-/// The models the signed-in account can use; the service is the source of truth.
-#[tauri::command]
-pub fn image_models() -> Result<serde_json::Value, String> {
-    let managed = crate::runtime::managed_root()?;
-    let bearer = token(&managed)?;
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|_| "Could not read the image models.".to_string())?;
-    let response = client
-        .get(format!("{BASE}/models"))
-        .bearer_auth(&bearer)
-        .send()
-        .map_err(|_| "Could not reach Shisa.AI for the image models.".to_string())?;
-    let status = response.status().as_u16();
-    let bytes = response.bytes().map_err(|_| "Could not read the image models.".to_string())?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-    if !(200..300).contains(&status) {
-        return Err(match status {
-            401 => "Sign in to Shisa.AI again.".to_string(),
-            403 => "This account cannot use image generation.".to_string(),
-            _ => format!("Could not read the image models (HTTP {status})."),
-        });
-    }
-    let models: Vec<String> = value
-        .get("models")
-        .or_else(|| value.get("data"))
-        .and_then(|list| list.as_array())
-        .map(|list| {
-            list.iter()
-                .filter_map(|item| item.get("name").or_else(|| item.get("id")).and_then(|id| id.as_str()))
-                .map(|id| id.trim_start_matches("models/").to_string())
-                .filter(|id| valid_model(id))
-                .collect()
-        })
+fn review_tools(value: &serde_json::Value) -> serde_json::Value {
+    let tools: Vec<&str> = value
+        .get("reviewTools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.iter().filter_map(|tool| tool.as_str()).collect())
         .unwrap_or_default();
-    Ok(serde_json::json!({ "models": models }))
+    if tools.is_empty() {
+        serde_json::json!(REVIEW_TOOLS)
+    } else {
+        serde_json::json!(tools)
+    }
+}
+
+fn default_tools() -> serde_json::Value {
+    serde_json::json!({ "image": normalize_image(&serde_json::json!({})), "reviewTools": REVIEW_TOOLS })
+}
+
+pub fn read_tools(managed: &Path) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value = std::fs::read_to_string(tools_path(managed))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(default_tools);
+    Ok(serde_json::json!({
+        "image": normalize_image(value.get("image").unwrap_or(&serde_json::Value::Null)),
+        "reviewTools": review_tools(&value),
+    }))
+}
+
+pub fn save_tools(managed: &Path, image: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let current = read_tools(managed)?;
+    let directory = agent_dir(managed);
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let value = serde_json::json!({
+        "image": normalize_image(image),
+        "reviewTools": current.get("reviewTools").cloned().unwrap_or_else(|| serde_json::json!(REVIEW_TOOLS)),
+    });
+    std::fs::write(tools_path(managed), format!("{}\n", serde_json::to_string_pretty(&value).unwrap()))
+        .map_err(|error| error.to_string())?;
+    Ok(value)
+}
+
+/// Run the extension's CLI entry with the same home the runtime uses.
+fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
+    let home = crate::runtime::effective_home()?;
+    let node = managed.join("runtime").join("node").join("node.exe");
+    let script = home.join("agent").join("extensions").join("jouzu-image").join("index.js");
+    if !node.is_file() {
+        return Err("The runtime is not installed yet.".into());
+    }
+    if !script.is_file() {
+        return Err("The image tool is not installed yet.".into());
+    }
+    let output = std::process::Command::new(node)
+        .arg(&script)
+        .args(args)
+        .env("JOUZU_HOME", &home)
+        .env("PI_CODING_AGENT_DIR", home.join("agent"))
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .output()
+        .map_err(|_| "The image tool could not be started.".to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|_| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("The image tool returned an unexpected answer. {}", stderr.trim())
+    })?;
+    if let Some(error) = value.get("error").and_then(|error| error.as_str()) {
+        return Err(error.to_string());
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn tools_settings_read() -> Result<serde_json::Value, String> {
+    read_tools(&crate::runtime::managed_root()?)
+}
+
+#[tauri::command]
+pub fn tools_settings_save(image: serde_json::Value) -> Result<serde_json::Value, String> {
+    save_tools(&crate::runtime::managed_root()?, &image)
+}
+
+/// The image providers the extension offers, for the Tools page.
+#[tauri::command]
+pub fn image_providers() -> Result<serde_json::Value, String> {
+    run_cli(&crate::runtime::managed_root()?, &["--providers"])
+}
+
+/// The signed-in provider's image models, for the Tools page.
+#[tauri::command]
+pub fn image_models(provider: String) -> Result<serde_json::Value, String> {
+    run_cli(&crate::runtime::managed_root()?, &["--models", &provider])
 }
 
 /// Called after a runtime install and on app start, so existing installs get it too.
@@ -181,26 +190,48 @@ mod tests {
     }
 
     #[test]
-    fn settings_round_trip_and_reject_an_empty_model_or_unknown_size() {
+    fn tools_settings_round_trip_with_defaults() {
         let managed = tempfile::tempdir().unwrap();
-        let saved = save_settings(managed.path(), "gemini-3-pro-image", "2K").unwrap();
-        assert_eq!(saved["size"], "2K");
-        let read = read_settings(managed.path()).unwrap();
-        assert_eq!(read["model"], "gemini-3-pro-image");
-        assert_eq!(read["size"], "2K");
-        assert!(save_settings(managed.path(), "", "1K").is_err());
-        assert!(save_settings(managed.path(), "gemini-3-pro-image", "9K").is_err());
+        let defaults = read_tools(managed.path()).unwrap();
+        assert_eq!(defaults["image"]["provider"], DEFAULT_PROVIDER);
+        assert_eq!(defaults["image"]["maxImages"], DEFAULT_MAX_IMAGES);
+        assert_eq!(defaults["reviewTools"], serde_json::json!(REVIEW_TOOLS));
+
+        let saved = save_tools(managed.path(), &serde_json::json!({ "provider": "shisa", "model": "gemini-3-pro-image", "size": "2K", "maxImages": 2 })).unwrap();
+        assert_eq!(saved["image"]["model"], "gemini-3-pro-image");
+        assert_eq!(saved["image"]["size"], "2K");
+        assert_eq!(saved["image"]["maxImages"], 2);
+        let read = read_tools(managed.path()).unwrap();
+        assert_eq!(read["image"]["model"], "gemini-3-pro-image");
+        assert_eq!(read["reviewTools"], serde_json::json!(REVIEW_TOOLS));
     }
 
     #[test]
-    fn settings_are_normalized_without_a_model_table() {
-        let value = normalize(serde_json::json!({ "model": "gemini-3-pro-image", "size": "1K" }));
-        assert_eq!(value["model"], "gemini-3-pro-image");
-        // The service owns the model list; a well-formed id is kept.
-        let dynamic = normalize(serde_json::json!({ "model": "future-image-model", "size": "9K" }));
-        assert_eq!(dynamic["model"], "future-image-model");
-        assert_eq!(dynamic["size"], DEFAULT_SIZE);
-        let invalid = normalize(serde_json::json!({ "model": " ", "size": "1K" }));
-        assert_eq!(invalid["model"], DEFAULT_MODEL);
+    fn tools_settings_normalize_unknown_values() {
+        let managed = tempfile::tempdir().unwrap();
+        let saved = save_tools(managed.path(), &serde_json::json!({ "size": "9K", "maxImages": 99, "model": "future-image-model" })).unwrap();
+        assert_eq!(saved["image"]["size"], DEFAULT_SIZE);
+        assert_eq!(saved["image"]["maxImages"], 10);
+        assert_eq!(saved["image"]["model"], "future-image-model");
+        let blank = save_tools(managed.path(), &serde_json::json!({ "provider": "  ", "model": "" })).unwrap();
+        assert_eq!(blank["image"]["provider"], DEFAULT_PROVIDER);
+        assert_eq!(blank["image"]["model"], "");
+    }
+
+    #[test]
+    fn saving_keeps_a_custom_review_list() {
+        let managed = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(managed.path().join("data/agent")).unwrap();
+        std::fs::write(tools_path(managed.path()), r#"{"reviewTools":["generate_image","other_tool"]}"#).unwrap();
+        let saved = save_tools(managed.path(), &serde_json::json!({ "enabled": false })).unwrap();
+        assert_eq!(saved["reviewTools"], serde_json::json!(["generate_image", "other_tool"]));
+        assert_eq!(saved["image"]["enabled"], false);
+    }
+
+    #[test]
+    fn the_cli_reports_a_missing_runtime() {
+        let managed = tempfile::tempdir().unwrap();
+        let error = run_cli(managed.path(), &["--providers"]).unwrap_err();
+        assert!(error.contains("runtime is not installed"));
     }
 }

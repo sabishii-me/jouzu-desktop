@@ -1,4 +1,5 @@
 import { ChatWorkspace } from "./chat-workspace";
+import { ToolsPanel } from "./tools-panel";
 import { LauncherPage } from "./components/launcher-page";
 import { ProviderPicker } from "./components/ui/provider-picker";
 import { recoveryText } from "./recovery-text";
@@ -22,7 +23,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Input } from "./components/ui/input";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check } from "lucide-react";
+import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
@@ -37,55 +38,6 @@ import { parseDiagnostics, type Diagnostics } from "./diagnostics";
 interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Workspace[]; ready: boolean; bash: boolean; bundled_git: boolean }
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
 interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
-
-const IMAGE_SIZES = ["1K", "2K", "4K"];
-
-/** The generate_image tool's defaults, listed by the signed-in image service. */
-function ImageModelSettings() {
-  const [models, setModels] = useState<string[]>([]);
-  const [model, setModel] = useState("");
-  const [size, setSize] = useState("1K");
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const saved = await invoke<{ model: string; size: string }>("image_settings_read");
-        setModel(saved.model);
-        setSize(saved.size);
-        const listed = await invoke<{ models: string[] }>("image_models");
-        const options = listed.models ?? [];
-        setModels(saved.model && !options.includes(saved.model) ? [saved.model, ...options] : options);
-      } catch (failure) {
-        setError(String(failure));
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
-  const save = async (nextModel: string, nextSize: string) => {
-    setModel(nextModel); setSize(nextSize); setError(null);
-    try { await invoke("image_settings_save", { model: nextModel, size: nextSize }); }
-    catch (failure) { setError(String(failure)); }
-  };
-  return <div className="space-y-3 border-t border-border pt-4">
-    <div><p className="text-sm font-medium">Image generation</p><p className="text-xs text-muted-foreground">Model and size for the generate_image tool. Each run uses image tokens and asks for approval.</p></div>
-    <div className="grid grid-cols-2 gap-3">
-      <label className="space-y-1 text-sm"><span className="text-muted-foreground">Image model</span>
-        <select aria-label="Image model" disabled={!loaded || !models.length} value={model} onChange={event => void save(event.target.value, size)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-          {!models.length && <option value="">No image models</option>}
-          {models.map(id => <option key={id} value={id}>{id}</option>)}
-        </select>
-      </label>
-      <label className="space-y-1 text-sm"><span className="text-muted-foreground">Image size</span>
-        <select aria-label="Image size" disabled={!loaded || !model} value={size} onChange={event => void save(model, event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-          {IMAGE_SIZES.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
-    </div>
-    {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-  </div>;
-}
 
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => resolveLocale(localStorage.getItem("jouzu.ui.language") ?? navigator.language));
@@ -485,6 +437,7 @@ export function App() {
               <DialogTitle className="mb-5 flex items-center gap-2 px-2 pt-2 text-sm font-semibold"><Settings className="size-4" />{t.settings}</DialogTitle>
               <TabsList aria-label={t.settings} className="h-auto w-full items-stretch gap-1 bg-transparent p-0">
                 <TabsTrigger value="providers" className="min-h-10 justify-start gap-2 px-3"><KeyRound className="size-4 shrink-0" aria-hidden="true" />{t.providers}</TabsTrigger>
+                <TabsTrigger value="tools" className="min-h-10 justify-start gap-2 px-3"><Wrench className="size-4 shrink-0" aria-hidden="true" />{t.toolsTab}</TabsTrigger>
                 <TabsTrigger value="environment" className="min-h-10 justify-start gap-2 px-3"><SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />{t.environment}</TabsTrigger><TabsTrigger value="general" className="min-h-10 justify-start gap-2 px-3"><Languages className="size-4 shrink-0" aria-hidden="true" />{t.general}</TabsTrigger>
                 <TabsTrigger value="system" className="min-h-10 justify-start gap-2 whitespace-normal px-3 text-left"><RefreshCw className="size-4 shrink-0" aria-hidden="true" />{t.system}</TabsTrigger>
               </TabsList>
@@ -493,8 +446,9 @@ export function App() {
               <div className="px-5 pb-6 pt-14 sm:px-6">
                 <TabsContent value="providers" className="m-0 space-y-4">
                   {providerContent}
-                  {setup?.account.signedIn === true && <ImageModelSettings />}
+                  
                 </TabsContent>
+                <TabsContent value="tools" className="m-0 space-y-4"><ToolsPanel /></TabsContent>
                 <TabsContent value="environment" className="m-0 space-y-4"><Card className="border-border shadow-none"><CardHeader><CardTitle>{t.environment}</CardTitle><CardDescription>{t.envHint}</CardDescription></CardHeader><CardContent className="space-y-3">
                   {envRows.map((row,index) => <div key={index} className="space-y-2 rounded-lg border border-border p-3"><div className="flex items-center gap-2">{editingEnv === index ? <Input aria-label={t.variableName} placeholder={t.variableName} value={row.name} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,name:event.target.value} : r))} /> : <span className="min-w-0 flex-1 truncate text-sm font-medium" title={row.name}>{row.name}</span>}<Button variant="ghost" disabled={busy} onClick={() => setEditingEnv(index)}>{t.editValue}</Button><Switch aria-label={t.enabled} checked={row.enabled} disabled={busy} onCheckedChange={enabled => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,enabled} : r))} /><Button variant="ghost" disabled={busy} aria-label={t.deleteEntry} onClick={() => { setEnvRows(rows => rows.filter((_,i) => i !== index)); setEditingEnv(null); }}><X /></Button></div>{editingEnv === index && <Input type="password" autoComplete="off" aria-label={t.variableValue} placeholder={t.variableValue} value={row.value} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,value:event.target.value} : r))} />}</div>)}
                   <div className="flex gap-2"><Button variant="outline" disabled={!envLoaded || busy} onClick={() => { setEditingEnv(envRows.length); setEnvRows(rows => [...rows,{name:"",value:"",enabled:true}]); }}><Plus />{t.addEntry}</Button><Button className="ml-auto" disabled={!envLoaded || busy} onClick={saveEnvironment}>{t.save}</Button></div>
