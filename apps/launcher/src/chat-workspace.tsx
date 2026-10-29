@@ -9,6 +9,7 @@ import { McpMenu } from "./mcp-menu";
 import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ArtifactsPanel } from "./artifacts-panel";
+import { PanelStart } from "./panel-start";
 import { ToolReviewDialog } from "./tool-review-dialog";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
 import { chatPool } from "./chat-pool";
@@ -878,12 +879,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(420);
-  const [panelTabs, setPanelTabs] = useState<string[]>(["artifacts"]);
-  const [activeTab, setActiveTab] = useState("artifacts");
+  const [panelTabs, setPanelTabs] = useState<string[]>(["start"]);
+  const [activeTab, setActiveTab] = useState("start");
   const resizingPanel = useRef(false);
   function togglePanel() {
     if (panelOpen) { setPanelOpen(false); return; }
-    if (!panelTabs.length) { setPanelTabs(["artifacts"]); setActiveTab("artifacts"); }
+    if (!panelTabs.length) { setPanelTabs(["start"]); setActiveTab("start"); }
     setPanelOpen(true);
   }
   function closePanelTab(id: string) {
@@ -892,9 +893,14 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     if (!next.length) setPanelOpen(false);
     else if (activeTab === id) setActiveTab(next[next.length - 1]);
   }
+  function openPanelView(id: string) {
+    if (!panelTabs.includes(id)) setPanelTabs([...panelTabs, id]);
+    setActiveTab(id);
+    setPanelOpen(true);
+  }
   function addPanelTab() {
-    if (!panelTabs.includes("artifacts")) setPanelTabs([...panelTabs, "artifacts"]);
-    setActiveTab("artifacts");
+    if (!panelTabs.includes("start")) setPanelTabs([...panelTabs, "start"]);
+    setActiveTab("start");
     setPanelOpen(true);
   }
   useEffect(() => {
@@ -904,8 +910,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       const saved = raw ? JSON.parse(raw) : null;
       setPanelOpen(saved?.open === true);
       setPanelWidth(typeof saved?.width === "number" ? Math.min(720, Math.max(320, saved.width)) : 420);
-      setPanelTabs(Array.isArray(saved?.tabs) && saved.tabs.length ? saved.tabs.filter((tab: unknown) => typeof tab === "string") : ["artifacts"]);
-      setActiveTab(typeof saved?.active === "string" ? saved.active : "artifacts");
+      setPanelTabs(Array.isArray(saved?.tabs) && saved.tabs.length ? saved.tabs.filter((tab: unknown) => typeof tab === "string") : ["start"]);
+      setActiveTab(typeof saved?.active === "string" ? saved.active : "start");
     } catch { setPanelOpen(false); }
   }, [snapshot.sessionId]);
   useEffect(() => {
@@ -1101,12 +1107,12 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         {panelOpen && <aside data-session={snapshot.sessionId ?? ""} style={{ width: panelWidth }} className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background">
           <div className="flex items-center gap-1 border-b border-border px-2 py-1">
             {panelTabs.map(tab => <div key={tab} className={`flex items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs ${activeTab === tab ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
-              <button type="button" onClick={() => setActiveTab(tab)}>{tab === "artifacts" ? "Artifacts" : tab}</button>
+              <button type="button" onClick={() => setActiveTab(tab)}>{tab === "artifacts" ? "Artifacts" : tab === "start" ? "Start" : tab}</button>
               <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={`Close ${tab} tab`} title="Close tab" onClick={() => closePanelTab(tab)}><X className="size-3" /></button>
             </div>)}
             <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Add panel tab" title="Add tab" onClick={addPanelTab}><Plus className="size-3.5" /></Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3">{activeTab === "artifacts" && <ArtifactsPanel sessionId={snapshot.sessionId} />}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">{activeTab === "start" ? <PanelStart onOpen={openPanelView} /> : activeTab === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} /> : null}</div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize artifacts panel" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPanel.current = true; event.preventDefault(); }} />
         </aside>}
       </div>}
