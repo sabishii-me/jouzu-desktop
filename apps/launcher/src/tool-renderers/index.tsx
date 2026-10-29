@@ -1,6 +1,7 @@
 import { BackgroundRenderer } from "./background-renderer";
 import { FlowReportRenderer, flowReport } from "./flow-report";
 import { GenericRenderer } from "./generic-renderer";
+import { ImageRenderer } from "./image-renderer";
 import { isNamedTool, NamedRenderer } from "./named-renderer";
 import { isSimpleTool, SimpleToolRenderer } from "./simple-renderers";
 import { TaskRenderer } from "./task-renderer";
@@ -18,6 +19,7 @@ export function ToolRenderer(props: ToolRendererProps) {
   if (taskTools.test(props.tool.name)) return <TaskRenderer {...props} />;
   if (waitTools.test(props.tool.name)) return <WaitRenderer {...props} />;
   if (backgroundTools.test(props.tool.name)) return <BackgroundRenderer {...props} />;
+  if (props.tool.name === "generate_image") return <ImageRenderer {...props} />;
   if (isSimpleTool(props.tool.name)) return <SimpleToolRenderer {...props} />;
   if (isNamedTool(props.tool.name)) return <NamedRenderer {...props} />;
   return <GenericRenderer {...props} />;

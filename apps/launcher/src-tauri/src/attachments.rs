@@ -27,6 +27,17 @@ pub fn read_dropped_image(path: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "name": name, "mimeType": mime, "data": STANDARD.encode(bytes) }))
 }
 
+/// Copy an artifact to a destination chosen by the user.
+#[tauri::command]
+pub fn save_copy(from: String, to: String) -> Result<(), String> {
+    let source = Path::new(&from);
+    if !source.is_file() {
+        return Err("That artifact no longer exists.".into());
+    }
+    std::fs::copy(source, Path::new(&to)).map_err(|_| "The file could not be saved.".to_string())?;
+    Ok(())
+}
+
 /// Show an artifact in the platform's file browser.
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {

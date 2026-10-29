@@ -587,6 +587,7 @@ fn main() {
             chat::chat_stop,
             attachments::read_dropped_image,
             attachments::reveal_path,
+            attachments::save_copy,
             sessions::chat_sessions,
             sessions::chat_session_update,
             sessions::chat_flow_reports,
