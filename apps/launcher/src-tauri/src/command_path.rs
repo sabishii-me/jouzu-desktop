@@ -21,7 +21,8 @@ fn ask(root: &Path, managed: &Path, action: &str, write: bool) -> Result<serde_j
     if write {
         arguments.push("-Write".to_string());
     }
-    let output = launcher_script::run(root, SCRIPT, &arguments)?;
+    let install = crate::runtime::install_root()?;
+    let output = launcher_script::run_with_install_root(root, &install, SCRIPT, &arguments)?;
     if !output.status.success() {
         return Err(launcher_script::failure(
             &output,
@@ -46,12 +47,14 @@ pub fn use_jouzu(root: &Path, managed: &Path) -> Result<serde_json::Value, Strin
 pub fn repair(root: &Path, managed: &Path) -> Result<serde_json::Value, String> {
     let directory = directory(managed);
     // The helper already passes -InstallRoot, which the script takes once.
-    let copies = crate::launcher_script::run(root, "command-entries.ps1", &[])?;
+    let install = crate::runtime::install_root()?;
+    let copies = crate::launcher_script::run_with_install_root(root, &install, "command-entries.ps1", &[])?;
     if !copies.status.success() {
         return Err(crate::launcher_script::failure(&copies, "Cannot restore the terminal command"));
     }
-    let shims = crate::launcher_script::run(
+    let shims = crate::launcher_script::run_with_install_root(
         root,
+        &install,
         SCRIPT,
         &[
             "-Directory".to_string(),

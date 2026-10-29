@@ -6,6 +6,18 @@ use std::{
 /// Runs a packaged PowerShell helper, which owns every Windows-specific detail of that component:
 /// which trees are usable, which versions they report, and how a bundled archive is verified.
 pub fn run(root: &Path, script: &str, arguments: &[String]) -> Result<Output, String> {
+    run_with_install_root(root, root, script, arguments)
+}
+
+/// The script lives under the runtime root, but the executables it manages
+/// (console.exe and its copies) live beside the binary; on a split install these are
+/// different drives. Only the command-entry helpers need the second root.
+pub fn run_with_install_root(
+    runtime_root: &Path,
+    install_root: &Path,
+    script: &str,
+    arguments: &[String],
+) -> Result<Output, String> {
     let windows = std::env::var_os("SystemRoot").ok_or("Windows directory unavailable")?;
     let mut command =
         Command::new(PathBuf::from(windows).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
@@ -21,9 +33,9 @@ pub fn run(root: &Path, script: &str, arguments: &[String]) -> Result<Output, St
             "Bypass",
             "-File",
         ])
-        .arg(root.join("runtime/launcher-update").join(script))
+        .arg(runtime_root.join("runtime/launcher-update").join(script))
         .arg("-InstallRoot")
-        .arg(root);
+        .arg(install_root);
     for argument in arguments {
         command.arg(argument);
     }

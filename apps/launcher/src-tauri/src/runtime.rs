@@ -35,6 +35,12 @@ fn usable(root: &Path) -> bool {
 /// Where the runtime lives. The desktop release carries no runtime (ADR 0003), so a normal
 /// install keeps it under the managed root, which can be on a different drive than the
 /// executable. A bundled launcher keeps it beside the executable; dev names its own root.
+/// The directory the executable lives in; the console and its copies belong here.
+pub fn install_root() -> Result<PathBuf, String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    install_root_for_executable(&executable)
+}
+
 pub fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let install = install_root_for_executable(&executable)?;
