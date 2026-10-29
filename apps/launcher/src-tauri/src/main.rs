@@ -421,16 +421,38 @@ fn mcp_config() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn component_versions(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let root = runtime::application_root(&app)?;
-    // Component health must not disable the independent Launcher repair channel.
-    let value = active_app::resolve_app(&root, &runtime::managed_root()?)
-        .ok()
+    // The updater flags describe the shell. A missing, broken or outdated runtime must not
+    // disable them; that is the only way a broken install can still update itself.
+    let launcher_updater = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .map(|value| {
+            value["pubkey"].as_str().is_some_and(|s| !s.is_empty())
+                && value["endpoints"].as_array().is_some_and(|a| !a.is_empty())
+        })
+        .unwrap_or(false);
+    let root = runtime::application_root(&app).ok();
+    let value = root
+        .as_ref()
+        .and_then(|root| {
+            let managed = runtime::managed_root().ok()?;
+            active_app::resolve_app(root, &managed).ok()
+        })
         .and_then(|path| std::fs::read(path.join("node_modules/jouzu/package.json")).ok())
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .unwrap_or(serde_json::Value::Null);
-    Ok(
-        serde_json::json!({ "jouzuUpdaterConfigured": root.join("jouzu-update.json").is_file() && root.join("runtime/launcher-update/update-service.mjs").is_file(), "jouzu": value.get("version").and_then(|v| v.as_str()), "development": cfg!(debug_assertions), "launcherUpdaterConfigured": app.config().plugins.0.get("updater").map(|v| v["pubkey"].as_str().is_some_and(|s| !s.is_empty()) && v["endpoints"].as_array().is_some_and(|a| !a.is_empty())).unwrap_or(false) }),
-    )
+    let jouzu_updater = root.as_ref().is_some_and(|root| {
+        root.join("jouzu-update.json").is_file()
+            && root.join("runtime/launcher-update/update-service.mjs").is_file()
+    });
+    Ok(serde_json::json!({
+        "jouzuUpdaterConfigured": jouzu_updater,
+        "jouzu": value.get("version").and_then(|v| v.as_str()),
+        "development": cfg!(debug_assertions),
+        "launcherUpdaterConfigured": launcher_updater,
+    }))
 }
 
 #[tauri::command]
