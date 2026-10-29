@@ -27,17 +27,34 @@ pub fn install_root_for_executable(executable: &Path) -> Result<PathBuf, String>
         .ok_or_else(|| "Executable has no parent directory".into())
 }
 
+/// A root is usable when the provisioned runtime and app are both there.
+fn usable(root: &Path) -> bool {
+    root.join("runtime/node/node.exe").is_file() && root.join("app/bootstrap.mjs").is_file()
+}
+
+/// Where the runtime lives. The desktop release carries no runtime (ADR 0003), so a normal
+/// install keeps it under the managed root, which can be on a different drive than the
+/// executable. A bundled launcher keeps it beside the executable; dev names its own root.
 pub fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    let root = install_root_for_executable(&executable)?;
+    let install = install_root_for_executable(&executable)?;
+    let mut candidates = Vec::new();
     #[cfg(debug_assertions)]
-    let root = std::env::var_os("JOUZU_LAUNCHER_DEV_RUNTIME")
-        .map(PathBuf::from)
-        .unwrap_or(root);
-    if !root.join("runtime/node/node.exe").is_file() || !root.join("app/bootstrap.mjs").is_file() {
-        return Err("Jouzu application files are missing. Please repair the installation.".into());
+    if let Some(root) = std::env::var_os("JOUZU_LAUNCHER_DEV_RUNTIME") {
+        candidates.push(PathBuf::from(root));
     }
-    Ok(root)
+    if let Ok(managed) = managed_root() {
+        candidates.push(managed);
+    }
+    candidates.push(install);
+    pick_root(candidates)
+}
+
+fn pick_root(candidates: Vec<PathBuf>) -> Result<PathBuf, String> {
+    candidates
+        .into_iter()
+        .find(|root| usable(root))
+        .ok_or_else(|| "Jouzu application files are missing. Please repair the installation.".into())
 }
 
 pub fn find_bash(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -113,6 +130,26 @@ mod cleanup_tests {
         assert!(dir.path().join("console.exe").is_file());
         assert!(!dir.path().join("console.exe.old-abc").exists());
         assert!(!dir.path().join("launcher.exe.old-1").exists());
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+
+    #[test]
+    fn picks_the_root_that_holds_the_runtime() {
+        let empty = tempfile::tempdir().unwrap();
+        let provisioned = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(provisioned.path().join("runtime/node")).unwrap();
+        std::fs::write(provisioned.path().join("runtime/node/node.exe"), b"node").unwrap();
+        std::fs::create_dir_all(provisioned.path().join("app")).unwrap();
+        std::fs::write(provisioned.path().join("app/bootstrap.mjs"), b"bootstrap").unwrap();
+        assert_eq!(
+            pick_root(vec![empty.path().to_path_buf(), provisioned.path().to_path_buf()]).unwrap(),
+            provisioned.path()
+        );
+        assert!(pick_root(vec![empty.path().to_path_buf()]).is_err());
     }
 }
 
