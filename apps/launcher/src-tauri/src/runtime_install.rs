@@ -138,11 +138,34 @@ fn extract(archive: &Path, directory: &Path) -> Result<(), String> {
 }
 
 /// Node is the one thing the npm package cannot bring itself.
+fn version_matches(actual: &str) -> bool {
+    actual.trim() == format!("v{NODE_VERSION}")
+}
+
+/// Whether the managed Node is the pinned, patched build.
+pub fn node_version_ok(root: &Path) -> bool {
+    let executable = root.join("runtime").join("node").join("node.exe");
+    if !executable.is_file() {
+        return false;
+    }
+    std::process::Command::new(executable)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|output| version_matches(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or(false)
+}
+
 fn ensure_node(managed: &Path, progress: Progress) -> Result<PathBuf, String> {
     let node = managed.join("runtime").join("node");
     let executable = node.join("node.exe");
     if executable.is_file() {
-        return Ok(executable);
+        if node_version_ok(managed) {
+            return Ok(executable);
+        }
+        // A runtime provisioned by an older build keeps its Node; replace it so a
+        // security release is not left behind.
+        std::fs::remove_dir_all(&node).map_err(|error| format!("Could not replace the old Node runtime: {error}"))?;
     }
     let name = archive_name();
     let shasums = http(&format!("{NODE_BASE}/v{NODE_VERSION}/SHASUMS256.txt"), MAX_TEXT)?;
@@ -376,6 +399,13 @@ fn write_tool_scripts(managed: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_pinned_node_version_is_accepted() {
+        assert!(version_matches(&format!("v{NODE_VERSION}")));
+        assert!(!version_matches("v24.19.0"));
+        assert!(!version_matches(""));
+    }
 
     #[test]
     fn a_shasums_file_names_the_build_it_pins() {

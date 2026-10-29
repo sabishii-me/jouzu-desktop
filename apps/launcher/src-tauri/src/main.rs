@@ -366,7 +366,7 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "version": version,
         "root": root.to_string_lossy(),
         "app": app_path.to_string_lossy(),
-        "node": root.join("runtime/node/node.exe").is_file(),
+        "node": crate::runtime_install::node_version_ok(&root),
         "git": root.join("runtime/git").exists(),
         "terminal": root.join("runtime/terminal").exists(),
     }))
