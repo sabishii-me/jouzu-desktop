@@ -67,12 +67,7 @@ describe("generate_image extension", () => {
     const result = await handlers.get("tool_call")[0]({ toolName: "generate_image", input: { prompt: "a cat" } }, ctx);
     expect(result).toMatchObject({ block: true });
     expect(fetch).not.toHaveBeenCalled();
-    // An immediate retry is blocked without asking again.
-    const retry = await handlers.get("tool_call")[0]({ toolName: "generate_image", input: { prompt: "a cat" } }, ctx);
-    expect(retry).toMatchObject({ block: true });
-    expect(ctx.ui.select).toHaveBeenCalledTimes(1);
-    // A new session may ask again.
-    await handlers.get("session_start")[0]({}, {});
+    // Denying again simply asks again; the user may refuse as often as they like.
     await handlers.get("tool_call")[0]({ toolName: "generate_image", input: { prompt: "a cat" } }, ctx);
     expect(ctx.ui.select).toHaveBeenCalledTimes(2);
   });

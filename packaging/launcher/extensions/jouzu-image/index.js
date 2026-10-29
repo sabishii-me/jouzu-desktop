@@ -16,9 +16,6 @@ const DEFAULT_PROVIDER = "shisa";
 const DEFAULT_SIZE = "1K";
 const DEFAULT_MAX_IMAGES = 3;
 const DEFAULT_REVIEW = ["generate_image"];
-// A declined call must not come straight back as another review; the model is
-// told to stop, and retries are blocked for a short cooldown.
-const DENY_COOLDOWN_MS = 60_000;
 
 export function home() {
   return process.env.JOUZU_HOME || join(process.env.LOCALAPPDATA || process.cwd(), "Shisa.ai", "JouzuDesktop", "data");
@@ -170,25 +167,19 @@ export async function generate({ provider: requested, model, size, prompt, count
 export default function jouzuImage(pi) {
   const approved = new Set();
   let sessionId = "";
-  let deniedAt = 0;
 
   pi.on("session_start", (_event, ctx) => {
     approved.clear();
-    deniedAt = 0;
     try { sessionId = ctx?.sessionManager?.getSessionId?.() ?? ""; } catch { sessionId = ""; }
   });
 
   pi.on("tool_call", async (event, ctx) => {
     const current = await settings();
     if (!current.reviewTools.includes(event.toolName) || approved.has(event.toolName)) return undefined;
-    if (Date.now() - deniedAt < DENY_COOLDOWN_MS) {
-      return { block: true, reason: "The user declined image generation; do not retry. Ask them what to change." };
-    }
     const { text } = reviewBody({ toolName: event.toolName, input: event.input, image: current.image });
     const choice = await ctx.ui.select(`Review tool call\n${text}`, ["Approve", "Approve for this session", "Deny"], { timeout: 120_000 });
     if (choice === "Approve") return undefined;
     if (choice === "Approve for this session") { approved.add(event.toolName); return undefined; }
-    deniedAt = Date.now();
     return { block: true, reason: choice === "Deny" ? "The user declined this tool call." : "No response; the tool call was declined." };
   });
 
