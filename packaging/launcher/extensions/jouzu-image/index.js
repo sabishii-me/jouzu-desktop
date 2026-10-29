@@ -122,13 +122,19 @@ export async function chooseModel(provider, configured, tokenValue) {
 
 export function reviewBody({ toolName, input, image }) {
   const count = Math.min(maxImages(image.maxImages), Math.max(1, Math.trunc(Number(input?.count ?? 1)) || 1));
-  const lines = [
-    `${toolName} · ${count} image${count === 1 ? "" : "s"}`,
-    `Prompt: ${input?.prompt ?? ""}`,
-    `Provider: ${input?.provider || image.provider} · Model: ${input?.model || image.model || "(provider default)"} · Size: ${input?.size || image.size}`,
-    `This runs ${count} paid image generation${count === 1 ? "" : "s"}.`,
-  ];
-  return { count, text: lines.join("\n") };
+  // The desktop renders these fields; a client without the review card still
+  // sees readable JSON.
+  return {
+    count,
+    text: JSON.stringify({
+      tool: toolName,
+      images: count,
+      prompt: input?.prompt ?? "",
+      provider: input?.provider || image.provider,
+      model: input?.model || image.model || "",
+      size: input?.size || image.size,
+    }),
+  };
 }
 
 export async function generate({ provider: requested, model, size, prompt, count, sessionId, toolCallId }) {

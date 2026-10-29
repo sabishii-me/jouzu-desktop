@@ -79,9 +79,10 @@ describe("generate_image extension", () => {
     const select = vi.fn().mockResolvedValue("Deny");
     await handlers.get("tool_call")[0]({ toolName: "generate_image", input: { prompt: "三只猫", count: 3 } }, { ui: { select } });
     const title = select.mock.calls[0][0];
-    expect(title).toContain("3 images");
-    expect(title).toContain("三只猫");
-    expect(title).toContain("3 paid");
+    const body = JSON.parse(title.split("\n")[1]);
+    expect(body.images).toBe(3);
+    expect(body.prompt).toBe("三只猫");
+    expect(body.provider).toBe("shisa");
   });
 
   it("remembers 'approve for this session' until the session restarts", async () => {
