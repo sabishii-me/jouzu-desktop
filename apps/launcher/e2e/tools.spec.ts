@@ -1,10 +1,16 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { resolve, extname, sep } from "node:path";
+
+test.use({ channel: process.env.JOUZU_UI_TEST_BROWSER });
 
 // Drives the Tools tab against a stateful settings backend.
 async function openTools(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("jouzu.ui.language", "en");
     (window as any).isTauri = true;
+    // The test origin is not a secure context; the app expects crypto.randomUUID.
+    if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => `test-${Math.random().toString(16).slice(2)}` });
     (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     let settings = {
       image: { enabled: true, provider: "shisa", model: "gemini-3-pro-image", size: "1K", maxImages: 3 },
@@ -35,12 +41,22 @@ async function openTools(page: Page) {
       },
     };
   });
-  await page.goto("http://localhost:1420");
+  const dist = resolve("dist");
+  await page.route("http://jouzu-ui.test/**", async route => {
+    const pathname = decodeURIComponent(new URL(route.request().url()).pathname);
+    const file = resolve(dist, pathname === "/" ? "index.html" : `.${pathname}`);
+    if (!file.startsWith(dist + sep)) return route.abort();
+    const contentType = ({ ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" } as Record<string, string>)[extname(file)] ?? "application/octet-stream";
+    try { await route.fulfill({ body: await readFile(file), contentType }); } catch { await route.fulfill({ status: 404, body: "Not found" }); }
+  });
+  await page.goto("http://jouzu-ui.test/");
 }
 
 test("the Tools tab edits the image tool settings", async ({ page }) => {
   await openTools(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+  const settings = page.getByRole("button", { name: "Settings", exact: true }).first();
+  await settings.waitFor({ state: "visible", timeout: 30000 });
+  await settings.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("tab", { name: "Tools" })).toBeVisible();
   await dialog.getByRole("tab", { name: "Tools" }).click();
