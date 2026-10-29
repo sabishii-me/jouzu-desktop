@@ -3,8 +3,10 @@
 //
 // Authorization is the runtime's: the credential is read through the runtime's
 // own API, never from a file we parse, and this tool never refreshes or stores it.
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import shisa from "./providers/shisa.mjs";
 
 const PROVIDERS = { [shisa.id]: shisa };
@@ -53,10 +55,27 @@ export async function settings() {
 }
 
 /** The runtime's credential API. Injectable so the tests do not need the runtime. */
+/**
+ * Load a module from the runtime's installation. Node resolves bare imports
+ * relative to this extension file, which is outside the app's node_modules, so
+ * the runtime package is resolved from the app directory instead.
+ */
+async function runtimeModule(relative) {
+  const roots = [];
+  const bootstrap = process.argv[1];
+  if (typeof bootstrap === "string" && /bootstrap\.mjs$/.test(bootstrap)) roots.push(dirname(bootstrap));
+  roots.push(join(home(), "..", "app"));
+  for (const root of roots) {
+    const file = join(root, "node_modules", relative);
+    if (existsSync(file)) return import(pathToFileURL(file).href);
+  }
+  throw new Error("The runtime's coding-agent package could not be found.");
+}
+
 let credentialReader = async providerId => {
   // The runtime sets PI_CODING_AGENT_DIR; the CLI mode sets it from JOUZU_HOME.
   process.env.PI_CODING_AGENT_DIR ||= join(home(), "agent");
-  const { readStoredCredential } = await import("@earendil-works/pi-coding-agent");
+  const { readStoredCredential } = await runtimeModule("@earendil-works/pi-coding-agent/dist/index.js");
   return readStoredCredential(providerId);
 };
 
