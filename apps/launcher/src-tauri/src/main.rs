@@ -612,6 +612,7 @@ fn main() {
             artifacts::artifact_list,
             artifacts::artifact_read,
             artifacts::artifact_delete,
+            artifacts::artifact_counts,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,

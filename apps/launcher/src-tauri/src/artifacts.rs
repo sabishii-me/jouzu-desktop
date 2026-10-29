@@ -41,24 +41,58 @@ fn collect(kind: &Path, out: &mut Vec<serde_json::Value>) {
     }
 }
 
+fn session_of(value: &serde_json::Value) -> Option<&str> {
+    value.get("source")?.get("sessionId")?.as_str()
+}
+
+fn retain_session(records: &mut Vec<serde_json::Value>, session: &str) {
+    records.retain(|record| session_of(record) == Some(session));
+}
+
+fn count_by_session(records: &[serde_json::Value]) -> std::collections::BTreeMap<String, u64> {
+    let mut counts = std::collections::BTreeMap::new();
+    for record in records {
+        if let Some(session) = session_of(record) {
+            *counts.entry(session.to_string()).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
+fn every_artifact(root: &Path) -> Vec<serde_json::Value> {
+    let mut artifacts = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else { return artifacts };
+    let mut kinds: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect();
+    kinds.sort();
+    for directory in kinds {
+        collect(&directory, &mut artifacts);
+    }
+    artifacts
+}
+
 #[tauri::command]
-pub fn artifact_list(kind: Option<String>) -> Result<serde_json::Value, String> {
+pub fn artifact_list(kind: Option<String>, session_id: Option<String>) -> Result<serde_json::Value, String> {
     let root = root()?;
     let mut artifacts = Vec::new();
     match kind.filter(|value| !value.trim().is_empty()) {
         Some(name) => collect(&root.join(name), &mut artifacts),
         None => {
-            let Ok(entries) = std::fs::read_dir(&root) else { return Ok(serde_json::json!({ "artifacts": [] })) };
-            let mut kinds: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect();
-            kinds.sort();
-            for directory in kinds {
-                collect(&directory, &mut artifacts);
-            }
+            artifacts = every_artifact(&root);
         }
+    }
+    if let Some(session) = session_id.filter(|value| !value.trim().is_empty()) {
+        retain_session(&mut artifacts, &session);
     }
     artifacts.sort_by(|a, b| b.get("createdAt").and_then(|value| value.as_str()).unwrap_or("").cmp(a.get("createdAt").and_then(|value| value.as_str()).unwrap_or("")));
     artifacts.truncate(200);
     Ok(serde_json::json!({ "artifacts": artifacts }))
+}
+
+/// One count per session, for sidebar badges; no file bodies are read.
+#[tauri::command]
+pub fn artifact_counts() -> Result<serde_json::Value, String> {
+    let records = every_artifact(&root()?);
+    Ok(serde_json::json!({ "counts": count_by_session(&records) }))
 }
 
 #[tauri::command]
@@ -139,6 +173,35 @@ mod tests {
         assert_eq!(artifacts.len(), 1);
         assert_eq!(artifacts[0]["prompt"], "a cat");
         assert!(artifacts[0]["absolutePath"].as_str().unwrap().ends_with(".png"));
+    }
+
+
+    #[test]
+    fn filters_and_counts_by_session() {
+        let home = tempfile::tempdir().unwrap();
+        let directory = home.path().join("artifacts/images");
+        std::fs::create_dir_all(&directory).unwrap();
+        for (index, session) in ["s1", "s1", "s2"].iter().enumerate() {
+            let id = format!("{:064x}", index);
+            let record = serde_json::json!({
+                "id": id,
+                "kind": "images",
+                "path": format!("images/{id}.png"),
+                "createdAt": format!("2026-10-29T00:00:0{index}Z"),
+                "source": { "sessionId": session },
+            });
+            std::fs::write(directory.join(format!("{id}.json")), record.to_string()).unwrap();
+            std::fs::write(directory.join(format!("{id}.png")), b"x").unwrap();
+        }
+        let mut records = Vec::new();
+        collect(&directory, &mut records);
+        assert_eq!(records.len(), 3);
+        let mut filtered = records.clone();
+        retain_session(&mut filtered, "s1");
+        assert_eq!(filtered.len(), 2);
+        let counts = count_by_session(&records);
+        assert_eq!(counts.get("s1"), Some(&2));
+        assert_eq!(counts.get("s2"), Some(&1));
     }
 
     #[test]
