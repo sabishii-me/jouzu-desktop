@@ -1,7 +1,8 @@
 import { ArtifactImage } from "./artifact-image";
 import { StateDot } from "./activity-row";
 import { imageBlocks } from "./tool-output";
-import { record, type ToolRendererProps } from "./types";
+import { toolText, record, type ToolRendererProps } from "./types";
+import { artifactPathFromText } from "./artifact-path";
 
 /**
  * The image tool gets its own view: the picture is the result, so it stays
@@ -14,12 +15,13 @@ export function ImageRenderer({ tool }: ToolRendererProps) {
   const model = typeof details?.model === "string" ? details.model : "";
   const size = typeof details?.size === "string" ? details.size : "";
   const metas = Array.isArray(details?.images) ? details.images : [];
+  const fallbackPath = images.length === 1 ? artifactPathFromText(toolText(tool.result)) : undefined;
   const items = images.map((image, index) => {
     const meta = record(metas[index]);
     return {
       ...image,
       alt: prompt || image.alt,
-      path: typeof meta?.path === "string" ? meta.path : undefined,
+      path: typeof meta?.path === "string" ? meta.path : fallbackPath,
       width: typeof meta?.width === "number" ? meta.width : undefined,
       height: typeof meta?.height === "number" ? meta.height : undefined,
     };

@@ -6,6 +6,7 @@ import { object, type ToolView } from "../chat-projection";
 import { classifyText, diffRows, prettyJson } from "./tool-format";
 import { record, toolText } from "./types";
 import { ArtifactImage } from "./artifact-image";
+import { artifactPathFromText } from "./artifact-path";
 
 const MAX_LINES = 2000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -161,12 +162,13 @@ export function ToolOutput({ tool }: { tool: ToolView }) {
   const model = typeof details?.model === "string" ? details.model : "";
   const size = typeof details?.size === "string" ? details.size : "";
   const metas = Array.isArray(details?.images) ? details.images : [];
+  const fallbackPath = blocks.length === 1 ? artifactPathFromText(text) : undefined;
   const images = blocks.map((image, index) => {
     const meta = record(metas[index]);
     return {
       ...image,
       alt: prompt || image.alt,
-      path: typeof meta?.path === "string" ? meta.path : undefined,
+      path: typeof meta?.path === "string" ? meta.path : fallbackPath,
       width: typeof meta?.width === "number" ? meta.width : undefined,
       height: typeof meta?.height === "number" ? meta.height : undefined,
     };
