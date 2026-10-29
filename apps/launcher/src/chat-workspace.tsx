@@ -42,7 +42,7 @@ export interface ChatWorkspaceProps {
   workspaces: readonly WorkspaceItem[];
   onSelect: (path: string) => void;
   onAddFolder: () => void;
-  onRemove: (id: string) => void;
+  onRemove: (id: string) => void;
   onSettings: () => void;
   onUpdate?: () => void;
   updateAvailable?: boolean;
@@ -498,6 +498,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     setSelectedSession(null);
   }
   async function startNewSession() {
+    setAppView("chat");
     if (switchingRef.current) {
       queueNewSession();
       return;
@@ -733,6 +734,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   }
   /** A click only records intent. The runtime load is always the single path below. */
   function openSession(sessionPath: string) {
+    setAppView("chat");
     const client = connection.current;
     if (!client) return;
     const active = normalizedPath(client.snapshot.sessionFile ?? "");
@@ -841,6 +843,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     finally { setCommandBusy(false); }
   }
   async function switchWorkspace(next: string) {
+    setAppView("chat");
     if (next === path) { setPickerOpen(false); return; }
     if (snapshot.projection.running && !await confirm("Stop the current run and switch workspace?", { title: "Switch workspace", kind: "warning" })) return;
     freshOnPath.current = true;
@@ -1080,7 +1083,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2 className="max-w-60 min-w-0 shrink-0 truncate text-sm font-semibold" title={`${name} · ${path}${snapshot.model ? ` · ${snapshot.model}` : ""}`}>{selectedTitle ?? name}</h2>
           {!snapshot.connected && <span className={`h-7 shrink-0 rounded-md border px-2 text-xs leading-7 ${workspaceError ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}>{workspaceError ? "Offline" : "Starting…"}</span>}
-          <div className="hidden min-w-0 items-center gap-1.5 md:flex">
+          <div className="hidden min-w-0 items-center gap-1.5 md:flex">
             <SubagentMenu agents={subagents} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <BackgroundMenu jobs={flow.background} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} />
             <FlowMenu key={snapshot.sessionId ?? path} flow={flow} widgets={snapshot.widgets ?? {}} statuses={snapshot.statuses ?? {}} notice={flowNotice} error={flowError} reports={reportsSession && normalizedPath(reportsSession) === activeSession ? diskReports : []} onCommand={command => void runExtensionCommand(command)} busy={commandBusy} />
