@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, MessageSquare, MoreHorizontal, PanelLeft, PanelRight, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowUpCircle, ArrowUpDown, Archive, ArchiveRestore, ChevronDown, ChevronRight, Copy, FolderOpen, FolderPlus, GitFork, Images, MessageSquare, MoreHorizontal, PanelLeft, PanelRight, Pencil, Pin, Plus, RefreshCw, Search, Settings, Sparkles, X } from "lucide-react";
 import { confirm, save } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -877,6 +877,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
   // Stop belongs to the session on screen. A running turn in the background must
   // not put a Stop button under a transcript the button would not stop.
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
+  const [appView, setAppView] = useState<"chat" | "artifacts">("chat");
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(420);
   const [panelTabs, setPanelTabs] = useState<string[]>(["start"]);
@@ -1021,6 +1022,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     {dropActive && <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-background/85 text-sm font-medium text-primary">Drop images or files</div>}
     {sidebar && <aside aria-label="Workspaces" className="absolute inset-y-0 left-0 z-20 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:static md:z-auto md:shadow-none">
       <div className="flex items-center gap-2 px-2 pb-2 pt-3"><Button className="min-w-0 flex-1 justify-start gap-2" onClick={() => void startNewSession()}><Plus className="size-4" />New session</Button><Button variant="ghost" className="size-8 p-0 md:hidden" aria-label="Hide workspaces" onClick={() => setSidebar(false)}><X className="size-4" /></Button></div>
+      <div className="px-2 pb-2"><Button variant={appView === "artifacts" ? "default" : "ghost"} className="w-full justify-start gap-2" aria-pressed={appView === "artifacts"} onClick={() => setAppView("artifacts")}><Images className="size-4" />Artifacts</Button></div>
       <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workspaces</h2>
         <div className="flex items-center gap-1">
@@ -1072,7 +1074,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         </div>
       </div>
     </aside>}
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section className={appView === "artifacts" ? "hidden" : "flex min-h-0 min-w-0 flex-1 flex-col"}>
       {hero ? <div className="flex items-center px-2 py-1.5"><Button variant="ghost" className="size-8 shrink-0 p-0" aria-label={sidebar ? "Hide workspaces" : "Show workspaces"} title="Workspaces" aria-expanded={sidebar} onClick={() => setSidebar(value => !value)}><PanelLeft className="size-4" /></Button></div> : <div className="flex items-center gap-2 border-b border-border px-2 py-2 sm:px-3">
         <Button variant="ghost" className="size-8 shrink-0 p-0" aria-label={sidebar ? "Hide workspaces" : "Show workspaces"} title="Workspaces" aria-expanded={sidebar} onClick={() => setSidebar(value => !value)}><PanelLeft className="size-4" /></Button>
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -1128,6 +1130,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
         </aside>}
       </div>}
     </section>
+    {appView === "artifacts" && <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-2 py-2">
+        <Button variant="ghost" className="size-8 shrink-0 p-0" aria-label="Back to chat" title="Back to chat" onClick={() => setAppView("chat")}><ArrowLeft className="size-4" /></Button>
+        <h2 className="text-sm font-semibold">Artifacts</h2>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4"><div className="mx-auto max-w-5xl"><ArtifactsPanel /></div></div>
+    </section>}
     {textguardPanel}
   </div>;
 }
