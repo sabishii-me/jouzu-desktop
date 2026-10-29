@@ -33,19 +33,19 @@ describe("image tool view", () => {
     expect(html).toContain("1 image");
     expect(html).toContain("gemini-3-pro-image");
     expect(html).toContain("2816×1536");
-    expect(html).toContain("Open");
+    expect(html).toContain("Open large image");
     expect(html).toContain("Download");
     expect(html).toContain("Copy path");
-    expect(html).toContain("Reveal");
-    expect(html).toContain("Quote");
+    expect(html).toContain("Show in folder");
+    expect(html).toContain("Use as attachment");
   });
 
   it("still shows the image when the old result has no details", () => {
     const old = tool({ result: { content: [{ type: "image", mimeType: "image/png", data: "QUJD" }] } });
     const html = renderToStaticMarkup(<ImageRenderer tool={old} />);
     expect(html).toContain('alt="Tool output image"');
-    expect(html).toContain("Open");
-    expect(html).not.toContain("Reveal");
+    expect(html).toContain("Open large image");
+    expect(html).not.toContain("Show in folder");
   });
 
   it("says it is generating before the result exists", () => {

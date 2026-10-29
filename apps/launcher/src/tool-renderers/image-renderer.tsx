@@ -34,7 +34,7 @@ export function ImageRenderer({ tool }: ToolRendererProps) {
       <span className="min-w-0 truncate text-[10px] text-muted-foreground">{summary}</span>
     </header>
     {items.length ? <div className="grid gap-3 p-3 sm:grid-cols-2">
-      {items.map((image, index) => <ArtifactImage key={index} image={image} caption={[model, size, image.width && image.height ? `${image.width}×${image.height}` : ""].filter(Boolean).join(" · ")} />)}
+      {items.map((image, index) => <ArtifactImage key={index} image={image} caption={image.width && image.height ? `${image.width}×${image.height}` : undefined} />)}
     </div> : <p className="p-3 text-xs text-muted-foreground">{tool.phase === "error" ? "The generation failed." : "Generating…"}</p>}
   </section>;
 }
