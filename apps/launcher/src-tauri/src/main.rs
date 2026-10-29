@@ -7,6 +7,7 @@ mod chat_process;
 mod chat_process;
 mod chat_transport;
 mod chat;
+mod artifacts;
 mod attachments;
 mod active_app;
 mod launcher_script;
@@ -608,6 +609,9 @@ fn main() {
             image_tool::image_providers,
             image_tool::image_models,
             image_tool::image_tool_ensure,
+            artifacts::artifact_list,
+            artifacts::artifact_read,
+            artifacts::artifact_delete,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,

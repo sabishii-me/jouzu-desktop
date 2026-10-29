@@ -2,6 +2,7 @@ export const locales = { en: "English", ja: "日本語", "zh-Hans": "简体中�
 export type Locale = keyof typeof locales;
 const en = {
   toolsTab: "Tools",
+  artifactsTab: "Artifacts",
 updateAvailable: "Update available", upToDate: "Up to date", updateCheckHint: "Check for a new launcher version.", updaterUnconfigured: "Launcher update source and signing key are not configured.", installingUpdate: "Installing…", downloadingUpdate: "Downloading…", checkUpdates: "Check for updates", updateReady: "An update is ready", installUpdate: "Update launcher", restartUpdateHint: "The launcher will close for installation. Save your work before continuing.", jouzuUpdatePending: "Jouzu updates: the qualified pnpm release source is not configured.",
  profileOffHint: "When disabled, no Japanese-first instructions are added. Reply language follows the conversation and other settings.",
 searchProviders: "Search services", credentialSaved: "Key saved", checkConnection: "Check", checkReachable: "Model endpoint reachable", checkAuthFailed: "Authentication rejected", checkNetworkFailed: "Network failed", checkServerFailed: "Service error", checkUnsupported: "Check unsupported", checkMissing: "Credential required", checkHint: "Check requests the model list; it does not generate text or verify every model.",
@@ -27,6 +28,7 @@ minimize: "Minimize", maximize: "Maximize or restore", closeWindow: "Close launc
 type Messages = typeof en;
 const ja: Messages = {
   toolsTab: "ツール",
+  artifactsTab: "アーティファクト",
 updateAvailable: "更新があります", upToDate: "最新です", updateCheckHint: "ランチャーの新しいバージョンを確認します。", updaterUnconfigured: "更新先と署名鍵が未設定です。", installingUpdate: "インストール中…", downloadingUpdate: "ダウンロード中…", checkUpdates: "更新を確認", updateReady: "更新があります", installUpdate: "ランチャーを更新", restartUpdateHint: "インストールのためランチャーを終了します。作業を保存してください。", jouzuUpdatePending: "Jouzu 更新：検証済み pnpm リリース元は未設定です。",
  profileOffHint: "無効にすると、日本語優先の指示を追加しません。応答言語は会話や他の設定に従います。",
 searchProviders: "サービスを検索", credentialSaved: "キー保存済み", checkConnection: "確認", checkReachable: "モデル一覧に接続可能", checkAuthFailed: "認証拒否", checkNetworkFailed: "通信失敗", checkServerFailed: "サービスエラー", checkUnsupported: "確認非対応", checkMissing: "認証情報が必要", checkHint: "モデル一覧への接続を確認します。生成や全モデルの検証は行いません。",
@@ -51,6 +53,7 @@ minimize: "最小化", maximize: "最大化・元に戻す", closeWindow: "ラ�
 };
 const hans: Messages = {
   toolsTab: "工具",
+  artifactsTab: "产物",
 updateAvailable: "发现更新", upToDate: "已是最新", updateCheckHint: "检查启动器新版本。", updaterUnconfigured: "尚未配置启动器更新源与签名公钥。", installingUpdate: "正在安装…", downloadingUpdate: "正在下载…", checkUpdates: "检查更新", updateReady: "有可用更新", installUpdate: "更新启动器", restartUpdateHint: "安装时会关闭启动器。请先保存工作。", jouzuUpdatePending: "Jouzu 更新：尚未配置经过验证的 pnpm 发布源。",
  profileOffHint: "关闭后不再添加日语优先指令，回复语言由对话及其他配置决定，不会自动固定为中文。",
 searchProviders: "搜索服务", credentialSaved: "密钥已保存", checkConnection: "检查连接", checking: "检查中…", checkReachable: "模型端点可访问", checkAuthFailed: "认证被拒绝", checkNetworkFailed: "网络连接失败", checkServerFailed: "服务端错误", checkUnsupported: "不支持此检查", checkMissing: "需要凭据", checkHint: "检查会请求模型列表，不生成内容，也不代表所有模型均可调用。",
@@ -75,6 +78,7 @@ minimize: "最小化", maximize: "最大化或还原", closeWindow: "关闭启�
 };
 const hant: Messages = {
   toolsTab: "工具",
+  artifactsTab: "產物",
 updateAvailable: "發現更新", upToDate: "已是最新", updateCheckHint: "檢查啟動器新版本。", updaterUnconfigured: "尚未設定啟動器更新來源與簽章公鑰。", installingUpdate: "正在安裝…", downloadingUpdate: "正在下載…", checkUpdates: "檢查更新", updateReady: "有可用更新", installUpdate: "更新啟動器", restartUpdateHint: "安裝時會關閉啟動器。請先儲存工作。", jouzuUpdatePending: "Jouzu 更新：尚未設定經過驗證的 pnpm 發行來源。",
  profileOffHint: "關閉後不再加入日語優先指令，回覆語言由對話及其他設定決定，不會自動固定為中文。",
 searchProviders: "搜尋服務", credentialSaved: "金鑰已儲存", checkConnection: "檢查連接", checking: "檢查中…", checkReachable: "模型端點可存取", checkAuthFailed: "驗證被拒絕", checkNetworkFailed: "網路連接失敗", checkServerFailed: "伺服器錯誤", checkUnsupported: "不支援此檢查", checkMissing: "需要憑證", checkHint: "檢查會請求模型清單，不產生內容，也不代表所有模型皆可呼叫。",

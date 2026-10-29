@@ -1,5 +1,6 @@
 import { ChatWorkspace } from "./chat-workspace";
 import { ToolsPanel } from "./tools-panel";
+import { ArtifactsPanel } from "./artifacts-panel";
 import { LauncherPage } from "./components/launcher-page";
 import { ProviderPicker } from "./components/ui/provider-picker";
 import { recoveryText } from "./recovery-text";
@@ -23,7 +24,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Input } from "./components/ui/input";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check, Wrench } from "lucide-react";
+import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check, Wrench, Images } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
@@ -438,6 +439,7 @@ export function App() {
               <TabsList aria-label={t.settings} className="h-auto w-full items-stretch gap-1 bg-transparent p-0">
                 <TabsTrigger value="providers" className="min-h-10 justify-start gap-2 px-3"><KeyRound className="size-4 shrink-0" aria-hidden="true" />{t.providers}</TabsTrigger>
                 <TabsTrigger value="tools" className="min-h-10 justify-start gap-2 px-3"><Wrench className="size-4 shrink-0" aria-hidden="true" />{t.toolsTab}</TabsTrigger>
+                <TabsTrigger value="artifacts" className="min-h-10 justify-start gap-2 px-3"><Images className="size-4 shrink-0" aria-hidden="true" />{t.artifactsTab}</TabsTrigger>
                 <TabsTrigger value="environment" className="min-h-10 justify-start gap-2 px-3"><SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />{t.environment}</TabsTrigger><TabsTrigger value="general" className="min-h-10 justify-start gap-2 px-3"><Languages className="size-4 shrink-0" aria-hidden="true" />{t.general}</TabsTrigger>
                 <TabsTrigger value="system" className="min-h-10 justify-start gap-2 whitespace-normal px-3 text-left"><RefreshCw className="size-4 shrink-0" aria-hidden="true" />{t.system}</TabsTrigger>
               </TabsList>
@@ -449,6 +451,7 @@ export function App() {
                   
                 </TabsContent>
                 <TabsContent value="tools" className="m-0 space-y-4"><ToolsPanel /></TabsContent>
+                <TabsContent value="artifacts" className="m-0 space-y-4"><ArtifactsPanel /></TabsContent>
                 <TabsContent value="environment" className="m-0 space-y-4"><Card className="border-border shadow-none"><CardHeader><CardTitle>{t.environment}</CardTitle><CardDescription>{t.envHint}</CardDescription></CardHeader><CardContent className="space-y-3">
                   {envRows.map((row,index) => <div key={index} className="space-y-2 rounded-lg border border-border p-3"><div className="flex items-center gap-2">{editingEnv === index ? <Input aria-label={t.variableName} placeholder={t.variableName} value={row.name} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,name:event.target.value} : r))} /> : <span className="min-w-0 flex-1 truncate text-sm font-medium" title={row.name}>{row.name}</span>}<Button variant="ghost" disabled={busy} onClick={() => setEditingEnv(index)}>{t.editValue}</Button><Switch aria-label={t.enabled} checked={row.enabled} disabled={busy} onCheckedChange={enabled => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,enabled} : r))} /><Button variant="ghost" disabled={busy} aria-label={t.deleteEntry} onClick={() => { setEnvRows(rows => rows.filter((_,i) => i !== index)); setEditingEnv(null); }}><X /></Button></div>{editingEnv === index && <Input type="password" autoComplete="off" aria-label={t.variableValue} placeholder={t.variableValue} value={row.value} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,value:event.target.value} : r))} />}</div>)}
                   <div className="flex gap-2"><Button variant="outline" disabled={!envLoaded || busy} onClick={() => { setEditingEnv(envRows.length); setEnvRows(rows => [...rows,{name:"",value:"",enabled:true}]); }}><Plus />{t.addEntry}</Button><Button className="ml-auto" disabled={!envLoaded || busy} onClick={saveEnvironment}>{t.save}</Button></div>
