@@ -9,6 +9,10 @@ const EXTENSION: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../packaging/launcher/extensions/jouzu-image/index.js"
 ));
+const SHISA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/extensions/jouzu-image/providers/shisa.mjs"
+));
 
 /// The provider's size settings; which model offers which size is the service's
 /// answer, not a desktop table.
@@ -28,9 +32,10 @@ fn agent_dir(managed: &Path) -> PathBuf {
 /// Write the extension in place. Idempotent: a newer desktop replaces the files.
 pub fn ensure(managed: &Path) -> Result<(), String> {
     let directory = agent_dir(managed).join("extensions").join("jouzu-image");
-    std::fs::create_dir_all(&directory).map_err(|error| format!("Could not create the image extension: {error}"))?;
+    std::fs::create_dir_all(directory.join("providers")).map_err(|error| format!("Could not create the image extension: {error}"))?;
     std::fs::write(directory.join("package.json"), MANIFEST).map_err(|error| error.to_string())?;
     std::fs::write(directory.join("index.js"), EXTENSION).map_err(|error| error.to_string())?;
+    std::fs::write(directory.join("providers").join("shisa.mjs"), SHISA).map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -164,6 +169,7 @@ mod tests {
         let directory = managed.path().join("data/agent/extensions/jouzu-image");
         assert!(directory.join("package.json").is_file());
         assert!(directory.join("index.js").is_file());
+        assert!(directory.join("providers/shisa.mjs").is_file());
         let manifest = std::fs::read_to_string(directory.join("package.json")).unwrap();
         assert!(manifest.contains("pi"));
     }

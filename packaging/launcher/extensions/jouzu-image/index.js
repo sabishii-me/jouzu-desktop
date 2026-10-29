@@ -1,51 +1,76 @@
 // Jouzu Desktop's image generation tool. Installed into the agent's extension
 // directory by the desktop; it is not part of the runtime.
+//
+// Authorization is the runtime's: the credential is read through the runtime's
+// own API, never from a file we parse, and this tool never refreshes or stores it.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import shisa from "./providers/shisa.mjs";
 
-const BASE = "https://api.shisa.ai/image";
+const PROVIDERS = { [shisa.id]: shisa };
 const SIZES = ["1K", "2K", "4K"];
-const DEFAULT_MODEL = "gemini-3.1-flash-lite-image";
+const DEFAULT_PROVIDER = "shisa";
 const DEFAULT_SIZE = "1K";
+const DEFAULT_REVIEW = ["generate_image"];
 
 export function home() {
   return process.env.JOUZU_HOME || join(process.env.LOCALAPPDATA || process.cwd(), "Shisa.ai", "JouzuDesktop", "data");
 }
 
-async function readJson(path) {
-  return JSON.parse(await readFile(path, "utf8"));
+export function settingsPath() {
+  return join(home(), "agent", "tools.json");
 }
 
-/** The Control Center's choice, written by the desktop. */
 export async function settings() {
   try {
-    const value = await readJson(join(home(), "agent", "image-generation.json"));
-    return { model: typeof value.model === "string" ? value.model : undefined, size: typeof value.size === "string" ? value.size : undefined };
+    const value = JSON.parse(await readFile(settingsPath(), "utf8"));
+    return {
+      image: {
+        enabled: value?.image?.enabled !== false,
+        provider: typeof value?.image?.provider === "string" ? value.image.provider : DEFAULT_PROVIDER,
+        model: typeof value?.image?.model === "string" ? value.image.model : "",
+        size: SIZES.includes(value?.image?.size) ? value.image.size : DEFAULT_SIZE,
+      },
+      reviewTools: Array.isArray(value?.reviewTools) ? value.reviewTools.filter(item => typeof item === "string") : DEFAULT_REVIEW,
+    };
   } catch {
-    return {};
+    // Until the Tools page exists, the pre-Tools settings file still applies.
+    try {
+      const legacy = JSON.parse(await readFile(join(home(), "agent", "image-generation.json"), "utf8"));
+      return {
+        image: {
+          enabled: true,
+          provider: DEFAULT_PROVIDER,
+          model: typeof legacy.model === "string" ? legacy.model : "",
+          size: SIZES.includes(legacy.size) ? legacy.size : DEFAULT_SIZE,
+        },
+        reviewTools: DEFAULT_REVIEW,
+      };
+    } catch {
+      return { image: { enabled: true, provider: DEFAULT_PROVIDER, model: "", size: DEFAULT_SIZE }, reviewTools: DEFAULT_REVIEW };
+    }
   }
 }
 
-/** The launcher key first, then the signed-in runtime credential. */
-export async function token() {
-  const key = process.env.SHISA_API_KEY?.trim();
-  if (key) return key;
-  const auth = await readJson(join(home(), "agent", "auth.json"));
-  const access = auth?.shisa?.access;
-  if (typeof access !== "string" || !access.trim()) {
-    throw new Error("Sign in to Shisa.AI, or add SHISA_API_KEY in Settings → Environment.");
-  }
-  return access.trim();
+/** The runtime's credential API. Injectable so the tests do not need the runtime. */
+let credentialReader = async providerId => {
+  // The runtime sets PI_CODING_AGENT_DIR; the CLI mode sets it from JOUZU_HOME.
+  process.env.PI_CODING_AGENT_DIR ||= join(home(), "agent");
+  const { readStoredCredential } = await import("@earendil-works/pi-coding-agent");
+  return readStoredCredential(providerId);
+};
+
+export function setCredentialReader(reader) {
+  credentialReader = reader;
 }
 
-function failure(status, body) {
-  const code = body?.code ?? body?.error?.code;
-  if (status === 401) return "Sign in to Shisa.AI again to generate images.";
-  if (status === 403 && code === 311) return "This key cannot use image generation (shisa/image).";
-  if (status === 400) return "The model or image size was rejected.";
-  if (status === 413) return "The prompt is too large.";
-  if (status === 429 || status === 503) return "Image generation is busy. Try again in a moment.";
-  return `Image generation failed (HTTP ${status}).`;
+export async function token(providerId) {
+  const credential = await credentialReader(providerId);
+  const value = credential?.access ?? credential?.key ?? credential?.apiKey;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(providerId === "shisa" ? "Sign in to Shisa.AI to generate images." : `No credential for ${providerId}.`);
+  }
+  return { token: value.trim(), type: credential?.type ?? "unknown" };
 }
 
 function extensionFor(mime) {
@@ -54,79 +79,111 @@ function extensionFor(mime) {
   return "png";
 }
 
-export async function generate({ prompt, model, size }) {
-  if (typeof model !== "string" || !/^[A-Za-z0-9._/-]{1,128}$/.test(model)) throw new Error("Unknown image model.");
-  if (!SIZES.includes(size)) throw new Error("That image size is not available.");
-  const text = String(prompt ?? "").trim();
-  if (!text) throw new Error("Write a prompt first.");
-  if (text.length > 32_000) throw new Error("The prompt is too large.");
-  const bearer = await token();
-  const response = await fetch(`${BASE}/v1beta/interactions`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, input: text, store: false, response_format: { type: "image", image_size: size } }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(failure(response.status, body));
-  const image = (body?.steps ?? [])
-    .flatMap(step => (Array.isArray(step?.content) ? step.content : []))
-    .find(item => item?.type === "image");
-  if (!image?.data) throw new Error("The answer contained no image.");
-  const mime = image.mime_type ?? "image/png";
-  return { data: image.data, mime, extension: extensionFor(mime) };
+/** The provider the tool uses: explicit argument, settings, then the only one. */
+export function chooseProvider(configured, requested) {
+  const id = requested || configured || DEFAULT_PROVIDER;
+  const provider = PROVIDERS[id];
+  if (!provider) throw new Error(`Unknown image provider: ${id}`);
+  return provider;
+}
+
+/** A model is always chosen when the provider lists one; only an empty list fails. */
+export async function chooseModel(provider, configured, tokenValue) {
+  if (configured) return configured;
+  const models = await provider.listModels(tokenValue);
+  if (!models.length) throw new Error("The provider lists no image models.");
+  return models[0];
+}
+
+export async function generate({ provider: requested, model, size, prompt }) {
+  const current = await settings();
+  if (!current.image.enabled) throw new Error("Image generation is disabled in Settings → Tools.");
+  const provider = chooseProvider(current.image.provider, requested);
+  const { token: value } = await token(provider.id);
+  const chosenModel = await chooseModel(provider, model || current.image.model, value);
+  const chosenSize = SIZES.includes(size) ? size : current.image.size;
+  const result = await provider.generate(value, { model: chosenModel, size: chosenSize, prompt });
+  const directory = join(home(), "artifacts", "images");
+  await mkdir(directory, { recursive: true });
+  const file = join(directory, `image-${Date.now()}.${extensionFor(result.mime)}`);
+  await writeFile(file, Buffer.from(result.data, "base64"));
+  return { file, data: result.data, mime: result.mime, provider: provider.id, model: chosenModel, size: chosenSize };
 }
 
 export default function jouzuImage(pi) {
+  const approved = new Set();
+
+  pi.on("session_start", () => { approved.clear(); });
+
+  pi.on("tool_call", async (event, ctx) => {
+    const current = await settings();
+    if (!current.reviewTools.includes(event.toolName) || approved.has(event.toolName)) return undefined;
+    const choice = await ctx.ui.select("Review tool call", ["Approve", "Approve for this session", "Deny"], { timeout: 120_000 });
+    if (choice === "Approve") return undefined;
+    if (choice === "Approve for this session") { approved.add(event.toolName); return undefined; }
+    return { block: true, reason: choice === "Deny" ? "The user declined this tool call." : "No response; the tool call was declined." };
+  });
+
   pi.registerTool({
     name: "generate_image",
     label: "Generate Image",
     description:
-      "Generate one image with Shisa.AI from a text prompt. This consumes paid image tokens. " +
-      "Always ask the user for approval first, then call again with confirm: true. " +
-      "Without confirm: true nothing is generated.",
-    promptSnippet: "Generate an image from a prompt with Shisa.AI (paid; ask the user first)",
+      "Generate one image from a text prompt with the configured image provider. " +
+      "The provider, model and size come from Settings → Tools unless passed here.",
+    promptSnippet: "Generate an image from a prompt with the configured image provider",
     promptGuidelines: [
-      "This tool costs image tokens, so confirm with the user before calling it.",
-      "Show the model, image size and prompt in the question.",
-      "Pass confirm: true only after the user agrees.",
+      "Use this when the user asks for an image.",
+      "The user reviews this call before it runs; do not ask for approval in the message.",
       "The image is saved under the agent's artifacts/images directory and its path is returned.",
     ],
     parameters: {
       type: "object",
       properties: {
         prompt: { type: "string", description: "What to draw." },
-        model: { type: "string", description: "Image model; defaults to the Control Center choice." },
-        size: { type: "string", enum: ["1K", "2K", "4K"], description: "Provider size setting; defaults to the Control Center choice." },
-        confirm: { type: "boolean", description: "True only after the user approved the paid call." },
+        provider: { type: "string", description: "Optional image provider id; defaults to Settings → Tools." },
+        model: { type: "string", description: "Optional model; defaults to Settings → Tools or the provider's first model." },
+        size: { type: "string", enum: SIZES, description: "Optional provider size setting." },
       },
-      required: ["prompt", "confirm"],
+      required: ["prompt"],
       additionalProperties: false,
     },
     async execute(_toolCallId, params) {
-      if (params.confirm !== true) {
-        return {
-          content: [{
-            type: "text",
-            text: "Not generated. Ask the user to approve this paid image generation (show the model, size and prompt), then call generate_image again with confirm: true.",
-          }],
-        };
-      }
-      const saved = await settings();
-      const model = params.model || saved.model || DEFAULT_MODEL;
-      const size = params.size || saved.size || DEFAULT_SIZE;
-      const result = await generate({ prompt: params.prompt, model, size });
-      const directory = join(home(), "artifacts", "images");
-      await mkdir(directory, { recursive: true });
-      const file = join(directory, `image-${Date.now()}.${result.extension}`);
-      await writeFile(file, Buffer.from(result.data, "base64"));
+      const result = await generate({
+        provider: params.provider,
+        model: params.model,
+        size: params.size,
+        prompt: String(params.prompt ?? "").trim(),
+      });
       return {
         content: [
-          { type: "text", text: `Generated an image (${model}, ${size}) and saved it to ${file}` },
+          { type: "text", text: `Generated an image (${result.provider}, ${result.model}, ${result.size}) and saved it to ${result.file}` },
           { type: "image", data: result.data, mimeType: result.mime },
         ],
-        details: { file, model, size },
+        details: { file: result.file, provider: result.provider, model: result.model, size: result.size },
       };
     },
   });
+}
+
+// CLI entry for the desktop's Tools page: node index.js --providers | --models <id>
+const invoked = typeof process.argv[1] === "string" && /index\.(m?js)$/.test(process.argv[1]);
+if (invoked && process.argv[2]?.startsWith("--")) {
+  const command = process.argv[2];
+  try {
+    if (command === "--providers") {
+      const list = Object.values(PROVIDERS).map(provider => ({ id: provider.id, label: provider.label ?? provider.id }));
+      process.stdout.write(`${JSON.stringify({ providers: list })}\n`);
+    } else if (command === "--models") {
+      const provider = chooseProvider(process.argv[3] || DEFAULT_PROVIDER);
+      const { token: value } = await token(provider.id);
+      const models = await provider.listModels(value);
+      process.stdout.write(`${JSON.stringify({ models })}\n`);
+    } else {
+      process.stderr.write(`Unknown command: ${command}\n`);
+      process.exitCode = 2;
+    }
+  } catch (error) {
+    process.stdout.write(`${JSON.stringify({ error: String(error?.message ?? error) })}\n`);
+    process.exitCode = 1;
+  }
 }
