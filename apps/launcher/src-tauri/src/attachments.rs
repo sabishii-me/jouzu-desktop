@@ -26,3 +26,23 @@ pub fn read_dropped_image(path: String) -> Result<serde_json::Value, String> {
     let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("dropped-image").to_string();
     Ok(serde_json::json!({ "name": name, "mimeType": mime, "data": STANDARD.encode(bytes) }))
 }
+
+/// Show an artifact in the platform's file browser.
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    let path = Path::new(&path);
+    if !path.exists() {
+        return Err("That file no longer exists.".into());
+    }
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer.exe")
+        .arg(format!("/select,\"{}\"", path.display()))
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open")
+        .arg(path.parent().unwrap_or(path))
+        .spawn();
+    spawned.map(|_| ()).map_err(|_| "Could not open the folder.".to_string())
+}

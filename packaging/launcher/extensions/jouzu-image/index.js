@@ -4,16 +4,21 @@
 // Authorization is the runtime's: the credential is read through the runtime's
 // own API, never from a file we parse, and this tool never refreshes or stores it.
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { saveArtifact } from "./artifacts.mjs";
 import shisa from "./providers/shisa.mjs";
 
 const PROVIDERS = { [shisa.id]: shisa };
 const SIZES = ["1K", "2K", "4K"];
 const DEFAULT_PROVIDER = "shisa";
 const DEFAULT_SIZE = "1K";
+const DEFAULT_MAX_IMAGES = 3;
 const DEFAULT_REVIEW = ["generate_image"];
+// A declined call must not come straight back as another review; the model is
+// told to stop, and retries are blocked for a short cooldown.
+const DENY_COOLDOWN_MS = 60_000;
 
 export function home() {
   return process.env.JOUZU_HOME || join(process.env.LOCALAPPDATA || process.cwd(), "Shisa.ai", "JouzuDesktop", "data");
@@ -21,6 +26,11 @@ export function home() {
 
 export function settingsPath() {
   return join(home(), "agent", "tools.json");
+}
+
+function maxImages(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(10, Math.max(1, Math.trunc(number))) : DEFAULT_MAX_IMAGES;
 }
 
 export async function settings() {
@@ -32,6 +42,7 @@ export async function settings() {
         provider: typeof value?.image?.provider === "string" ? value.image.provider : DEFAULT_PROVIDER,
         model: typeof value?.image?.model === "string" ? value.image.model : "",
         size: SIZES.includes(value?.image?.size) ? value.image.size : DEFAULT_SIZE,
+        maxImages: maxImages(value?.image?.maxImages),
       },
       reviewTools: Array.isArray(value?.reviewTools) ? value.reviewTools.filter(item => typeof item === "string") : DEFAULT_REVIEW,
     };
@@ -45,16 +56,19 @@ export async function settings() {
           provider: DEFAULT_PROVIDER,
           model: typeof legacy.model === "string" ? legacy.model : "",
           size: SIZES.includes(legacy.size) ? legacy.size : DEFAULT_SIZE,
+          maxImages: DEFAULT_MAX_IMAGES,
         },
         reviewTools: DEFAULT_REVIEW,
       };
     } catch {
-      return { image: { enabled: true, provider: DEFAULT_PROVIDER, model: "", size: DEFAULT_SIZE }, reviewTools: DEFAULT_REVIEW };
+      return {
+        image: { enabled: true, provider: DEFAULT_PROVIDER, model: "", size: DEFAULT_SIZE, maxImages: DEFAULT_MAX_IMAGES },
+        reviewTools: DEFAULT_REVIEW,
+      };
     }
   }
 }
 
-/** The runtime's credential API. Injectable so the tests do not need the runtime. */
 /**
  * Load a module from the runtime's installation. Node resolves bare imports
  * relative to this extension file, which is outside the app's node_modules, so
@@ -72,6 +86,7 @@ async function runtimeModule(relative) {
   throw new Error("The runtime's coding-agent package could not be found.");
 }
 
+/** The runtime's credential API. Injectable so the tests do not need the runtime. */
 let credentialReader = async providerId => {
   // The runtime sets PI_CODING_AGENT_DIR; the CLI mode sets it from JOUZU_HOME.
   process.env.PI_CODING_AGENT_DIR ||= join(home(), "agent");
@@ -92,12 +107,6 @@ export async function token(providerId) {
   return { token: value.trim(), type: credential?.type ?? "unknown" };
 }
 
-function extensionFor(mime) {
-  if (mime.includes("jpeg")) return "jpg";
-  if (mime.includes("webp")) return "webp";
-  return "png";
-}
-
 /** The provider the tool uses: explicit argument, settings, then the only one. */
 export function chooseProvider(configured, requested) {
   const id = requested || configured || DEFAULT_PROVIDER;
@@ -114,32 +123,72 @@ export async function chooseModel(provider, configured, tokenValue) {
   return models[0];
 }
 
-export async function generate({ provider: requested, model, size, prompt }) {
+export function reviewBody({ toolName, input, image }) {
+  const count = Math.min(maxImages(image.maxImages), Math.max(1, Math.trunc(Number(input?.count ?? 1)) || 1));
+  const lines = [
+    `${toolName} · ${count} image${count === 1 ? "" : "s"}`,
+    `Prompt: ${input?.prompt ?? ""}`,
+    `Provider: ${input?.provider || image.provider} · Model: ${input?.model || image.model || "(provider default)"} · Size: ${input?.size || image.size}`,
+    `This runs ${count} paid image generation${count === 1 ? "" : "s"}.`,
+  ];
+  return { count, text: lines.join("\n") };
+}
+
+export async function generate({ provider: requested, model, size, prompt, count, sessionId, toolCallId }) {
   const current = await settings();
   if (!current.image.enabled) throw new Error("Image generation is disabled in Settings → Tools.");
   const provider = chooseProvider(current.image.provider, requested);
   const { token: value } = await token(provider.id);
   const chosenModel = await chooseModel(provider, model || current.image.model, value);
   const chosenSize = SIZES.includes(size) ? size : current.image.size;
-  const result = await provider.generate(value, { model: chosenModel, size: chosenSize, prompt });
-  const directory = join(home(), "artifacts", "images");
-  await mkdir(directory, { recursive: true });
-  const file = join(directory, `image-${Date.now()}.${extensionFor(result.mime)}`);
-  await writeFile(file, Buffer.from(result.data, "base64"));
-  return { file, data: result.data, mime: result.mime, provider: provider.id, model: chosenModel, size: chosenSize };
+  const total = Math.min(maxImages(current.image.maxImages), Math.max(1, Math.trunc(Number(count ?? 1)) || 1));
+  const images = [];
+  for (let index = 0; index < total; index += 1) {
+    const result = await provider.generate(value, { model: chosenModel, size: chosenSize, prompt });
+    const bytes = Buffer.from(result.data, "base64");
+    const artifact = await saveArtifact({
+      home: home(),
+      kind: "images",
+      mimeType: result.mime,
+      bytes,
+      prompt,
+      source: { tool: "generate_image", provider: provider.id, model: chosenModel, sessionId, toolCallId },
+    });
+    images.push({
+      id: artifact.id,
+      data: result.data,
+      mimeType: artifact.mimeType,
+      path: join(home(), "artifacts", artifact.path),
+      bytes: artifact.bytes,
+      width: artifact.dimensions?.width ?? null,
+      height: artifact.dimensions?.height ?? null,
+    });
+  }
+  return { provider: provider.id, model: chosenModel, size: chosenSize, images };
 }
 
 export default function jouzuImage(pi) {
   const approved = new Set();
+  let sessionId = "";
+  let deniedAt = 0;
 
-  pi.on("session_start", () => { approved.clear(); });
+  pi.on("session_start", (_event, ctx) => {
+    approved.clear();
+    deniedAt = 0;
+    try { sessionId = ctx?.sessionManager?.getSessionId?.() ?? ""; } catch { sessionId = ""; }
+  });
 
   pi.on("tool_call", async (event, ctx) => {
     const current = await settings();
     if (!current.reviewTools.includes(event.toolName) || approved.has(event.toolName)) return undefined;
-    const choice = await ctx.ui.select("Review tool call", ["Approve", "Approve for this session", "Deny"], { timeout: 120_000 });
+    if (Date.now() - deniedAt < DENY_COOLDOWN_MS) {
+      return { block: true, reason: "The user declined image generation; do not retry. Ask them what to change." };
+    }
+    const { text } = reviewBody({ toolName: event.toolName, input: event.input, image: current.image });
+    const choice = await ctx.ui.select(`Review tool call\n${text}`, ["Approve", "Approve for this session", "Deny"], { timeout: 120_000 });
     if (choice === "Approve") return undefined;
     if (choice === "Approve for this session") { approved.add(event.toolName); return undefined; }
+    deniedAt = Date.now();
     return { block: true, reason: choice === "Deny" ? "The user declined this tool call." : "No response; the tool call was declined." };
   });
 
@@ -147,18 +196,19 @@ export default function jouzuImage(pi) {
     name: "generate_image",
     label: "Generate Image",
     description:
-      "Generate one image from a text prompt with the configured image provider. " +
+      "Generate one to a few images from a text prompt with the configured image provider. " +
       "The provider, model and size come from Settings → Tools unless passed here.",
-    promptSnippet: "Generate an image from a prompt with the configured image provider",
+    promptSnippet: "Generate images from a prompt with the configured image provider",
     promptGuidelines: [
       "Use this when the user asks for an image.",
       "The user reviews this call before it runs; do not ask for approval in the message.",
-      "The image is saved under the agent's artifacts/images directory and its path is returned.",
+      "Each image is stored as an artifact and its path is returned.",
     ],
     parameters: {
       type: "object",
       properties: {
         prompt: { type: "string", description: "What to draw." },
+        count: { type: "integer", minimum: 1, description: "How many images; defaults to 1, capped by Settings → Tools." },
         provider: { type: "string", description: "Optional image provider id; defaults to Settings → Tools." },
         model: { type: "string", description: "Optional model; defaults to Settings → Tools or the provider's first model." },
         size: { type: "string", enum: SIZES, description: "Optional provider size setting." },
@@ -166,19 +216,31 @@ export default function jouzuImage(pi) {
       required: ["prompt"],
       additionalProperties: false,
     },
-    async execute(_toolCallId, params) {
+    async execute(toolCallId, params) {
+      const prompt = String(params.prompt ?? "").trim();
       const result = await generate({
         provider: params.provider,
         model: params.model,
         size: params.size,
-        prompt: String(params.prompt ?? "").trim(),
+        count: params.count,
+        prompt,
+        sessionId,
+        toolCallId,
       });
+      const lines = result.images.map((image, index) => `${index + 1}. ${image.path}`).join("\n");
       return {
         content: [
-          { type: "text", text: `Generated an image (${result.provider}, ${result.model}, ${result.size}) and saved it to ${result.file}` },
-          { type: "image", data: result.data, mimeType: result.mime },
+          { type: "text", text: `Generated ${result.images.length} image${result.images.length === 1 ? "" : "s"}.\nPrompt: "${prompt}"\nProvider: ${result.provider} · Model: ${result.model} · Size: ${result.size}\n${lines}` },
+          ...result.images.map(image => ({ type: "image", data: image.data, mimeType: image.mimeType })),
         ],
-        details: { file: result.file, provider: result.provider, model: result.model, size: result.size },
+        details: {
+          prompt,
+          provider: result.provider,
+          model: result.model,
+          size: result.size,
+          images: result.images.map(({ data: _data, ...image }) => image),
+          usage: null,
+        },
       };
     },
   });

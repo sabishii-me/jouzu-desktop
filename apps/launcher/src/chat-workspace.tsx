@@ -385,6 +385,28 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
     } catch (error) { setAttachmentError(error instanceof Error ? error.message : String(error)); }
     finally { readingRef.current = false; setReadingImages(false); }
   }
+  // "Quote" on an image artifact feeds the artifact through the same attachment
+  // path as a pasted image.
+  const addImagesRef = useRef(addImages);
+  addImagesRef.current = addImages;
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail;
+      if (typeof path !== "string" || !path) return;
+      void (async () => {
+        try {
+          const data = await invoke<{ name: string; mimeType: string; data: string }>("read_dropped_image", { path });
+          const binary = atob(data.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+          await addImagesRef.current([new File([bytes], data.name, { type: data.mimeType })]);
+        } catch (error) { setAttachmentError(error instanceof Error ? error.message : String(error)); }
+      })();
+    };
+    window.addEventListener("jouzu:use-artifact", handler);
+    return () => window.removeEventListener("jouzu:use-artifact", handler);
+  }, []);
+
   async function addDropped(paths: string[]) {
     const images: File[] = [];
     const files: string[] = [];
@@ -1006,7 +1028,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
       {workspaceError && !notification && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{readableError(workspaceError)}</span>{capacityError ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => void startNewSession()}>New session</Button> : <Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button>}</div>}
       {sessionError && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg border border-destructive/30 bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{readableError(sessionError)}{capacityError ? "" : " The transcript is still available; this session was not discarded."}</span>{capacityError ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => void startNewSession()}>New session</Button> : <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => { if (selectedSession) openSession(selectedSession); }}>Retry</Button>}</div>}
-      {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title}</h3>{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
+      {dialog && <section role="dialog" aria-modal="false" aria-label={dialog.title.split("\n")[0]} className="m-3 rounded-xl border border-primary bg-card p-4"><h3 className="font-semibold">{dialog.title.split("\n")[0]}</h3>{dialog.title.split("\n").slice(1).join("\n") && <p className="my-2 whitespace-pre-line text-sm">{dialog.title.split("\n").slice(1).join("\n")}</p>}{dialog.message && <p className="my-2 text-sm">{dialog.message}</p>}{["input", "editor"].includes(dialog.method) && <textarea aria-label="Response" disabled={dialog.responding} className="my-2 w-full rounded border border-border bg-background p-2" value={answer} onChange={event => setAnswer(event.target.value)} />}
         <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? dialog.options.map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>}
       {booting ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Starting session…</div> : hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
         <div className="w-full max-w-3xl">

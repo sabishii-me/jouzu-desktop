@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Check, Copy, Download, FolderOpen, Maximize2, Quote } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { ChatMarkdown } from "../chat-markdown";
 import { object, type ToolView } from "../chat-projection";
@@ -151,15 +152,63 @@ function resultMeta(result: unknown) {
   return meta;
 }
 
+function artifactDetails(result: unknown) {
+  const value = record(record(result)?.details);
+  const images = Array.isArray(value?.images) ? value.images : [];
+  return {
+    prompt: typeof value?.prompt === "string" ? value.prompt : "",
+    model: typeof value?.model === "string" ? value.model : "",
+    size: typeof value?.size === "string" ? value.size : "",
+    images,
+  };
+}
+
+function ArtifactToolbar({ image, onOpen }: { image: { mime: string; data: string; path?: string; alt: string }; onOpen: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const src = `data:${image.mime};base64,${image.data}`;
+  return <div className="flex flex-wrap items-center justify-end gap-1">
+    <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={onOpen}><Maximize2 className="size-3" />Open</Button>
+    <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => {
+      const anchor = document.createElement("a");
+      anchor.href = src;
+      anchor.download = image.path?.split(/[\\/]/u).pop() ?? "image.png";
+      anchor.click();
+    }}><Download className="size-3" />Download</Button>
+    {image.path && <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={async () => {
+      try { await navigator.clipboard.writeText(image.path!); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { setCopied(false); }
+    }}>{copied ? <Check className="size-3" /> : <Copy className="size-3" />}Copy path</Button>}
+    {image.path && <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => { void invoke("reveal_path", { path: image.path }).catch(() => {}); }}><FolderOpen className="size-3" />Reveal</Button>}
+    {image.path && <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => { window.dispatchEvent(new CustomEvent("jouzu:use-artifact", { detail: image.path })); }}><Quote className="size-3" />Quote</Button>}
+  </div>;
+}
+
 export function ToolOutput({ tool }: { tool: ToolView }) {
   const [expanded, setExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const text = toolText(tool.result);
-  const images = imageBlocks(tool.result);
+  const blocks = imageBlocks(tool.result);
+  const details = artifactDetails(tool.result);
+  const images = blocks.map((image, index) => {
+    const meta = record(details.images[index]);
+    return {
+      ...image,
+      alt: details.prompt || image.alt,
+      path: typeof meta?.path === "string" ? meta.path : undefined,
+      width: typeof meta?.width === "number" ? meta.width : undefined,
+      height: typeof meta?.height === "number" ? meta.height : undefined,
+    };
+  });
   const path = readPath(tool.args);
   const kind = classifyText(text);
   const meta = resultMeta(tool.result);
   const long = text.length > 2000 || text.split("\n").length > 40;
-  if (images.length) return <div className="space-y-2">{images.map((image, index) => <img key={index} src={`data:${image.mime};base64,${image.data}`} alt={image.alt} className="max-h-80 max-w-full rounded-md border border-border object-contain" />)}{text && <AnsiPre text={text} expanded={expanded} />}</div>;
+  if (images.length) return <div className="space-y-3">{images.map((image, index) => <figure key={index} className="space-y-1">
+    <img src={`data:${image.mime};base64,${image.data}`} alt={image.alt} className="max-h-80 max-w-full cursor-zoom-in rounded-md border border-border object-contain" onClick={() => setLightbox(`data:${image.mime};base64,${image.data}`)} />
+    <figcaption className="flex flex-wrap items-center justify-between gap-2">
+      <span className="text-[10px] text-muted-foreground">{[details.model, details.size, image.width && image.height ? `${image.width}×${image.height}` : ""].filter(Boolean).join(" · ")}</span>
+      <ArtifactToolbar image={image} onOpen={() => setLightbox(`data:${image.mime};base64,${image.data}`)} />
+    </figcaption>
+  </figure>)}{text && <AnsiPre text={text} expanded={expanded} />}{lightbox && <div role="dialog" aria-label="Image preview" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6" onClick={() => setLightbox(null)}><img src={lightbox} alt="" className="max-h-full max-w-full rounded-lg" /></div>}</div>;
   if (!text) return <p className="text-xs text-muted-foreground">No text output.</p>;
   return <div className="space-y-1">
     <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-muted-foreground">{tool.name === "read" && path ? path : "Output"}{meta.length ? ` · ${meta.join(" · ")}` : ""}</span><div className="flex shrink-0"><CopyButton text={text} /><DownloadButton text={text} />{long && <Button variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse" : "Expand"}</Button>}</div></div>

@@ -2,7 +2,7 @@
 // Agent history and completion remain authoritative in the runtime.
 export type WireObject = Record<string, unknown>;
 export interface ChatBlock { type: string; text?: string; thinking?: string; id?: string; name?: string; arguments?: unknown; data?: string; mimeType?: string }
-export interface ChatMessage { role: string; content: ChatBlock[]; timestamp?: number; endedAt?: number; stopReason?: string; errorMessage?: string; toolCallId?: string; toolName?: string; isError?: boolean; provider?: string; model?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number; totalTokens?: number } }
+export interface ChatMessage { role: string; content: ChatBlock[]; details?: unknown; timestamp?: number; endedAt?: number; stopReason?: string; errorMessage?: string; toolCallId?: string; toolName?: string; isError?: boolean; provider?: string; model?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number; totalTokens?: number } }
 export interface ToolView { id: string; name: string; args: unknown; phase: "running" | "complete" | "error"; result?: unknown; interrupted?: boolean }
 export interface FlowReportRecord { kind: string; text: string; timestamp?: number }
 export interface ChatProjection {
@@ -42,7 +42,7 @@ export function historyProjection(messages: unknown): ChatProjection {
     }
     if (message.role === "toolResult" && typeof message.toolCallId === "string") {
       const id = message.toolCallId;
-      tools[id] = { id, name: message.toolName ?? tools[id]?.name ?? "tool", args: tools[id]?.args, phase: message.isError === true ? "error" : "complete", result: { content: message.content } };
+      tools[id] = { id, name: message.toolName ?? tools[id]?.name ?? "tool", args: tools[id]?.args, phase: message.isError === true ? "error" : "complete", result: { content: message.content, details: message.details } };
     }
   }
   return { ...emptyProjection(), messages: parsed, tools };
