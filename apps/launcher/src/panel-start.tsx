@@ -10,7 +10,7 @@ interface Entry {
 
 const ENTRIES: Entry[] = [
   { id: "artifacts", title: "Artifacts", description: "Images and files produced in this session.", icon: ImageIcon, available: true },
-  { id: "files", title: "Workspace files", description: "Browse files in this session's workspace.", icon: FolderOpen, available: false },
+  { id: "files", title: "Workspace files", description: "Browse files in this session's workspace.", icon: FolderOpen, available: true },
   { id: "terminal", title: "New terminal", description: "Run commands in the session workspace.", icon: SquareTerminal, available: false },
 ];
 

@@ -10,6 +10,7 @@ import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ArtifactsPanel } from "./artifacts-panel";
 import { PanelStart } from "./panel-start";
+import { FilesPanel } from "./files-panel";
 import { ToolReviewDialog } from "./tool-review-dialog";
 import { ChatConnection, flowNoticeText, type ChatSnapshot } from "./chat-connection";
 import { chatPool } from "./chat-pool";
@@ -1128,7 +1129,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, onStartSe
             </div>)}
             <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Add panel tab" title="Add tab" onClick={addPanelTab}><Plus className="size-3.5" /></Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3">{activeTab === "start" ? <PanelStart onOpen={openPanelView} /> : activeTab === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} /> : null}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">{activeTab === "start" ? <PanelStart onOpen={openPanelView} /> : activeTab === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} /> : activeTab === "files" ? <FilesPanel path={path} /> : null}</div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize artifacts panel" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPanel.current = true; event.preventDefault(); }} />
         </aside>}
       </div>}

@@ -27,6 +27,36 @@ pub fn read_dropped_image(path: String) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "name": name, "mimeType": mime, "data": STANDARD.encode(bytes) }))
 }
 
+
+/// List one directory of the session workspace for the Files view.
+#[tauri::command]
+pub fn workspace_list(path: String) -> Result<serde_json::Value, String> {
+    let directory = std::path::Path::new(&path);
+    if !directory.is_dir() {
+        return Err("That folder is not available.".into());
+    }
+    let read = std::fs::read_dir(directory).map_err(|_| "The folder could not be read.".to_string())?;
+    let mut entries = Vec::new();
+    for entry in read.flatten() {
+        let metadata = entry.metadata().ok();
+        entries.push(serde_json::json!({
+            "name": entry.file_name().to_string_lossy(),
+            "path": entry.path().to_string_lossy(),
+            "isDir": metadata.as_ref().map(|value| value.is_dir()).unwrap_or(false),
+            "size": metadata.as_ref().map(|value| value.len()).unwrap_or(0),
+        }));
+    }
+    entries.sort_by(|a, b| {
+        let left = a.get("isDir").and_then(|value| value.as_bool()).unwrap_or(false);
+        let right = b.get("isDir").and_then(|value| value.as_bool()).unwrap_or(false);
+        right.cmp(&left).then(
+            a.get("name").and_then(|value| value.as_str()).unwrap_or("").to_lowercase()
+                .cmp(&b.get("name").and_then(|value| value.as_str()).unwrap_or("").to_lowercase()),
+        )
+    });
+    Ok(serde_json::json!({ "path": directory.to_string_lossy(), "entries": entries }))
+}
+
 /// Copy an artifact to a destination chosen by the user.
 #[tauri::command]
 pub fn save_copy(from: String, to: String) -> Result<(), String> {
@@ -67,4 +97,26 @@ pub fn reveal_path(path: String) -> Result<(), String> {
         .arg(source.parent().unwrap_or(source))
         .spawn();
     spawned.map(|_| ()).map_err(|_| "Could not open the folder.".to_string())
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    #[test]
+    fn lists_folders_before_files() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("b.txt"), b"x").unwrap();
+        std::fs::create_dir(root.path().join("a-dir")).unwrap();
+        let value = workspace_list(root.path().to_string_lossy().to_string()).unwrap();
+        let entries = value["entries"].as_array().unwrap();
+        assert_eq!(entries[0]["name"], "a-dir");
+        assert_eq!(entries[1]["name"], "b.txt");
+        assert_eq!(entries[0]["isDir"], true);
+    }
+
+    #[test]
+    fn rejects_a_missing_folder() {
+        assert!(workspace_list("C:/definitely/not/here".into()).is_err());
+    }
 }
