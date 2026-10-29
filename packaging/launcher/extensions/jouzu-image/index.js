@@ -143,7 +143,11 @@ export async function generate({ provider: requested, model, size, prompt, count
   const provider = chooseProvider(current.image.provider, requested);
   const { token: value } = await token(provider.id);
   const chosenModel = await chooseModel(provider, model || current.image.model, value);
-  const chosenSize = SIZES.includes(size) ? size : current.image.size;
+  // A size the model does not accept is a 400 from the provider; keep the
+  // configured size when it is valid and otherwise take the model's first size.
+  const allowed = provider.sizes?.(chosenModel) ?? SIZES;
+  const wanted = SIZES.includes(size) ? size : current.image.size;
+  const chosenSize = allowed.includes(wanted) ? wanted : allowed.includes(current.image.size) ? current.image.size : allowed[0] ?? "1K";
   const total = Math.min(maxImages(current.image.maxImages), Math.max(1, Math.trunc(Number(count ?? 1)) || 1));
   const images = [];
   for (let index = 0; index < total; index += 1) {
@@ -255,7 +259,8 @@ if (invoked && process.argv[2]?.startsWith("--")) {
       const provider = chooseProvider(process.argv[3] || DEFAULT_PROVIDER);
       const { token: value } = await token(provider.id);
       const models = await provider.listModels(value);
-      process.stdout.write(`${JSON.stringify({ models })}\n`);
+      const described = models.map(id => ({ id, sizes: provider.sizes?.(id) ?? SIZES }));
+      process.stdout.write(`${JSON.stringify({ models: described })}\n`);
     } else {
       process.stderr.write(`Unknown command: ${command}\n`);
       process.exitCode = 2;

@@ -162,4 +162,14 @@ describe("generate_image extension", () => {
     const { tool } = load();
     await expect(tool.execute("call", { prompt: "a cat" })).rejects.toThrow("Sign in to Shisa.AI");
   });
+
+  it("falls back to a size the chosen model accepts", async () => {
+    home = homeWith({ image: { provider: "shisa", model: "gemini-3.1-flash-lite-image", size: "1K" } });
+    process.env.JOUZU_HOME = home;
+    vi.mocked(fetch).mockResolvedValue(ok(imageBody()));
+    const { tool } = load();
+    const result = await tool.execute("call", { prompt: "a cat", size: "4K" });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1].body).response_format.image_size).toBe("1K");
+    expect(result.details.size).toBe("1K");
+  });
 });

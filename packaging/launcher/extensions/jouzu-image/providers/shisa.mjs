@@ -2,6 +2,10 @@
 // other providers are added beside this file.
 const BASE = "https://api.shisa.ai/image";
 
+// Size capability lives with the provider: the models endpoint does not publish it.
+const SIZES = { "gemini-3.1-flash-lite-image": ["1K"], "gemini-3.1-flash-image": ["1K", "2K", "4K"], "gemini-3-pro-image": ["1K", "2K", "4K"] };
+const ALL_SIZES = ["1K", "2K", "4K"];
+
 async function failure(response) {
   let body = null;
   try {
@@ -12,7 +16,7 @@ async function failure(response) {
   const code = body?.code ?? body?.error?.code;
   if (response.status === 401) return "Sign in to Shisa.AI again to generate images.";
   if (response.status === 403 && code === 311) return "This account cannot use image generation (shisa/image).";
-  if (response.status === 400) return "The model or image size was rejected.";
+  if (response.status === 400) return `The model or image size was rejected${body?.error?.message ? ` (${body.error.message})` : ""}.`;
   if (response.status === 413) return "The prompt is too large.";
   if (response.status === 429 || response.status === 503) return "Image generation is busy. Try again in a moment.";
   return `Image generation failed (HTTP ${response.status}).`;
@@ -21,6 +25,11 @@ async function failure(response) {
 export default {
   id: "shisa",
   label: "Shisa.AI",
+
+  /** The sizes this model accepts; unknown models keep the full set. */
+  sizes(model) {
+    return SIZES[model] ?? ALL_SIZES;
+  },
 
   async listModels(token) {
     const response = await fetch(`${BASE}/models`, {
