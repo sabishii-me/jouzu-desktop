@@ -22,7 +22,7 @@ on:
         description: Version to release; must match apps/launcher/package.json
         required: true
         type: string
-        default: '1.0.3'
+        default: '1.0.9'
       notes:
         description: Release notes for the feed; empty uses the CHANGELOG section when it exists
         required: false
@@ -89,6 +89,20 @@ jobs:
         run: npx playwright install chromium
       - name: Frontend build, unit tests and acceptance tests
         run: npm --prefix apps/launcher run test:acceptance
+      - name: Mocked onboarding UI tests
+        working-directory: apps/launcher
+        run: |
+          $vite = Start-Process node -ArgumentList 'node_modules/vite/bin/vite.js' -PassThru -NoNewWindow
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              try { Invoke-WebRequest http://localhost:1420 -TimeoutSec 2 | Out-Null; $ready = $true; break } catch { Start-Sleep 1 }
+            }
+            if (-not $ready) { throw 'Vite did not become ready' }
+            npx playwright test e2e/onboarding.spec.ts --reporter=line
+            $code = $LASTEXITCODE
+          } finally { if (-not $vite.HasExited) { Stop-Process -Id $vite.Id } }
+          exit $code
       - name: Native tests
         working-directory: apps/launcher/src-tauri
         run: cargo test --locked --bins

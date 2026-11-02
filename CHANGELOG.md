@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.9 - 2026-11-02
+
+- Add Codex OAuth to Add Provider: sign in with a ChatGPT Plus/Pro account
+  using the same device-code flow as Shisa.AI.
+
 ## 1.0.8 - 2026-11-02
 
 - Fix the first-run runtime install: npm lifecycle scripts now find the Node
