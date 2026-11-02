@@ -2,7 +2,8 @@
 // Requests arrive through stdin, never command-line arguments containing secrets.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readFileSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 const root = process.argv[1]?.endsWith("control.mjs") ? process.argv[2] : process.argv[1];
 const appRoot = process.argv[1]?.endsWith('control.mjs') ? (process.argv[3] || join(root, 'app')) : (process.argv[2] || join(root, 'app'));
@@ -65,6 +66,57 @@ try {
     const result = await logoutShisa({ paths });
     if (!result.localCleared) throw new Error('Local signout failed');
     signOutRevocation = result.revocation;
+  } else if (request.action === 'provider-oauth') {
+    const providerId = request.provider;
+    const provider = runtime.getProvider(providerId);
+    if (!provider) throw new Error('Unknown provider');
+    if (!provider.auth?.oauth) throw new Error('This provider does not use OAuth');
+    if (providerId === 'shisa') throw new Error('Use the Shisa.AI sign-in');
+    // The control service is one request per process: wait for the browser
+    // callback (or the device code) here, then persist the credential before
+    // reporting status so the next runtime process sees it.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 180000);
+    const deviceIdPath = join(paths.agentDir, 'device-id');
+    const readDeviceId = () => {
+      if (existsSync(deviceIdPath)) {
+        const value = readFileSync(deviceIdPath, 'utf8').trim();
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return value;
+      }
+      const value = randomUUID();
+      try { writeFileSync(deviceIdPath, `${value}\n`); } catch { /* the in-memory id still works */ }
+      return value;
+    };
+    try {
+      await runtime.login(providerId, 'oauth', {
+        signal: controller.signal,
+        async prompt(prompt) {
+          if (prompt.type === 'select') {
+            // Device code matches the Shisa.AI sign-in surface; browser login is
+            // still used for providers that only offer the callback flow.
+            return prompt.options.find(option => option.id === 'device_code')?.id ?? prompt.options[0].id;
+          }
+          // A browser flow races this paste prompt against the callback. Keep it
+          // pending; the callback resolves the login, and abort cancels it.
+          return await new Promise((_, reject) => {
+            const abort = () => reject(new Error('Login cancelled'));
+            if (prompt.signal?.aborted || controller.signal.aborted) { abort(); return; }
+            prompt.signal?.addEventListener('abort', abort, { once: true });
+            controller.signal.addEventListener('abort', abort, { once: true });
+          });
+        },
+        notify(event) {
+          if (event.type === 'device_code') {
+            process.stderr.write(JSON.stringify({ type: 'device', provider: providerId, url: event.verificationUri, code: event.userCode }) + String.fromCharCode(10));
+          } else if (event.type === 'auth_url') {
+            process.stderr.write(JSON.stringify({ type: 'device', provider: providerId, url: event.url, code: '' }) + String.fromCharCode(10));
+          }
+        },
+      }, { agentName: 'Jouzu', getDeviceId: readDeviceId });
+    } finally {
+      clearTimeout(timer);
+    }
+    try { await refreshModelCatalogs(); } catch { /* The next explicit refresh can report it. */ }
   } else if (request.action === 'custom-provider') {
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(request.provider) || request.provider === 'shisa') throw new Error('Invalid provider');
     const url = new URL(request.url);
@@ -118,7 +170,7 @@ try {
   // Readiness means the user has configured a usable model source, matching the
   // conditions Jouzu's own doctor reports as "provider.unconfigured".
   const modelReady = account.signedIn || credentials.length > 0 || customProviders.length > 0;
-  console.log(JSON.stringify({ schemaVersion: 1, modelReady, profile: readProfileChoice(profilePath)?.profile ?? null, account, customProviders, providers: runtime.getProviders().map(p => ({ id: p.id, name: p.name ?? p.id })), credentials, models: runtime.getModels().map(m => ({ provider: m.provider, id: m.id, name: m.name })), defaultProvider: settings.getDefaultProvider(), defaultModel: settings.getDefaultModel() }));
+  console.log(JSON.stringify({ schemaVersion: 1, modelReady, profile: readProfileChoice(profilePath)?.profile ?? null, account, customProviders, providers: runtime.getProviders().map(p => ({ id: p.id, name: p.name ?? p.id, oauth: !!p.auth?.oauth, oauthName: p.auth?.oauth?.name, apiKey: !!p.auth?.apiKey })), credentials, models: runtime.getModels().map(m => ({ provider: m.provider, id: m.id, name: m.name })), defaultProvider: settings.getDefaultProvider(), defaultModel: settings.getDefaultModel() }));
 } catch {
   // Do not relay raw upstream errors: they can contain credentials or server input.
   const messages = {
@@ -129,6 +181,7 @@ try {
     'custom-provider': 'Could not save the custom connection. Check its unique ID, endpoint and model. Existing advanced configurations cannot be edited with this form.',
     'default-model': 'Could not save the default model. Refresh the model list and retry.',
     'shisa-login': 'Shisa.AI sign-in did not complete. Refresh its state before retrying.',
+    'provider-oauth': 'Provider sign-in did not complete. Refresh its state before retrying.',
     'refresh-catalogs': 'Models could not be refreshed. Sign in to Shisa.AI again or add a provider key.',
     'shisa-logout': 'Shisa.AI sign-out could not be fully confirmed. Refresh its state and check the Shisa.AI dashboard.',
   };

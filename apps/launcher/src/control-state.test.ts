@@ -12,6 +12,12 @@ describe("configuration response boundary", () => {
    expect(()=>parseControlState({...valid,account:{signedIn:false,revocation:"maybe"}})).toThrow();
  });
  it("accepts complete empty state", () => expect(parseControlState(valid).customProviders).toEqual([]));
+ it("carries provider auth capabilities without rejecting older rows", () => {
+   const state = {...valid,providers:[{id:"openai-codex",name:"OpenAI Codex",oauth:true,oauthName:"OpenAI (ChatGPT Plus/Pro)",apiKey:false}]};
+   expect(parseControlState(state).providers[0].oauth).toBe(true);
+   expect(parseControlState({...valid,providers:[{id:"openai",name:"OpenAI"}]}).providers[0].oauth).toBeUndefined();
+   expect(()=>parseControlState({...state,providers:[{id:"x",name:"X",oauth:"yes"}]})).toThrow();
+ });
  it("rejects the old response that crashed connection rendering", () => {
    const {customProviders, ...old} = valid;
    expect(() => parseControlState(old)).toThrow("incompatible");

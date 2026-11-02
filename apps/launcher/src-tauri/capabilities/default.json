@@ -24,6 +24,9 @@
           "url": "https://platform.shisa.ai/connect*"
         },
         {
+          "url": "https://auth.openai.com/*"
+        },
+        {
           "url": "https://github.com/shisa-ai/jouzu/*"
         }
       ]
