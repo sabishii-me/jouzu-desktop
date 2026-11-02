@@ -9,7 +9,7 @@ async function openSetup(page:Page, initial:{profile?:string|null;modelReady?:bo
   const callbacks:Record<string,unknown>={};
   const s={profile:state.profile ?? null,modelReady:state.modelReady ?? false,signedIn:state.modelReady ?? false,recent:state.recent ?? []};
   let cancelPending:(()=>void)|null=null;
-  const snapshot=()=>({schemaVersion:1,modelReady:s.modelReady,profile:s.profile,account:{signedIn:s.signedIn},credentials:[],customProviders:[],providers:[{id:'openai',name:'OpenAI'},{id:'openai-codex',name:'OpenAI Codex (legacy)',oauth:true,oauthName:'OpenAI (ChatGPT Plus/Pro)',apiKey:false}],models:[]});
+  const snapshot=()=>({schemaVersion:1,modelReady:s.modelReady,profile:s.profile,account:{signedIn:s.signedIn},credentials:[],customProviders:[],providers:[{id:'openai',name:'OpenAI'},{id:'openai-codex',name:'Codex',oauth:true,oauthName:'OpenAI (ChatGPT Plus/Pro)',apiKey:false}],models:[]});
   (window as any).__TAURI_INTERNALS__={
    metadata:{currentWindow:{label:'main'},currentWebview:{label:'main'}},
    transformCallback:(callback:unknown)=>{const id=String(Math.random());callbacks[id]=callback;return id;},
@@ -91,7 +91,7 @@ test('Shisa.AI authorization keeps its actions together and cancels cleanly', as
 test('Codex OAuth is an Add Provider entry and cancels cleanly', async ({page}) => {
  await openSetup(page,{modelReady:false});
  await page.getByRole('combobox',{name:'Service',exact:true}).click();
- await page.getByRole('option',{name:'OpenAI Codex (legacy)',exact:true}).click();
+ await page.getByRole('option',{name:'Codex',exact:true}).click();
  await expect(page.getByText('OpenAI (ChatGPT Plus/Pro)',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Sign in with ChatGPT',exact:true}).click();
  await expect(page.getByLabel('Sign-in URL',{exact:true})).toHaveValue('https://auth.openai.com/codex/device');

@@ -170,7 +170,7 @@ try {
   // Readiness means the user has configured a usable model source, matching the
   // conditions Jouzu's own doctor reports as "provider.unconfigured".
   const modelReady = account.signedIn || credentials.length > 0 || customProviders.length > 0;
-  console.log(JSON.stringify({ schemaVersion: 1, modelReady, profile: readProfileChoice(profilePath)?.profile ?? null, account, customProviders, providers: runtime.getProviders().map(p => ({ id: p.id, name: p.name ?? p.id, oauth: !!p.auth?.oauth, oauthName: p.auth?.oauth?.name, apiKey: !!p.auth?.apiKey })), credentials, models: runtime.getModels().map(m => ({ provider: m.provider, id: m.id, name: m.name })), defaultProvider: settings.getDefaultProvider(), defaultModel: settings.getDefaultModel() }));
+  console.log(JSON.stringify({ schemaVersion: 1, modelReady, profile: readProfileChoice(profilePath)?.profile ?? null, account, customProviders, providers: runtime.getProviders().map(p => ({ id: p.id, name: p.id === 'openai-codex' ? 'Codex' : (p.name ?? p.id), oauth: !!p.auth?.oauth, oauthName: p.auth?.oauth?.name, apiKey: !!p.auth?.apiKey })), credentials, models: runtime.getModels().map(m => ({ provider: m.provider, id: m.id, name: m.name })), defaultProvider: settings.getDefaultProvider(), defaultModel: settings.getDefaultModel() }));
 } catch {
   // Do not relay raw upstream errors: they can contain credentials or server input.
   const messages = {
