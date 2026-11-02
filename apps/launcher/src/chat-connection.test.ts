@@ -111,6 +111,8 @@ describe("desktop RPC connection", () => {
     });
     await client.compact();
     expect(request).toHaveBeenCalledWith("compact");
+    // A full history refresh after compact can exceed the JSONL frame limit.
+    expect(request).not.toHaveBeenCalledWith("get_messages");
     expect(client.snapshot.pending).toBe(false);
     await client.exportHtml("C:\\tmp\\chat.html");
     expect(request).toHaveBeenLastCalledWith("export_html", { outputPath: "C:\\tmp\\chat.html" });

@@ -306,8 +306,11 @@ export class ChatConnection {
     if (!this.snapshot.connected || this.snapshot.pending || this.snapshot.projection.running) throw new Error("Wait for the current conversation to settle before compacting.");
     this.update({ pending: true, error: null });
     try {
+      // Compaction changes the runtime context, not the transcript this view already
+      // holds. Refreshing get_messages here re-reads the whole session and can exceed
+      // the 32 MiB JSONL frame limit, which closes the connection and loses the
+      // session. Keep the current projection; the next open reads the compacted one.
       await this.request("compact");
-      await this.refreshHistory();
     } catch (error) { throw error; }
     finally { this.update({ pending: false }); }
   }
