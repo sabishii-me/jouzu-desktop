@@ -821,13 +821,16 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     const client = connection.current;
     if (!client || commandBusy) return;
     setCommandBusy(true);
+    const target = selectedSessionRef.current || undefined;
     try {
-      if (!await ensureSelectedSession(client)) { setNotification("Could not attach this session for compacting."); return; }
-      const active = connection.current;
-      if (!active) return;
-      await active.compact();
+      // Compact attaches the target without loading its transcript: get_messages on
+      // a large session exceeds the desktop's JSONL frame limit before compact runs.
+      const pooled = target ? chatPool.client(target) : undefined;
+      const active = pooled ?? client;
+      if (active !== client) { parkPrevious(client); bindClient(active); }
+      await active.compactSession(target);
       if (connection.current === active) setNotification("Earlier conversation compacted.");
-    } catch (error) { if (connection.current === client) setNotification(String(error).replace(/^Error:\s*/u, "")); }
+    } catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
   }
   async function exportConversation() {

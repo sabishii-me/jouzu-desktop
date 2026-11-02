@@ -216,20 +216,14 @@ export class ChatConnection {
         .catch(error => { this.requests.delete(id); reject(new Error(String(error))); });
     });
   }
-  async refreshHistory() {
+  private async readState(): Promise<Record<string, unknown>> {
     const state = await this.request("get_state");
     if (!object(state) || typeof state.sessionId !== "string" || typeof state.isStreaming !== "boolean") throw new Error("Runtime returned incompatible session state.");
-    const history = await this.request("get_messages");
-    if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
-    const projection = historyProjection(history.messages);
-    projection.running = state.isStreaming;
-    const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
     const detail = object(state.model) ? state.model : undefined;
     const model = detail && typeof detail.name === "string" && detail.name !== "unknown" ? detail.name : undefined;
     const modelProvider = detail && typeof detail.provider === "string" && detail.provider !== "unknown" ? detail.provider : undefined;
     const modelId = detail && typeof detail.id === "string" && detail.id !== "unknown" ? detail.id : undefined;
     this.update({
-      projection: reconciled,
       sessionId: state.sessionId,
       sessionFile: typeof state.sessionFile === "string" ? state.sessionFile : undefined,
       model,
@@ -237,6 +231,16 @@ export class ChatConnection {
       modelId,
       thinkingLevel: typeof state.thinkingLevel === "string" ? state.thinkingLevel : undefined,
     });
+    return state;
+  }
+  async refreshHistory() {
+    const state = await this.readState();
+    const history = await this.request("get_messages");
+    if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
+    const projection = historyProjection(history.messages);
+    projection.running = state.isStreaming as boolean;
+    const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
+    this.update({ projection: reconciled });
   }
   private async applyPreferredModel() {
     const preferred = this.preferredModel;
@@ -302,18 +306,34 @@ export class ChatConnection {
     try { await this.request("clear_queue"); } catch { /* The queue may already be empty; abort still applies. */ }
     try { await this.request("abort"); } catch (error) { this.update({ error: String(error) }); }
   }
-  async compact() {
+  /**
+   * Compact a session without loading its transcript. Attaching for compact used
+   * to call get_messages, and a large session's response exceeds the 32 MiB JSONL
+   * frame limit before compact can run. switch_session loads the runtime side;
+   * get_state is small; the view keeps the preview it already has.
+   */
+  async compactSession(sessionPath?: string) {
     if (!this.snapshot.connected || this.snapshot.pending || this.snapshot.projection.running) throw new Error("Wait for the current conversation to settle before compacting.");
     this.update({ pending: true, error: null });
+    this.replaying = true;
     try {
+      if (sessionPath && sessionPath !== this.snapshot.sessionFile) {
+        const result = await this.request("switch_session", { sessionPath });
+        if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the conversation change.");
+        await this.readState();
+      }
       // Compaction changes the runtime context, not the transcript this view already
-      // holds. Refreshing get_messages here re-reads the whole session and can exceed
-      // the 32 MiB JSONL frame limit, which closes the connection and loses the
-      // session. Keep the current projection; the next open reads the compacted one.
+      // holds. No get_messages here; the next open reads the compacted history.
       await this.request("compact");
-    } catch (error) { throw error; }
-    finally { this.update({ pending: false }); }
+    } catch (error) {
+      this.update({ error: String(error) });
+      throw error;
+    } finally {
+      this.replaying = false;
+      this.update({ pending: false });
+    }
   }
+  async compact() { return this.compactSession(); }
   async exportHtml(outputPath: string) {
     if (!this.snapshot.connected) throw new Error("Chat is not connected.");
     await this.request("export_html", { outputPath });

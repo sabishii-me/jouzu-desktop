@@ -2,9 +2,10 @@
 
 ## 1.0.10 - 2026-11-02
 
-- Fix compact on a large session: the desktop no longer re-reads the whole
-  transcript after compacting, so a response above the 32 MiB JSONL frame limit
-  can no longer close the session.
+- Fix compact on a large session: the desktop no longer reads the whole
+  transcript to attach for compact or after it, so a response above the 32 MiB
+  JSONL frame limit can no longer close the session. Compaction changes the
+  runtime context; the view keeps the transcript it already has.
 
 ## 1.0.9 - 2026-11-02
 

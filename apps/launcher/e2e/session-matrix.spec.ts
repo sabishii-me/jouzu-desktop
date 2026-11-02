@@ -52,6 +52,8 @@ async function setup(page: Page) {
     w.forkCalls = [];
     w.branchCalls = [];
     w.compactCalls = [];
+    w.getMessagesCalls = [];
+    w.failMessagesFor = null;
     w.exportCalls = [];
     w.modelCalls = [];
     w.thinkingCalls = [];
@@ -99,7 +101,11 @@ async function setup(page: Page) {
           if (request.type === "switch_session") { w.switchCalls.push(request.sessionPath); current = String(request.sessionPath).replace(/^.*[\\/]|\.jsonl$/g, ""); response(request, { cancelled: false }); }
           else if (request.type === "new_session") { current = ""; response(request, { cancelled: false }); }
           else if (request.type === "get_state") response(request, { sessionId: current || "new", sessionFile: sessionFile(), isStreaming: false, model: { name: "Matrix model" } });
-          else if (request.type === "get_messages") response(request, { messages: histories[sessionFile()] ?? [] });
+          else if (request.type === "get_messages") {
+            w.getMessagesCalls.push(sessionFile());
+            if (w.failMessagesFor === sessionFile()) currentOut.push({ type: "response", id: request.id, command: "get_messages", success: false, error: "JSONL frame exceeds 33554432 bytes" });
+            else response(request, { messages: histories[sessionFile()] ?? [] });
+          }
           else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Matrix model" }, { provider: "fixture", id: "alternate", name: "Alternate model" }] });
           else if (request.type === "get_available_thinking_levels") response(request, { levels: ["low", "medium"] });
           else if (request.type === "get_session_stats") response(request, { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: { total: 1 } });
@@ -272,6 +278,22 @@ test("matrix: fork on the attached session switches to the branch", async ({ pag
       "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
       "C:/sessions/branch-1.jsonl",
     ]);
+});
+
+test("matrix: compact from a preview never fetches the transcript", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.failMessagesFor = "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl";
+    w.getMessagesCalls.length = 0;
+  });
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Add files or run commands" }).click();
+  await page.getByRole("menuitem", { name: /Compact/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).compactCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).getMessagesCalls)).toEqual([]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("matrix: compact from a preview attaches that session first", async ({ page }) => {
