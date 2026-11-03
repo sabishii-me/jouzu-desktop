@@ -188,6 +188,28 @@ fn command_entry_remove(app: tauri::AppHandle) -> Result<serde_json::Value, Stri
 }
 
 #[tauri::command]
+/// The transcript owns the URL policy: only ordinary http(s) URLs without
+/// embedded credentials leave the app, for any host.
+fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed = external_http_url(&url)?;
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(parsed.to_string(), None::<&str>)
+        .map_err(|_| "Could not open link.".to_string())
+}
+
+fn external_http_url(value: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(value).map_err(|_| "This link cannot be opened externally.".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("This link cannot be opened externally.".into());
+    }
+    Ok(parsed)
+}
+
+#[tauri::command]
 /// The log folder is where a report's evidence lives; the folder opens, and the interface names no path.
 fn open_logs(app: tauri::AppHandle) -> Result<(), String> {
     let directory = logs::directory(&runtime::managed_root()?);
@@ -645,6 +667,7 @@ fn main() {
             bug_report,
             terminal_open,
             open_logs,
+            open_external_url,
             command_entry_report,
             command_entry_use,
             command_entry_remove,
@@ -702,6 +725,18 @@ mod tests {
     fn rejects_invalid_preferences() {
         assert!(legacy_workspace("not json").is_err());
         assert!(legacy_workspace(r#"{"schemaVersion":2,"remember":true,"folder":"x"}"#).is_err());
+    }
+    #[test]
+    fn external_links_allow_any_http_host() {
+        assert!(external_http_url("http://localhost:8100").is_ok());
+        assert!(external_http_url("https://example.com/a?b=1").is_ok());
+    }
+    #[test]
+    fn external_links_reject_other_schemes_and_credentials() {
+        assert!(external_http_url("file:///C:/Windows/notepad.exe").is_err());
+        assert!(external_http_url("javascript:alert(1)").is_err());
+        assert!(external_http_url("https://user:pass@example.com/").is_err());
+        assert!(external_http_url("http://").is_err());
     }
 }
 
