@@ -1,7 +1,152 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use std::path::Path;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_LOCAL_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// One image read from the workspace for the transcript.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImagePayload {
+    pub mime_type: String,
+    pub data: String,
+    pub bytes: u64,
+    pub name: String,
+}
+
+/// A refusal from `read_local_image`, with a stable reason the webview can map.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageReadError {
+    pub reason: &'static str,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+}
+
+impl ImageReadError {
+    fn new(reason: &'static str, message: impl Into<String>) -> Self {
+        Self { reason, message: message.into(), bytes: None }
+    }
+
+    fn oversized(bytes: u64) -> Self {
+        Self {
+            reason: "too-large",
+            message: format!("The image is {bytes} bytes; the limit is 10 MB."),
+            bytes: Some(bytes),
+        }
+    }
+}
+
+/// Read an image named in the transcript. The workspace is the only boundary:
+/// relative paths resolve against it and a canonical path must stay under it.
+/// The type comes from the magic bytes, never from the extension.
+#[tauri::command]
+pub fn read_local_image(workspace: String, path: String) -> Result<ImagePayload, ImageReadError> {
+    read_local_image_at(&workspace, &path)
+}
+
+pub fn read_local_image_at(workspace: &str, raw_path: &str) -> Result<ImagePayload, ImageReadError> {
+    if workspace.trim().is_empty() {
+        return Err(ImageReadError::new("not-found", "The workspace folder is unavailable."));
+    }
+    let workspace_root = std::fs::canonicalize(workspace).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => ImageReadError::new("not-found", "The workspace folder is unavailable."),
+        _ => ImageReadError::new("unreadable", "The workspace folder could not be read."),
+    })?;
+    let requested = Path::new(raw_path);
+    let candidate: PathBuf = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        workspace_root.join(requested)
+    };
+    // canonicalize resolves `..` segments and links, so an escape cannot hide
+    // behind a path that only looks like it starts with the workspace.
+    let canonical = std::fs::canonicalize(&candidate).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => ImageReadError::new("not-found", format!("{raw_path} was not found.")),
+        _ => ImageReadError::new("unreadable", "The image could not be read."),
+    })?;
+    if !is_under(&workspace_root, &canonical) {
+        return Err(ImageReadError::new("outside-workspace", "The image is outside the workspace."));
+    }
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|_| ImageReadError::new("unreadable", "The image could not be read."))?;
+    if !metadata.is_file() {
+        return Err(ImageReadError::new("not-a-file", "That path is not a file."));
+    }
+    let size = metadata.len();
+    if size > MAX_LOCAL_IMAGE_BYTES {
+        return Err(ImageReadError::oversized(size));
+    }
+    let bytes = std::fs::read(&canonical)
+        .map_err(|_| ImageReadError::new("unreadable", "The image could not be read."))?;
+    let mime = image_mime(&bytes).ok_or_else(|| {
+        let kind = canonical
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| format!(".{}", value.to_ascii_lowercase()))
+            .unwrap_or_else(|| "file".to_string());
+        ImageReadError::new("not-an-image", format!("{kind} is not a supported image."))
+    })?;
+    let name = canonical
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("image")
+        .to_string();
+    Ok(ImagePayload {
+        mime_type: mime.to_string(),
+        data: STANDARD.encode(&bytes),
+        bytes: bytes.len() as u64,
+        name,
+    })
+}
+
+/// Sniff the four formats the transcript may render. SVG is deliberately absent.
+pub(crate) fn image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    None
+}
+
+/// Windows hands back extended-length (`\\?\`) paths and mixes separators. Compare
+/// the normalized forms so a drive-letter case change or a junction cannot pass.
+fn comparable(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('/', "\\");
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        text
+    };
+    let text = text.trim_end_matches('\\');
+    if cfg!(windows) {
+        text.to_ascii_lowercase()
+    } else {
+        text.to_string()
+    }
+}
+
+fn is_under(workspace: &Path, candidate: &Path) -> bool {
+    let root = comparable(workspace);
+    let path = comparable(candidate);
+    if path == root {
+        return true;
+    }
+    path.strip_prefix(&root)
+        .is_some_and(|rest| rest.starts_with('\\'))
+}
 
 /// Read an image path supplied by the native drag/drop event. The frontend still
 /// validates the signature before attaching it to a message.
@@ -118,5 +263,206 @@ mod workspace_tests {
     #[test]
     fn rejects_a_missing_folder() {
         assert!(workspace_list("C:/definitely/not/here".into()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod image_read_tests {
+    use super::*;
+    use std::io::Write;
+
+    const PNG: &[u8] = &[
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, b'I', b'H', b'D',
+        b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    ];
+    const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F'];
+    const GIF: &[u8] = b"GIF89a\x01\x00\x01\x00";
+    const WEBP: &[u8] = b"RIFF\x10\x00\x00\x00WEBPVP8 ";
+    const BMP: &[u8] = b"BM\x10\x00\x00\x00\x00\x00\x00\x00";
+
+    fn workspace() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    fn write_file(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn failure(workspace: &str, path: &str) -> ImageReadError {
+        read_local_image_at(workspace, path).expect_err("the image should be refused")
+    }
+
+    fn text(root: &Path) -> String {
+        root.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn reads_a_png_from_a_relative_path() {
+        let root = workspace();
+        write_file(root.path(), "prusalicer-shots/09-printer-custom-gcode.png", PNG);
+        let payload = read_local_image_at(&text(root.path()), "prusalicer-shots/09-printer-custom-gcode.png").unwrap();
+        assert_eq!(payload.mime_type, "image/png");
+        assert_eq!(payload.name, "09-printer-custom-gcode.png");
+        assert_eq!(payload.bytes, PNG.len() as u64);
+        assert_eq!(STANDARD.decode(&payload.data).unwrap(), PNG);
+    }
+
+    #[test]
+    fn reads_a_non_ascii_path_with_a_space() {
+        let root = workspace();
+        let name = "shots dir/スクリーン ショット.png";
+        write_file(root.path(), name, PNG);
+        let payload = read_local_image_at(&text(root.path()), name).unwrap();
+        assert_eq!(payload.name, "スクリーン ショット.png");
+        assert_eq!(payload.mime_type, "image/png");
+    }
+
+    #[test]
+    fn rejects_dotdot_that_escapes_the_workspace() {
+        let outer = workspace();
+        let root = outer.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        write_file(outer.path(), "outside.png", PNG);
+        let error = failure(&text(&root), "../outside.png");
+        assert_eq!(error.reason, "outside-workspace");
+    }
+
+    #[test]
+    fn allows_dotdot_that_stays_inside_the_workspace() {
+        let root = workspace();
+        write_file(root.path(), "shots/a.png", PNG);
+        let payload = read_local_image_at(&text(root.path()), "shots/../shots/a.png").unwrap();
+        assert_eq!(payload.name, "a.png");
+    }
+
+    #[test]
+    fn rejects_an_absolute_path_outside_the_workspace() {
+        let root = workspace();
+        let outside = workspace();
+        let file = write_file(outside.path(), "outside.png", PNG);
+        let error = failure(&text(root.path()), file.to_str().unwrap());
+        assert_eq!(error.reason, "outside-workspace");
+    }
+
+    #[test]
+    fn does_not_treat_a_sibling_folder_as_inside() {
+        let outer = workspace();
+        let root = outer.path().join("ws");
+        let sibling = outer.path().join("ws-other");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&sibling).unwrap();
+        let file = write_file(&sibling, "outside.png", PNG);
+        let error = failure(&text(&root), file.to_str().unwrap());
+        assert_eq!(error.reason, "outside-workspace");
+    }
+
+    #[test]
+    fn rejects_a_missing_file() {
+        let root = workspace();
+        assert_eq!(failure(&text(root.path()), "missing.png").reason, "not-found");
+    }
+
+    #[test]
+    fn rejects_a_workspace_that_does_not_exist() {
+        let root = workspace();
+        let missing = root.path().join("gone");
+        assert_eq!(failure(&text(&missing), "a.png").reason, "not-found");
+    }
+
+    #[test]
+    fn rejects_a_directory() {
+        let root = workspace();
+        std::fs::create_dir(root.path().join("folder.png")).unwrap();
+        assert_eq!(failure(&text(root.path()), "folder.png").reason, "not-a-file");
+    }
+
+    #[test]
+    fn rejects_a_file_that_is_not_an_image() {
+        let root = workspace();
+        write_file(root.path(), "fake.png", b"not really a png");
+        assert_eq!(failure(&text(root.path()), "fake.png").reason, "not-an-image");
+    }
+
+    #[test]
+    fn rejects_unsupported_magic_bytes() {
+        let root = workspace();
+        write_file(root.path(), "drawing.bmp", BMP);
+        let error = failure(&text(root.path()), "drawing.bmp");
+        assert_eq!(error.reason, "not-an-image");
+        assert!(error.message.contains(".bmp"));
+    }
+
+    #[test]
+    fn rejects_an_oversized_image_before_reading_it() {
+        let root = workspace();
+        let path = root.path().join("huge.png");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(PNG).unwrap();
+        file.set_len(MAX_LOCAL_IMAGE_BYTES + 1).unwrap();
+        drop(file);
+        let error = failure(&text(root.path()), "huge.png");
+        assert_eq!(error.reason, "too-large");
+        assert_eq!(error.bytes, Some(MAX_LOCAL_IMAGE_BYTES + 1));
+    }
+
+    #[test]
+    fn accepts_each_supported_magic_header() {
+        let root = workspace();
+        let cases: [(&str, &[u8], &str); 4] = [
+            ("a.png", PNG, "image/png"),
+            ("b.jpg", JPEG, "image/jpeg"),
+            ("c.gif", GIF, "image/gif"),
+            ("d.webp", WEBP, "image/webp"),
+        ];
+        for (name, bytes, mime) in cases {
+            write_file(root.path(), name, bytes);
+            let payload = read_local_image_at(&text(root.path()), name).unwrap();
+            assert_eq!(payload.mime_type, mime);
+        }
+    }
+
+    #[test]
+    fn rejects_a_link_that_resolves_outside_the_workspace() {
+        let root = workspace();
+        let outside = workspace();
+        write_file(outside.path(), "escaped.png", PNG);
+        let Some(relative) = escape_link(root.path(), outside.path()) else {
+            // Creating a link may be unavailable (Windows without the privilege).
+            return;
+        };
+        let error = failure(&text(root.path()), &relative);
+        assert_eq!(error.reason, "outside-workspace");
+    }
+
+    #[cfg(unix)]
+    fn escape_link(root: &Path, outside: &Path) -> Option<String> {
+        let link = root.join("link.png");
+        std::os::unix::fs::symlink(outside.join("escaped.png"), &link).ok()?;
+        Some("link.png".into())
+    }
+
+    #[cfg(windows)]
+    fn escape_link(root: &Path, outside: &Path) -> Option<String> {
+        let link = root.join("link.png");
+        if std::os::windows::fs::symlink_file(outside.join("escaped.png"), &link).is_ok() {
+            return Some("link.png".into());
+        }
+        // Junctions are available without SeCreateSymbolicLinkPrivilege.
+        let junction = root.join("escape");
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(outside)
+            .status()
+            .ok()?;
+        if !status.success() {
+            return None;
+        }
+        Some("escape/escaped.png".into())
     }
 }

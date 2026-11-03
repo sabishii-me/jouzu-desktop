@@ -9,7 +9,7 @@ import { ArtifactImage } from "./artifact-image";
 import { artifactPathFromText } from "./artifact-path";
 
 const MAX_LINES = 2000;
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_TOOL_IMAGE_BYTES = 8 * 1024 * 1024;
 const ANSI = /\u001b\[([0-9;]*)m/g;
 const ANSI_COLORS: Record<number, string> = {
   30: "text-black", 31: "text-red-500", 32: "text-green-500", 33: "text-yellow-500",
@@ -93,15 +93,27 @@ function readPath(args: unknown): string | undefined {
   return typeof value?.path === "string" ? value.path : undefined;
 }
 
-export function imageBlocks(result: unknown) {
+export interface ToolImageBlock {
+  mime: string;
+  data: string;
+  alt: string;
+  bytes: number;
+  tooLarge: boolean;
+}
+
+/**
+ * Keep every image block a tool returned, including an oversized or unsupported
+ * one: the image component renders a card explaining why it is not inline.
+ */
+export function imageBlocks(result: unknown): ToolImageBlock[] {
   const value = record(result);
   const blocks = value && Array.isArray(value.content) ? value.content : [];
   return blocks.flatMap(block => {
     const item = record(block);
     if (item?.type !== "image" || typeof item.data !== "string") return [];
     const mime = typeof item.mimeType === "string" ? item.mimeType : "";
-    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime) || item.data.length * 0.75 > MAX_IMAGE_BYTES) return [];
-    return [{ mime, data: item.data, alt: typeof item.alt === "string" ? item.alt : "Tool output image" }];
+    const bytes = Math.floor(item.data.length * 0.75);
+    return [{ mime, data: item.data, alt: typeof item.alt === "string" ? item.alt : "Tool output image", bytes, tooLarge: bytes > MAX_TOOL_IMAGE_BYTES }];
   });
 }
 
@@ -169,6 +181,7 @@ export function ToolOutput({ tool }: { tool: ToolView }) {
       ...image,
       alt: prompt || image.alt,
       path: typeof meta?.path === "string" ? meta.path : fallbackPath,
+      bytes: image.bytes,
       width: typeof meta?.width === "number" ? meta.width : undefined,
       height: typeof meta?.height === "number" ? meta.height : undefined,
     };

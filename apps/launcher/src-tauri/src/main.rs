@@ -611,6 +611,7 @@ fn main() {
             chat::chat_release_generation,
             chat::chat_stop,
             attachments::read_dropped_image,
+            attachments::read_local_image,
             attachments::reveal_path,
             attachments::save_copy,
             attachments::workspace_list,
