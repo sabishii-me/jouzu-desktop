@@ -185,6 +185,29 @@ mod tests {
 
 
     #[test]
+    fn lists_text_artifacts_beside_images() {
+        let home = tempfile::tempdir().unwrap();
+        seed(home.path());
+        let documents = home.path().join("artifacts/documents");
+        std::fs::create_dir_all(&documents).unwrap();
+        let id = "b".repeat(64);
+        let record = serde_json::json!({
+            "id": id,
+            "kind": "documents",
+            "mimeType": "text/markdown",
+            "path": format!("documents/{id}.md"),
+            "createdAt": "2026-10-29T00:00:01.000Z",
+        });
+        std::fs::write(documents.join(format!("{id}.json")), record.to_string()).unwrap();
+        std::fs::write(documents.join(format!("{id}.md")), b"# notes").unwrap();
+        let mut artifacts = Vec::new();
+        collect(&home.path().join("artifacts/images"), &mut artifacts);
+        collect(&documents, &mut artifacts);
+        assert_eq!(artifacts.len(), 2);
+        assert!(artifacts.iter().any(|value| value["kind"] == "documents"));
+    }
+
+    #[test]
     fn filters_and_counts_by_session() {
         let home = tempfile::tempdir().unwrap();
         let directory = home.path().join("artifacts/images");
