@@ -55,6 +55,8 @@ export interface ChatSnapshot {  projection: ChatProjection;
   stats?: SessionStats;
   thinkingLevel?: string;
   thinkingLevels?: string[];
+  /** The transcript was compacted after a display backlog and will be reloaded. */
+  gap?: boolean;
 }
 interface Poll { records: WireObject[]; closed: boolean; error?: string }
 // A response watchdog, not a request deadline: the released runtime owns how long a command
@@ -70,6 +72,7 @@ export class ChatConnection {
   private timer?: ReturnType<typeof setTimeout>;
   private polling = false;
   private replaying = false;
+  private gapPending = false;
   private nextId = 0;
   private dialogs = new Map<string, number | null>();
   private lastPoll = Date.now();
@@ -143,6 +146,11 @@ export class ChatConnection {
         if (this.replaying && record.type !== "extension_ui_request" && record.type !== "extension_error") continue;
         if (record.type === "response") {
           continue;
+        } else if (record.type === "desktop_gap") {
+          // The native worker compacted an unread backlog. The turn continues; the
+          // view is behind until the next settle reconciles from get_messages.
+          this.gapPending = true;
+          this.update({ gap: true });
         } else if (record.type === "extension_ui_request") {
           if (record.method === "setWidget" && typeof record.widgetKey === "string") {
             const widgets = { ...(this.snapshot.widgets ?? {}) };
@@ -174,6 +182,14 @@ export class ChatConnection {
         this.update({ error });
       }
         else this.update({ projection: projectEvent(this.snapshot.projection, record) });
+      }
+      // Reconcile only when the turn is over: history is authoritative then, and a
+      // mid-turn get_messages would fight the live stream.
+      if (this.gapPending && this.snapshot.projection.running === false && !this.replaying && this.handle) {
+        this.gapPending = false;
+        void this.refreshHistory()
+          .then(() => this.update({ gap: false }))
+          .catch(() => { /* Keep the notice; the next settle retries. */ this.gapPending = true; });
       }
   }
   tick() {
