@@ -35,6 +35,16 @@ const APP_MANIFEST: &str = "{\n  \"name\": \"jouzu-desktop-runtime\",\n  \"priva
 
 type Progress<'a> = &'a dyn Fn(serde_json::Value);
 
+/// Runtime install children are console programs. On Windows they must not
+/// create a console window over the onboarding screen.
+fn hidden(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+}
+
 fn http(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(600))
@@ -124,11 +134,10 @@ fn tar_exe() -> PathBuf {
 }
 
 fn extract(archive: &Path, directory: &Path) -> Result<(), String> {
-    let status = Command::new(tar_exe())
-        .arg("-xf")
-        .arg(archive)
-        .arg("-C")
-        .arg(directory)
+    let mut command = Command::new(tar_exe());
+    command.arg("-xf").arg(archive).arg("-C").arg(directory);
+    hidden(&mut command);
+    let status = command
         .status()
         .map_err(|error| format!("Could not start the extractor: {error}"))?;
     if !status.success() {
@@ -148,8 +157,10 @@ pub fn node_version_ok(root: &Path) -> bool {
     if !executable.is_file() {
         return false;
     }
-    std::process::Command::new(executable)
-        .arg("--version")
+    let mut command = std::process::Command::new(executable);
+    command.arg("--version");
+    hidden(&mut command);
+    command
         .output()
         .ok()
         .map(|output| version_matches(&String::from_utf8_lossy(&output.stdout)))
@@ -229,7 +240,8 @@ fn npm_install(node: &Path, app: &Path, progress: Progress) -> Result<(), String
     }
     progress(serde_json::json!({ "phase": "packages" }));
     let path = installer_path(node, app)?;
-    let output = Command::new(node)
+    let mut command = Command::new(node);
+    command
         .arg(&npm)
         .arg("install")
         .arg("jouzu@latest")
@@ -238,7 +250,9 @@ fn npm_install(node: &Path, app: &Path, progress: Progress) -> Result<(), String
         .arg("--no-audit")
         .arg("--no-fund")
         .env("PATH", path)
-        .current_dir(app)
+        .current_dir(app);
+    hidden(&mut command);
+    let output = command
         .output()
         .map_err(|_| "Could not start the package installation.".to_string())?;
     if !output.status.success() {
@@ -296,13 +310,16 @@ fn check_health(managed: &Path, node: &Path) -> Result<(), String> {
     let bootstrap = managed.join("app").join("bootstrap.mjs");
     let home = managed.join("data");
     std::fs::create_dir_all(&home).map_err(|error| error.to_string())?;
-    let output = Command::new(node)
+    let mut command = Command::new(node);
+    command
         .arg(&bootstrap)
         .arg("--version")
         .env("JOUZU_HOME", &home)
         .env("JOUZU_NO_UPDATE", "1")
         .env_remove("NODE_OPTIONS")
-        .env_remove("NODE_PATH")
+        .env_remove("NODE_PATH");
+    hidden(&mut command);
+    let output = command
         .output()
         .map_err(|_| "The installed runtime did not start.".to_string())?;
     if !output.status.success() {
@@ -319,7 +336,8 @@ fn check_health(managed: &Path, node: &Path) -> Result<(), String> {
 
 /// The setup service is what onboarding talks to next, so it must answer.
 fn check_control(managed: &Path, node: &Path) -> Result<(), String> {
-    let mut child = Command::new(node)
+    let mut command = Command::new(node);
+    command
         .arg("--input-type=module")
         .arg("--eval")
         .arg(CONTROL)
@@ -332,7 +350,9 @@ fn check_control(managed: &Path, node: &Path) -> Result<(), String> {
         .env_remove("NODE_PATH")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    hidden(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|_| "The installed runtime did not answer the setup service.".to_string())?;
     child
