@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.11 - 2026-11-03
+
+- Retry the model catalog after a fresh sign-in. The first catalog refresh can
+  race a just-issued account key; the chat now retries it instead of leaving a
+  signed-in install with an empty model list. If all attempts fail, the model
+  menu offers an explicit retry.
+
 ## 1.0.10 - 2026-11-02
 
 - Fix compact on a large session: the desktop no longer reads the whole

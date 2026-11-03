@@ -335,11 +335,18 @@ export function App() {
   // A signed-in account supplies models through Jouzu's published catalog. The chat shell
   // asks for a refresh only when the connected runtime has no models, so warm starts do not
   // pay a network round trip. A successful refresh restarts the session with the new catalog.
-  async function refreshModelCatalog() {
-    if (catalogAttempted.current) return;
+  async function refreshModelCatalog(force = false) {
+    if (catalogAttempted.current && !force) return;
     catalogAttempted.current = true;
     setCatalogRefreshing(true);
-    try { await configure({ action: "refresh-catalogs" }); }
+    try {
+      // A newly issued account key can lag its catalog by a moment. Retry the
+      // refresh before leaving a signed-in install with an empty model list.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (await configure({ action: "refresh-catalogs" })) return;
+        if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
     finally { setCatalogRefreshing(false); }
   }
   useEffect(() => {
@@ -579,6 +586,7 @@ export function App() {
         catalogRefreshing={catalogRefreshing}
         canRefreshModels={setup?.account.signedIn === true}
         onModelsMissing={() => void refreshModelCatalog()}
+        onRetryModels={() => void refreshModelCatalog(true)}
         workspaces={state?.recent ?? []}
         onSelect={setActivePath}
         onAddFolder={() => void chooseFolder()}
