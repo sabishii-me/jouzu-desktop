@@ -45,8 +45,16 @@ fn session_of(value: &serde_json::Value) -> Option<&str> {
     value.get("source")?.get("sessionId")?.as_str()
 }
 
+/// The runtime can name a session either by its file stem
+/// (`<timestamp>_<uuid>`) or by the UUID alone; sidecars store the UUID.
+/// Normalize only this boundary, never in each consumer.
+fn session_key(value: &str) -> &str {
+    value.rsplit_once('_').map_or(value, |(_, suffix)| suffix)
+}
+
 fn retain_session(records: &mut Vec<serde_json::Value>, session: &str) {
-    records.retain(|record| session_of(record) == Some(session));
+    let wanted = session_key(session);
+    records.retain(|record| session_of(record).is_some_and(|value| session_key(value) == wanted));
 }
 
 fn count_by_session(records: &[serde_json::Value]) -> std::collections::BTreeMap<String, u64> {
@@ -202,6 +210,21 @@ mod tests {
         let counts = count_by_session(&records);
         assert_eq!(counts.get("s1"), Some(&2));
         assert_eq!(counts.get("s2"), Some(&1));
+    }
+
+    #[test]
+    fn a_session_file_stem_matches_its_sidecar_uuid() {
+        let uuid = "01a1864a-5a64-74ab-94f8-106bc31fe975";
+        let mut records = vec![
+            serde_json::json!({ "source": { "sessionId": uuid } }),
+            serde_json::json!({ "source": { "sessionId": "other-session" } }),
+        ];
+        retain_session(&mut records, &format!("2026-10-29T10-27-32-918Z_{uuid}"));
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["source"]["sessionId"], uuid);
+        let mut same = vec![serde_json::json!({ "source": { "sessionId": uuid } })];
+        retain_session(&mut same, uuid);
+        assert_eq!(same.len(), 1);
     }
 
     #[test]
