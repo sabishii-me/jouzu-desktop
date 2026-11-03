@@ -1,7 +1,55 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+/// A text preview is bounded and only reads inside the session workspace.
+const MAX_PREVIEW_BYTES: u64 = 1024 * 1024;
+
+/// Resolve `path` against `workspace` and refuse anything outside it.
+fn inside_workspace(workspace: &str, path: &str) -> Result<PathBuf, String> {
+    let root = std::fs::canonicalize(workspace).map_err(|_| "The workspace folder is unavailable.".to_string())?;
+    let candidate = Path::new(path);
+    let joined = if candidate.is_absolute() { candidate.to_path_buf() } else { root.join(candidate) };
+    let resolved = std::fs::canonicalize(&joined).map_err(|_| "That file no longer exists.".to_string())?;
+    if !resolved.starts_with(&root) {
+        return Err("That file is outside the workspace.".into());
+    }
+    if !resolved.is_file() {
+        return Err("That path is not a file.".into());
+    }
+    Ok(resolved)
+}
+
+/// Read one workspace file for the turn-summary preview (0080). Binary and
+/// oversized files are reported, never returned as mojibake.
+#[tauri::command]
+pub fn workspace_read(path: String, workspace: String) -> Result<serde_json::Value, String> {
+    let file = inside_workspace(&workspace, &path)?;
+    let metadata = std::fs::metadata(&file).map_err(|_| "That file no longer exists.".to_string())?;
+    if metadata.len() > MAX_PREVIEW_BYTES {
+        return Ok(serde_json::json!({
+            "binary": false,
+            "truncated": true,
+            "bytes": metadata.len(),
+            "text": "",
+        }));
+    }
+    let bytes = std::fs::read(&file).map_err(|_| "That file could not be read.".to_string())?;
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(serde_json::json!({
+            "binary": false,
+            "truncated": false,
+            "bytes": metadata.len(),
+            "text": text,
+        })),
+        Err(_) => Ok(serde_json::json!({
+            "binary": true,
+            "truncated": false,
+            "bytes": metadata.len(),
+            "text": "",
+        })),
+    }
+}
 
 /// Read an image path supplied by the native drag/drop event. The frontend still
 /// validates the signature before attaching it to a message.
@@ -118,5 +166,44 @@ mod workspace_tests {
     #[test]
     fn rejects_a_missing_folder() {
         assert!(workspace_list("C:/definitely/not/here".into()).is_err());
+    }
+
+    #[test]
+    fn reads_a_workspace_text_file() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("notes.md"), b"# notes").unwrap();
+        let value = workspace_read("notes.md".into(), root.path().to_string_lossy().to_string()).unwrap();
+        assert_eq!(value["text"], "# notes");
+        assert_eq!(value["binary"], false);
+    }
+
+    #[test]
+    fn reports_a_binary_file_instead_of_decoding_it() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("blob.bin"), [0xff, 0xfe, 0x00]).unwrap();
+        let value = workspace_read("blob.bin".into(), root.path().to_string_lossy().to_string()).unwrap();
+        assert_eq!(value["binary"], true);
+        assert_eq!(value["text"], "");
+    }
+
+    #[test]
+    fn a_preview_cannot_escape_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::write(root.path().join("outside.txt"), b"secret").unwrap();
+        let refused = workspace_read("../outside.txt".into(), workspace.to_string_lossy().to_string());
+        assert!(refused.is_err());
+        let absolute = workspace_read(root.path().join("outside.txt").to_string_lossy().to_string(), workspace.to_string_lossy().to_string());
+        assert!(absolute.is_err());
+    }
+
+    #[test]
+    fn an_oversized_preview_is_reported_not_returned() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("big.txt"), vec![b'a'; (MAX_PREVIEW_BYTES as usize) + 8]).unwrap();
+        let value = workspace_read("big.txt".into(), root.path().to_string_lossy().to_string()).unwrap();
+        assert_eq!(value["truncated"], true);
+        assert_eq!(value["text"], "");
     }
 }

@@ -2,14 +2,16 @@ import { useState } from "react";
 import { Image as ImageIcon, PencilLine } from "lucide-react";
 import { ImageViewer } from "./components/image-viewer";
 import { Button } from "./components/ui/button";
+import { FilePreview } from "./file-preview";
 import type { TurnArtifact, TurnSummaryData } from "./turn-summary";
 
 /**
  * The turn-end summary: what the turn produced, so images and edited files are
  * visible without scrolling back through the transcript.
  */
-export function TurnSummary({ data, onOpenArtifacts }: { data: TurnSummaryData; onOpenArtifacts?: () => void }) {
+export function TurnSummary({ data, workspace, onOpenArtifacts }: { data: TurnSummaryData; workspace?: string; onOpenArtifacts?: () => void }) {
   const [open, setOpen] = useState<TurnArtifact | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   if (!data.artifacts.length && !data.files.length) return null;
   return <section aria-label="Turn summary" className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -24,7 +26,8 @@ export function TurnSummary({ data, onOpenArtifacts }: { data: TurnSummaryData; 
         </button>
         : <span key={artifact.id} className="max-w-48 truncate rounded-md border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground">{artifact.path ?? "image"}</span>)}
     </div>}
-    {data.files.length > 0 && <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground" title={data.files.join("\n")}>{data.files.slice(0, 3).join(" · ")}{data.files.length > 3 ? ` · +${data.files.length - 3}` : ""}</p>}
+    {data.files.length > 0 && <ul aria-label="Edited files" className="mt-2 flex flex-wrap gap-1">{data.files.map(file => <li key={file}><Button variant="outline" className="h-6 max-w-64 gap-1 px-2 font-mono text-[10px]" title={file} onClick={() => setPreview(file)}><span className="truncate">{file.split(/[\\/]/u).pop() ?? file}</span></Button></li>)}</ul>}
     {open && <ImageViewer src={`data:${open.mime};base64,${open.data}`} alt={open.prompt ?? ""} title={open.path?.split(/[\\/]/u).pop() ?? "Image"} onClose={() => setOpen(null)} />}
+    {preview && <FilePreview path={preview} workspace={workspace} onClose={() => setPreview(null)} />}
   </section>;
 }

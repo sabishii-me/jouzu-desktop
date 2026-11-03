@@ -614,6 +614,7 @@ fn main() {
             attachments::reveal_path,
             attachments::save_copy,
             attachments::workspace_list,
+            attachments::workspace_read,
             sessions::chat_sessions,
             sessions::chat_session_update,
             sessions::chat_flow_reports,
