@@ -8,7 +8,13 @@ use std::{
 };
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
-const MAX_BUFFER: usize = 64 * 1024 * 1024;
+const HARD_BYTES: usize = 64 * 1024 * 1024;
+// A slow consumer is a desktop problem. Crossing the soft limit compacts the
+// unread queue and keeps the turn alive; only a wedged runtime reaches the hard
+// limit, where the runtime is stopped instead of the transcript being trusted.
+const SOFT_RECORDS: usize = 512;
+const SOFT_BYTES: usize = 16 * 1024 * 1024;
+const HARD_RECORDS: usize = 4096;
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const EXIT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -86,6 +92,68 @@ impl ExitDrain {
         }
     }
 }
+/// Records a pending request must always receive, and the ones that only draw.
+fn is_structural(record: &Value) -> bool {
+    let kind = record.get("type").and_then(Value::as_str).unwrap_or("");
+    matches!(
+        kind,
+        "response"
+            | "extension_ui_request"
+            | "extension_error"
+            | "message_start"
+            | "message_end"
+            | "agent_start"
+            | "agent_end"
+            | "agent_settled"
+            | "compaction_start"
+            | "compaction_end"
+            | "auto_retry_start"
+            | "auto_retry_end"
+            | "turn_start"
+            | "turn_end"
+            | "tool_start"
+            | "tool_end"
+            | "error"
+    )
+}
+
+/// Drop verbose backlog oldest-first until the queue is under the soft limits.
+/// Structural records survive, and one `desktop_gap` marker tells the view to
+/// reconcile from the durable transcript once the turn settles.
+fn compact_backlog(output: &mut Output) {
+    if output.records.len() <= SOFT_RECORDS && output.bytes <= SOFT_BYTES {
+        return;
+    }
+    let before = output.records.len();
+    let mut kept: VecDeque<Value> = VecDeque::with_capacity(before);
+    let mut bytes = 0usize;
+    let mut dropped = 0usize;
+    let mut dropped_bytes = 0usize;
+    // Structural records are rare and small; verbose ones are what grows.
+    for record in output.records.drain(..) {
+        if is_structural(&record) {
+            bytes += serde_json::to_vec(&record).map_or(0, |value| value.len());
+            kept.push_back(record);
+        } else {
+            dropped += 1;
+            dropped_bytes += serde_json::to_vec(&record).map_or(0, |value| value.len());
+        }
+    }
+    output.records = kept;
+    output.bytes = bytes;
+    if dropped > 0 {
+        output.dropped = output.dropped.saturating_add(dropped);
+        output.records.push_back(serde_json::json!({
+            "type": "desktop_gap",
+            "dropped": dropped,
+            "bytes": dropped_bytes,
+        }));
+        if let Ok(size) = serde_json::to_vec(output.records.back().unwrap()) {
+            output.bytes += size.len();
+        }
+    }
+}
+
 fn append_error(error: &mut Option<String>, message: String) {
     if let Some(error) = error {
         error.push_str("; ");
@@ -101,6 +169,9 @@ struct Output {
     closed: bool,
     error: Option<String>,
     cleanup_error: Option<String>,
+    /// How many records the last soft compaction dropped, so the webview learns
+    /// once that its view is behind the transcript.
+    dropped: usize,
 }
 struct Session {
     owner: String,
@@ -121,6 +192,8 @@ pub struct Poll {
     records: Vec<Value>,
     closed: bool,
     error: Option<String>,
+    /// Set while the view is behind the transcript after a compacted backlog.
+    compacted: usize,
 }
 impl ChatService {
     pub fn shutdown(&self) {
@@ -496,13 +569,16 @@ pub fn chat_start(
                 |record| {
                     if let Ok(mut output) = worker_output.lock() {
                         let value = Value::Object(record);
-                        let size = serde_json::to_vec(&value).map_or(MAX_BUFFER + 1, |v| v.len());
-                        if output.bytes + size > MAX_BUFFER || output.records.len() >= 2048 {
+                        let size = serde_json::to_vec(&value).map_or(HARD_BYTES + 1, |v| v.len());
+                        if output.bytes + size > HARD_BYTES || output.records.len() >= HARD_RECORDS {
                             overflow = true;
                             return;
                         }
                         output.bytes += size;
                         output.records.push_back(value);
+                        // A slow consumer is the desktop's problem: compact the
+                        // backlog and keep the turn alive.
+                        compact_backlog(&mut output);
                     } else {
                         overflow = true;
                     }
@@ -514,7 +590,7 @@ pub fn chat_start(
             }
             if overflow {
                 failure = Some(
-                    "Chat output exceeded the desktop buffer; session interrupted without replay"
+                    "The runtime stopped responding and was restarted; the transcript was kept"
                         .into(),
                 );
                 break 'run;
@@ -603,10 +679,12 @@ pub fn chat_poll(
         .map_err(|_| "Chat output unavailable")?;
     let records = output.records.drain(..).collect();
     output.bytes = 0;
+    let compacted = std::mem::take(&mut output.dropped);
     Ok(Poll {
         records,
         closed: output.closed,
         error: output.error.clone(),
+        compacted,
     })
 }
 
@@ -616,6 +694,7 @@ pub struct PoolPoll {
     records: Vec<Value>,
     closed: bool,
     error: Option<String>,
+    compacted: usize,
 }
 
 /// One poll call serves every live session so the pool needs one timer.
@@ -644,11 +723,11 @@ pub fn chat_poll_many(
     let mut polls = Vec::with_capacity(handles.len());
     for handle in &handles {
         let Some(session) = sessions.get_mut(handle) else {
-            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()) });
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()), compacted: 0 });
             continue;
         };
         if session.owner != window.label() {
-            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()) });
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()), compacted: 0 });
             continue;
         }
         session.last_poll = now;
@@ -661,6 +740,7 @@ pub fn chat_poll_many(
             records: output.records.drain(..).collect(),
             closed: output.closed,
             error: output.error.clone(),
+            compacted: std::mem::take(&mut output.dropped),
         });
     }
     // A page load releases the previous generation explicitly; the reaper is the
@@ -724,6 +804,48 @@ pub fn chat_stop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn delta(index: usize) -> Value {
+        serde_json::json!({ "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "delta": format!("chunk-{index}") } })
+    }
+
+    #[test]
+    fn classification_keeps_responses_and_dialogs() {
+        assert!(is_structural(&serde_json::json!({ "type": "response" })));
+        assert!(is_structural(&serde_json::json!({ "type": "extension_ui_request" })));
+        assert!(is_structural(&serde_json::json!({ "type": "agent_settled" })));
+        assert!(!is_structural(&delta(0)));
+        assert!(!is_structural(&serde_json::json!({ "type": "extension_ui_request_widget" })));
+    }
+
+    #[test]
+    fn a_soft_limit_compacts_verbose_records_and_marks_one_gap() {
+        let mut output = Output::default();
+        output.records.push_back(serde_json::json!({ "type": "response", "id": "r1" }));
+        for index in 0..(SOFT_RECORDS + 64) {
+            output.records.push_back(delta(index));
+        }
+        output.bytes = SOFT_BYTES + 1;
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), 2, "the response and one gap marker survive");
+        assert_eq!(output.records[0]["type"], "response");
+        assert_eq!(output.records[1]["type"], "desktop_gap");
+        assert_eq!(output.dropped, SOFT_RECORDS + 64);
+        // A second compaction with nothing to drop adds no marker.
+        let before = output.records.len();
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), before);
+    }
+
+    #[test]
+    fn a_queue_under_the_soft_limit_is_left_alone() {
+        let mut output = Output::default();
+        output.records.push_back(delta(0));
+        output.bytes = 64;
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.dropped, 0);
+    }
 
     #[test]
     fn exit_drain_keeps_final_records_after_would_block() {
