@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "./components/ui/button";
+import { MessageImage } from "./message-image";
 
 function nodeText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -46,7 +47,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string 
         };
         return <a href={safe} className="inline break-all text-left text-primary underline" onClick={open} onAuxClick={event => { if (event.button === 1) open(event); }}>{children}</a>;
       },
-      img: ({ alt }) => <span className="text-muted-foreground">[Image: {alt || "remote image not loaded"}]</span>,
+      img: ({ src, alt }) => <MessageImage kind="markdown" source={src} alt={alt ?? ""} />,
     }}>{text}</ReactMarkdown>
     {error && <p role="alert" className="text-destructive">{error}</p>}
   </div>;
