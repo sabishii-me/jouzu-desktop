@@ -89,6 +89,7 @@ test("recovers models after a failed first catalog refresh", async ({ page }) =>
   await expect.poll(async () => await page.evaluate(() => (window as any).catalogRefreshes()), { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("button", { name: "Refresh models" })).toBeVisible();
+  await expect(page.getByRole("dialog")).not.toContainText("Key saved");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Model" }).click();
   const menu = page.getByRole("menu", { name: "Model selection" });
