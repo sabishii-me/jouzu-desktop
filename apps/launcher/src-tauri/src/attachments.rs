@@ -214,12 +214,54 @@ pub fn save_copy(from: String, to: String) -> Result<(), String> {
 }
 
 /// Show an artifact in the platform's file browser.
-#[tauri::command]
-pub fn reveal_path(path: String) -> Result<(), String> {
-    let source = Path::new(&path);
-    if !source.exists() {
-        return Err("That file no longer exists.".into());
+/// Turn a transcript path into a reveal target (0057). A relative path needs the
+/// session workspace; an absolute path the turn produced is allowed anywhere the
+/// user can already reach. Rejections carry a stable reason for the inline copy.
+fn reveal_target(path: &str, workspace: Option<&str>) -> Result<std::path::PathBuf, String> {
+    if path.is_empty() || path.contains('\0') || path.len() > 32767 {
+        return Err("not-a-file".into());
     }
+    let candidate = Path::new(path);
+    if candidate
+        .components()
+        .any(|component| component == std::path::Component::CurDir)
+        && !candidate.is_absolute()
+    {
+        return Err("not-absolute".into());
+    }
+    let joined = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        let workspace = workspace.filter(|value| !value.trim().is_empty()).ok_or("not-absolute")?;
+        Path::new(workspace).join(candidate)
+    };
+    if !joined.exists() {
+        return Err("not-found".into());
+    }
+    if joined
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(reserved_device_name)
+    {
+        return Err("not-a-file".into());
+    }
+    std::fs::canonicalize(&joined).map_err(|_| "not-found".to_string())
+}
+
+/// Windows reserved device names cannot be revealed as ordinary files.
+fn reserved_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    let upper = stem.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper.as_bytes()[3].is_ascii_digit())
+}
+
+/// Show a produced file (or folder) in the platform file manager.
+#[tauri::command]
+pub fn reveal_path(path: String, workspace: Option<String>) -> Result<(), String> {
+    let source = reveal_target(&path, workspace.as_deref())?;
     #[cfg(target_os = "windows")]
     let spawned = {
         use std::os::windows::process::CommandExt;
@@ -227,8 +269,7 @@ pub fn reveal_path(path: String) -> Result<(), String> {
         // quoting makes /select, fail (the window then opens at the default
         // folder). cmd passes the documented form through untouched.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let absolute = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-        let display = absolute.to_string_lossy();
+        let display = source.to_string_lossy();
         let display = display.strip_prefix(r"\\?\").unwrap_or(&display);
         std::process::Command::new("cmd.exe")
             .raw_arg(format!("/c explorer.exe /select,\"{display}\""))
@@ -236,12 +277,49 @@ pub fn reveal_path(path: String) -> Result<(), String> {
             .spawn()
     };
     #[cfg(target_os = "macos")]
-    let spawned = std::process::Command::new("open").arg("-R").arg(source).spawn();
+    let spawned = std::process::Command::new("open").arg("-R").arg(&source).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let spawned = std::process::Command::new("xdg-open")
-        .arg(source.parent().unwrap_or(source))
+        .arg(source.parent().unwrap_or(&source))
         .spawn();
-    spawned.map(|_| ()).map_err(|_| "Could not open the folder.".to_string())
+    spawned.map(|_| ()).map_err(|_| "reveal-failed".to_string())
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_a_relative_path_against_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.txt"), b"x").unwrap();
+        let target = reveal_target("a.txt", Some(&root.path().to_string_lossy())).unwrap();
+        assert!(target.ends_with("a.txt"));
+    }
+
+    #[test]
+    fn a_relative_path_without_a_workspace_is_refused() {
+        assert_eq!(reveal_target("a.txt", None).unwrap_err(), "not-absolute");
+    }
+
+    #[test]
+    fn a_missing_path_reports_not_found() {
+        assert_eq!(reveal_target("C:/definitely/not/here.png", None).unwrap_err(), "not-found");
+    }
+
+    #[test]
+    fn reserved_device_names_are_refused() {
+        assert!(reserved_device_name("CON"));
+        assert!(reserved_device_name("nul.txt"));
+        assert!(reserved_device_name("COM1"));
+        assert!(!reserved_device_name("conifer.png"));
+        assert!(!reserved_device_name("console.log"));
+    }
+
+    #[test]
+    fn a_nul_byte_is_refused() {
+        assert_eq!(reveal_target("a\0b", None).unwrap_err(), "not-a-file");
+    }
 }
 
 #[cfg(test)]
