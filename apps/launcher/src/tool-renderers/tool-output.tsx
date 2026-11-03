@@ -7,6 +7,7 @@ import { classifyText, diffRows, prettyJson } from "./tool-format";
 import { record, toolText } from "./types";
 import { ArtifactImage } from "./artifact-image";
 import { artifactPathFromText } from "./artifact-path";
+import { RevealPath } from "../reveal-path";
 
 const MAX_LINES = 2000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -180,7 +181,7 @@ export function ToolOutput({ tool }: { tool: ToolView }) {
   if (images.length) return <div className="space-y-3">{images.map((image, index) => <ArtifactImage key={index} image={image} caption={[model, size, image.width && image.height ? `${image.width}×${image.height}` : ""].filter(Boolean).join(" · ")} />)}{text && <AnsiPre text={text} expanded={expanded} />}</div>;
   if (!text) return <p className="text-xs text-muted-foreground">No text output.</p>;
   return <div className="space-y-1">
-    <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-muted-foreground">{tool.name === "read" && path ? path : "Output"}{meta.length ? ` · ${meta.join(" · ")}` : ""}</span><div className="flex shrink-0"><CopyButton text={text} /><DownloadButton text={text} />{long && <Button variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse" : "Expand"}</Button>}</div></div>
+    <div className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-muted-foreground">{tool.name === "read" && path ? path : "Output"}{meta.length ? ` · ${meta.join(" · ")}` : ""}</span>{tool.name === "read" && path && <RevealPath path={path} compact label="Reveal" />}</span><div className="flex shrink-0"><CopyButton text={text} /><DownloadButton text={text} />{long && <Button variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse" : "Expand"}</Button>}</div></div>
     {tool.phase === "error" && <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">Tool failed{meta.length ? ` (${meta.join(", ")})` : ""}</p>}
     {tool.name === "bash" ? <AnsiPre text={text} expanded={expanded} />
       : tool.name === "read" && markdownPath(tool.args) ? <MarkdownOutput text={text} expanded={expanded} />
