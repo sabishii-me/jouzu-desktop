@@ -781,6 +781,59 @@ pub fn chat_release_generation(
 }
 
 #[tauri::command]
+pub fn chat_claim(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    handle: String,
+    session_key: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    if sessions
+        .iter()
+        .any(|(other, session)| other != &handle && session.owner == window.label() && session.key == session_key)
+    {
+        return Err("Session is owned by another runtime".into());
+    }
+    let session = sessions
+        .get_mut(&handle)
+        .ok_or_else(|| "Unknown chat connection".to_string())?;
+    if session.owner != window.label() {
+        return Err("Unknown chat connection".into());
+    }
+    session.key = session_key;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chat_stop_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    session_key: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let handles: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.owner == window.label() && session.key == session_key)
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = handles
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        stop_sessions(stopped);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn chat_stop_all(
     window: tauri::WebviewWindow,
     state: tauri::State<ChatService>,

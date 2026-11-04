@@ -177,6 +177,8 @@ export class ChatPool {
       return cached;
     }
     if (cached) this.entries.delete(key);
+    const sessionKey = `session:${key}`;
+    await invoke("chat_stop_session", { sessionKey }).catch(() => {});
     let client: ChatConnection;
     try { client = await this.lease(path, sessionPath, dialog, false); }
     catch (error) {
@@ -189,6 +191,7 @@ export class ChatPool {
       this.entries.delete(key);
       client = await this.lease(path, sessionPath, dialog, false);
     }
+    await invoke("chat_claim", { handle: client.chatHandle, sessionKey });
     this.entries.set(key, client);
     this.watch(client);
     this.emitStatus();
