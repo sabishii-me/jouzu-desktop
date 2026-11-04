@@ -9,6 +9,7 @@ import { McpMenu } from "./mcp-menu";
 import { ChatConversation } from "./chat-conversation";
 import { Composer } from "./composer";
 import { ArtifactsPanel } from "./artifacts-panel";
+import { collectOutputReferences } from "./artifact-references";
 import { PanelStart } from "./panel-start";
 import { FilesPanel } from "./files-panel";
 import { ToolReviewDialog } from "./tool-review-dialog";
@@ -981,6 +982,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   // never sees a second, still-blocked "Connecting…" state.
   const booting = !snapshot.connected && !sessionError;
   const conversationProjection = activePreview?.projection ?? snapshot.projection;
+  const outputReferences = useMemo(
+    () => collectOutputReferences(conversationProjection.messages, snapshot.sessionId),
+    [conversationProjection.messages, snapshot.sessionId],
+  );
   const conversationKey = selectedSession ?? snapshot.sessionId ?? path;
   const hasArchived = sessions.some(session => session.archived);
   const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === selectedKey)?.workspace;
@@ -1160,7 +1165,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
               {index === panes.length - 1 && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label={panes.length < 2 ? "Split pane" : "Close second pane"} title={panes.length < 2 ? "Split pane" : "Close second pane"} onClick={() => panes.length < 2 ? addPane() : removePane(1)}><Columns2 className="size-3.5" /></Button>}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3">{pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">{pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} workspace={path} references={outputReferences} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}</div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize pane" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPane.current = { index, startX: event.clientX, startWidth: pane.width }; event.preventDefault(); }} />
         </aside>)}
       </div>}
