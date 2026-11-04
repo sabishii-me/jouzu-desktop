@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, ChevronDown, LoaderCircle } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, LoaderCircle, Square } from "lucide-react";
 import { ChatMarkdown } from "./chat-markdown";
 import type { ToolView } from "./chat-projection";
 
@@ -15,16 +15,24 @@ function preview(tool: ToolView): string {
  * One status line above the composer. Reasoning, the current tool and the
  * generic Working label are mutually exclusive; only one of them is visible.
  */
-export function AgentAction({ thinking, label, running, elapsed, tools = [] }: {
+export function AgentAction({ thinking, label, running, elapsed, tools = [], settled }: {
   thinking: string;
   label: string;
   running: boolean;
   elapsed?: string;
   tools?: ToolView[];
+  settled?: "stopped" | "failed";
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
   const tool = tools.at(-1);
+  if (!running && !text && settled) {
+    const Icon = settled === "failed" ? AlertTriangle : Square;
+    return <div role="status" aria-live="polite" className={`flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] ${settled === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span>{settled === "failed" ? "Failed" : "Stopped"}</span>
+    </div>;
+  }
   if (!running && !text) return null;
   if (!text && tool) return <div className="px-1 pb-1">
     <button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted/40" aria-expanded={open} onClick={() => setOpen(value => !value)}>
