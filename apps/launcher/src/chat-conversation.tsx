@@ -64,11 +64,10 @@ function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boo
  * Consecutive text tools become one row of icons. Rich results (images, Flow,
  * tasks, background work, subagents) keep their own card; nothing is dropped.
  */
-function MessageContent({ message, index, projection, lastAssistantIndex }: {
+function MessageContent({ message, index, projection }: {
   message: ChatMessage;
   index: number;
   projection: ChatProjection;
-  lastAssistantIndex?: number;
 }) {
   const parts: ReactNode[] = [];
   let chips: ToolView[] = [];
@@ -93,7 +92,7 @@ function MessageContent({ message, index, projection, lastAssistantIndex }: {
     }
     flush(String(position));
     if (block.type === "text") parts.push(<ChatMarkdown key={position} text={block.text ?? ""} />);
-    else if (block.type === "thinking") parts.push(<ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} />);
+    else if (block.type === "thinking") parts.push(<ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && projection.activeMessage === index} />);
     else if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) parts.push(<MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />);
     else parts.push(<p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>);
   });
@@ -134,7 +133,6 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
   const showWorking = working && !(opening && hasVisibleHistory);
   const visible = projection.messages.flatMap((message, index) => message.role === "user" || message.role === "assistant" ? [{ message, index }] : []);
   const shown = visible.slice(-limit);
-  const lastAssistantIndex = visible.filter(item => item.message.role === "assistant").at(-1)?.index;
   const turnMarkers = visible.flatMap((item, position) => {
     if (item.message.role !== "user") return [];
     const nextUser = visible.findIndex((candidate, candidatePosition) => candidatePosition > position && candidate.message.role === "user");
@@ -184,12 +182,18 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
     <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div ref={content} className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
-        <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
-        <MessageContent message={message} index={index} projection={projection} lastAssistantIndex={lastAssistantIndex} />
-        {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
-        {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
-      </article>)}
+      <div ref={content} className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => {
+        const next = projection.messages[index + 1];
+        const turnEnd = !next || next.role === "user";
+        const firstAssistant = message.role === "assistant" && projection.messages[index - 1]?.role !== "assistant";
+        const showLabel = message.role === "user" || firstAssistant;
+        return <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
+          {showLabel && <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>}
+          <MessageContent message={message} index={index} projection={projection} />
+          {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
+          {turnEnd && message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
+        </article>;
+      })}
         {showWorking && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><JouzuLoader className="jouzu-loader-sm" /><span>{opening ? "Opening session…" : "Working…"}</span>{!opening && elapsed !== null && <span className="tabular-nums">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>}</div>}
       </div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}
