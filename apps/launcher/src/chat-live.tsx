@@ -14,6 +14,7 @@ function preview(tool: ToolView): string {
 /** Live reasoning stays out of the transcript: one line above the composer. */
 export function LiveThinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  if (!text.trim()) return null;
   const last = text.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
   return <div className="px-1 pb-1">
     <button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted/40" aria-expanded={open} onClick={() => setOpen(value => !value)}>

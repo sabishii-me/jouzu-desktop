@@ -51,60 +51,42 @@ function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = fals
  * Consecutive text tools become one row of icons. Rich results (images, Flow,
  * tasks, background work, subagents) keep their own card; nothing is dropped.
  */
-function MessageContent({ message, index, projection }: {
-  message: ChatMessage;
-  index: number;
-  projection: ChatProjection;
-}) {
+function contentParts(message: ChatMessage, index: number, projection: ChatProjection) {
   const parts: ReactNode[] = [];
-  let activity: ActivityItem[] = [];
-  const flush = (key: string) => {
-    if (!activity.length) return;
-    parts.push(<ActivityStrip key={`activity-${key}`} items={activity} />);
-    activity = [];
-  };
+  const activity: ActivityItem[] = [];
   message.content.forEach((block, position) => {
+    if (block.type === "text") {
+      parts.push(<ChatMarkdown key={position} text={block.text ?? ""} />);
+      return;
+    }
+    if (block.type === "thinking") {
+      if (!(projection.running && projection.activeMessage === index)) {
+        activity.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: false });
+      }
+      return;
+    }
+    if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) {
+      parts.push(<MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />);
+      return;
+    }
     if (block.type === "toolCall") {
       const tool = projection.tools[block.id ?? ""];
       if (!tool) {
-        flush(String(position));
         parts.push(<ToolFrame key={position} title={block.name ?? "Tool call"} subtitle="Waiting for runtime details" state={projection.running ? "running" : "idle"}><p className="text-[11px] text-muted-foreground">This tool has not reported details yet.</p></ToolFrame>);
       } else if (isRichTool(tool)) {
-        flush(String(position));
         parts.push(<ToolRenderer key={position} tool={tool} />);
       } else {
         activity.push({ kind: "tool", tool });
       }
       return;
     }
-    if (block.type === "thinking") {
-      const streaming = projection.running && projection.activeMessage === index;
-      if (!streaming) activity.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: false });
-      return;
-    }
-    flush(String(position));
-    if (block.type === "text") parts.push(<ChatMarkdown key={position} text={block.text ?? ""} />);
-    else if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) parts.push(<MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />);
-    else parts.push(<p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>);
+    parts.push(<p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>);
   });
-  flush("end");
-  return <>{parts}</>;
+  return { parts, activity };
 }
 
-function activityItems(message: ChatMessage, index: number, projection: ChatProjection): ActivityItem[] | null {
-  if (message.errorMessage) return null;
-  const items: ActivityItem[] = [];
-  for (const [position, block] of message.content.entries()) {
-    if (block.type === "thinking") {
-      items.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: projection.running && projection.activeMessage === index });
-      continue;
-    }
-    if (block.type !== "toolCall") return null;
-    const tool = projection.tools[block.id ?? ""];
-    if (!tool || isRichTool(tool)) return null;
-    items.push({ kind: "tool", tool });
-  }
-  return items;
+function UserContent({ message }: { message: ChatMessage }) {
+  return <>{message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : null)}</>;
 }
 
 function ChatConversationView({ projection, workspace, pending = false, startedAt, opening = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
@@ -185,34 +167,40 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
     setLimit(value => Math.max(value, visible.length - position + 1));
   }
   const rows: ReactNode[] = [];
-  for (let cursor = 0; cursor < shown.length; cursor++) {
-    const first = shown[cursor];
-    const firstItems = activityItems(first.message, first.index, projection);
-    if (firstItems) {
-      let next = cursor;
-      const items: ActivityItem[] = [];
-      while (next < shown.length) {
-        const candidate = activityItems(shown[next].message, shown[next].index, projection);
-        if (!candidate) break;
-        items.push(...candidate);
-        next += 1;
-      }
-      if (items.length) {
-        const firstIndex = first.index;
-        rows.push(<div key={`activity-${firstIndex}`} ref={node => { if (node) articleRefs.current.set(firstIndex, node); else articleRefs.current.delete(firstIndex); }}><ActivityStrip items={items} /></div>);
-        cursor = next - 1;
-        continue;
+  for (let cursor = 0; cursor < shown.length;) {
+    const group = [shown[cursor]];
+    cursor += 1;
+    while (cursor < shown.length && shown[cursor].message.role !== "user") {
+      group.push(shown[cursor]);
+      cursor += 1;
+    }
+    const user = group.find(item => item.message.role === "user");
+    if (user) {
+      rows.push(<article key={user.index} ref={node => { if (node) articleRefs.current.set(user.index, node); else articleRefs.current.delete(user.index); }} aria-label="user message" className="ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left [content-visibility:auto] [contain-intrinsic-size:auto_160px]">
+        <div className="mb-2 text-xs font-medium text-muted-foreground">You</div>
+        <UserContent message={user.message} />
+      </article>);
+    }
+    const parts: ReactNode[] = [];
+    const activity: ActivityItem[] = [];
+    let last: (typeof shown)[number] | undefined;
+    for (const item of group) {
+      if (item.message.role === "user") continue;
+      const split = contentParts(item.message, item.index, projection);
+      parts.push(...split.parts);
+      activity.push(...split.activity);
+      last = item;
+    }
+    if (parts.length) rows.push(<div key={`text-${group[0].index}`} className="space-y-2">{parts}</div>);
+    if (activity.length) rows.push(<div key={`activity-${group[0].index}`} ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }}><ActivityStrip items={activity} /></div>);
+    if (last) {
+      const nextMessage = projection.messages[last.index + 1];
+      const turnEnd = !nextMessage || nextMessage.role === "user";
+      if (last.message.errorMessage) rows.push(<p key={`error-${last.index}`} role="alert" className="select-text text-sm text-destructive">{last.message.errorMessage}</p>);
+      if (turnEnd && !last.message.content.some(block => block.type === "toolCall") && last.message.stopReason !== "toolUse") {
+        rows.push(<div key={`footer-${last.index}`}><TurnSummary data={summarizeTurn(projection.messages, projection.tools, last.index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={last.index} message={last.message} onFork={onFork} forkDisabled={opening || pending} /></div>);
       }
     }
-    const { message, index } = first;
-    const nextMessage = projection.messages[index + 1];
-    const turnEnd = !nextMessage || nextMessage.role === "user";
-    rows.push(<article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
-      {message.role === "user" && <div className="mb-2 text-xs font-medium text-muted-foreground">You</div>}
-      <MessageContent message={message} index={index} projection={projection} />
-      {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
-      {turnEnd && message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
-    </article>);
   }
   return <WorkspaceContext.Provider value={workspace}>
     <section aria-label="Conversation" className="relative flex min-h-0 min-w-0 flex-1 flex-col">
