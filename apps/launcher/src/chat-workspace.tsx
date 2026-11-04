@@ -30,6 +30,11 @@ import type { SessionTiming } from "./chat-connection";
 type TextGuardView = { data: TextGuardData | null; seen: boolean; historical: boolean; open: boolean; busy: boolean; error: string | null; loading: boolean };
 const emptyTextGuardView: TextGuardView = { data: null, seen: false, historical: false, open: false, busy: false, error: null, loading: false };
 
+/** The side pane starts at half the window so chat and pane have equal room. */
+function defaultPaneWidth() {
+  return Math.min(960, Math.max(480, Math.round(window.innerWidth / 2)));
+}
+
 interface WorkspaceItem { id: string; path: string }
 interface SessionSummary { path: string; title: string; workspace: string; updated: number; pinned: boolean; archived: boolean }
 export interface ChatWorkspaceProps {
@@ -920,6 +925,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   }, [workspaces, sessions, search, sort, showArchived]);
   const activeSession = normalizedPath(snapshot.sessionFile ?? "");
   const selectedKey = normalizedPath(selectedSession ?? snapshot.sessionFile ?? "");
+  const selectedSessionWorkspace = sessions.find(item => normalizedPath(item.path) === selectedKey)?.workspace ?? path;
+  const selectedSessionWorkspacePath = selectedSessionWorkspace.startsWith("\\\\?\\") ? selectedSessionWorkspace.slice(4) : selectedSessionWorkspace;
   // Stop belongs to the session on screen. A running turn in the background must
   // not put a Stop button under a transcript the button would not stop.
   const composerRunning = snapshot.projection.running && selectedKey === activeSession;
@@ -938,8 +945,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
             .slice(0, 2)
             .map((pane: any) => {
               const active = pane.active;
-              const width = typeof pane.width === "number" ? Math.min(760, Math.max(280, pane.width)) : 560;
-              return { tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active, width: width === 360 || width === 420 ? 560 : width };
+              const width = typeof pane.width === "number" ? Math.min(960, Math.max(360, pane.width)) : defaultPaneWidth();
+              return { tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active, width: [360, 420, 560].includes(width) ? defaultPaneWidth() : width };
             })
         : [];
       setPanes(next);
@@ -953,7 +960,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     const move = (event: PointerEvent) => {
       const current = resizingPane.current;
       if (!current) return;
-      setPanes(list => list.map((pane, index) => index === current.index ? { ...pane, width: Math.min(760, Math.max(280, current.startWidth + (current.startX - event.clientX))) } : pane));
+      setPanes(list => list.map((pane, index) => index === current.index ? { ...pane, width: Math.min(960, Math.max(360, current.startWidth + (current.startX - event.clientX))) } : pane));
     };
     const stop = () => { resizingPane.current = null; };
     window.addEventListener("pointermove", move);
@@ -973,10 +980,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     return artifactCounts[sessionId] ?? 0;
   }
   function toggleSide() {
-    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: 560 }]);
+    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: defaultPaneWidth() }]);
   }
   function addPane() {
-    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: 560 }]);
+    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: defaultPaneWidth() }]);
   }
   function removePane(index: number) {
     setPanes(current => current.filter((_, position) => position !== index));
@@ -1004,7 +1011,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   }
   function openArtifactsPanel() {
     setPanes(current => {
-      if (!current.length) return [{ tabs: ["artifacts"], active: "artifacts", width: 560 }];
+      if (!current.length) return [{ tabs: ["artifacts"], active: "artifacts", width: defaultPaneWidth() }];
       return current.map((pane, position) => position !== current.length - 1 ? pane : pane.tabs.includes("artifacts") ? { ...pane, tabs: pane.tabs.filter(tab => tab !== "start"), active: "artifacts" } : { ...pane, tabs: [...pane.tabs, "artifacts"], active: "artifacts" });
     });
   }
@@ -1231,7 +1238,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
               </div>
             </div>
             <TabsContent value={pane.active} className="min-h-0 flex-1 overflow-auto p-3">
-              {pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel embedded sessionId={artifactsSessionId} workspace={path} references={outputReferences} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}
+              {pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel embedded sessionId={artifactsSessionId} workspace={selectedSessionWorkspacePath} references={outputReferences} /> : pane.active === "files" ? <FilesPanel key={selectedSessionWorkspacePath} path={selectedSessionWorkspacePath} /> : null}
             </TabsContent>
           </Tabs>
           <div role="separator" aria-orientation="vertical" aria-label="Resize pane" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPane.current = { index, startX: event.clientX, startWidth: pane.width }; event.preventDefault(); }} />
@@ -1244,6 +1251,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     {textguardPanel}
   </div>;
 }
+
 
 
 
