@@ -117,12 +117,13 @@ pub fn save_tools(managed: &Path, image: &serde_json::Value) -> Result<serde_jso
 
 /// Run the extension's CLI entry with the same home the runtime uses.
 fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
-    let home = crate::runtime::effective_home()?;
-    let node = managed.join("runtime").join("node").join("node.exe");
-    let script = home.join("agent").join("extensions").join("jouzu-image").join("index.js");
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    let node = managed.join("runtime").join("node").join(node_name);
     if !node.is_file() {
         return Err("The runtime is not installed yet.".into());
     }
+    let home = crate::runtime::effective_home()?;
+    let script = home.join("agent").join("extensions").join("jouzu-image").join("index.js");
     if !script.is_file() {
         return Err("The image tool is not installed yet.".into());
     }

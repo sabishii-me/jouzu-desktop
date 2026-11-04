@@ -352,7 +352,8 @@ mod reveal_tests {
 
     #[test]
     fn a_missing_path_reports_not_found() {
-        assert_eq!(reveal_target("C:/definitely/not/here.png", None).unwrap_err(), "not-found");
+        let missing = tempfile::tempdir().unwrap().path().join("missing.png");
+        assert_eq!(reveal_target(missing.to_str().unwrap(), None).unwrap_err(), "not-found");
     }
 
     #[test]
