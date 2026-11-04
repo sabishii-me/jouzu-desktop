@@ -74,18 +74,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   const [workingStartedAt, setWorkingStartedAt] = useState<number>();
   const [sentPending, setSentPending] = useState(false);
   const [restartingRuntime, setRestartingRuntime] = useState(false);
-  const activeMessage = snapshot.projection.activeMessage === null ? undefined : snapshot.projection.messages[snapshot.projection.activeMessage];
-  const runningTools = Object.values(snapshot.projection.tools).filter(tool => tool.phase === "running");
-  const liveThinking = snapshot.projection.running && activeMessage && runningTools.length === 0
-    ? activeMessage.content.flatMap(block => block.type === "thinking" ? [block.thinking ?? ""] : []).join("\n")
-    : "";
-  const lastMessage = snapshot.projection.messages.at(-1);
-  const inferredRunning = !snapshot.projection.running && !sentPending && (lastMessage?.role === "toolResult" || (lastMessage?.role === "assistant" && lastMessage.stopReason === "toolUse"));
-  const settled = !snapshot.projection.running && !sentPending && !inferredRunning && lastMessage?.role === "assistant"
-    ? lastMessage.stopReason === "aborted" ? "stopped" as const
-      : lastMessage.stopReason === "error" ? "failed" as const
-        : undefined
-    : undefined;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!snapshot.projection.running && !sentPending) return;
@@ -1042,6 +1030,18 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   // never sees a second, still-blocked "Connecting…" state.
   const booting = !snapshot.connected && !sessionError;
   const conversationProjection = activePreview?.projection ?? snapshot.projection;
+  const activeMessage = conversationProjection.activeMessage === null ? undefined : conversationProjection.messages[conversationProjection.activeMessage];
+  const runningTools = Object.values(conversationProjection.tools).filter(tool => tool.phase === "running");
+  const liveThinking = conversationProjection.running && activeMessage && runningTools.length === 0
+    ? activeMessage.content.flatMap(block => block.type === "thinking" ? [block.thinking ?? ""] : []).join("\n")
+    : "";
+  const lastMessage = conversationProjection.messages.at(-1);
+  const inferredRunning = !conversationProjection.running && !sentPending && (lastMessage?.role === "toolResult" || (lastMessage?.role === "assistant" && lastMessage.stopReason === "toolUse"));
+  const settled = !conversationProjection.running && !sentPending && !inferredRunning && lastMessage?.role === "assistant"
+    ? lastMessage.stopReason === "aborted" ? "stopped" as const
+      : lastMessage.stopReason === "error" ? "failed" as const
+        : undefined
+    : undefined;
   const outputReferences = useMemo(
     () => collectOutputReferences(conversationProjection.messages, artifactsSessionId),
     [conversationProjection.messages, artifactsSessionId],
@@ -1211,7 +1211,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         </div>
         <div className="relative">
           <div className="mx-auto w-full max-w-3xl">
-            <AgentAction thinking={liveThinking} label={inferredRunning ? "Resuming…" : snapshot.projection.running ? "Working…" : "Starting…"} running={snapshot.projection.running || sentPending || inferredRunning} elapsed={elapsed} tools={runningTools} settled={settled} action={inferredRunning || settled ? { label: settled ? "Retry" : "Restart", onClick: () => void restartRuntime(), disabled: restartingRuntime } : undefined} />
+            <AgentAction thinking={liveThinking} label={inferredRunning ? "Resuming…" : conversationProjection.running ? "Working…" : "Starting…"} running={conversationProjection.running || sentPending || inferredRunning} elapsed={elapsed} tools={runningTools} settled={settled} action={inferredRunning || settled ? { label: settled ? "Retry" : "Restart", onClick: () => void restartRuntime(), disabled: restartingRuntime } : undefined} />
           </div>
           {dialogNode && <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 px-3">{dialogNode}</div>}
           <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview) || locked } opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} onRetryModels={canRefreshModels ? onRetryModels : undefined} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
