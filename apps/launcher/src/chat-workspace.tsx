@@ -475,7 +475,16 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       client = connection.current;
       if (!client) return;
       const running = client.snapshot.projection.running;
-      await client.sendOrSteer(value, submitted.map(item => item.image), running);
+      try {
+        await client.sendOrSteer(value, submitted.map(item => item.image), running);
+      } catch (first) {
+        // A turn can be aborted in the UI while the runtime still owns the
+        // stream. switch_session rebuilds that runtime state, then the same
+        // prompt can go once instead of leaving the session permanently stuck.
+        if (!/Agent is already processing/iu.test(String(first))) throw first;
+        await client.reloadSession();
+        await client.sendOrSteer(value, submitted.map(item => item.image), false);
+      }
       if (connection.current !== client) return;
       // Only a successful send clears the sent key; text typed during the send and
       // attachments that were not submitted stay.
