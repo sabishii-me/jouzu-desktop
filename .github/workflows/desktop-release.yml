@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
@@ -171,7 +171,7 @@ jobs:
   publish:
     needs: [prepare, windows]
     if: ${{ inputs.publish }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     environment: desktop-release
     permissions:
@@ -250,5 +250,6 @@ jobs:
           cmp latest.json published.json
           asset="$(node -p "require('./published.json').platforms['windows-x86_64'].url")"
           curl -fsSL -o /dev/null "$asset"
+
 
 
