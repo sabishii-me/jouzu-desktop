@@ -938,8 +938,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
             .slice(0, 2)
             .map((pane: any) => {
               const active = pane.active;
-              const width = typeof pane.width === "number" ? Math.min(760, Math.max(280, pane.width)) : 360;
-              return { tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active, width: active === "artifacts" && width === 420 ? 560 : width };
+              const width = typeof pane.width === "number" ? Math.min(760, Math.max(280, pane.width)) : 560;
+              return { tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active, width: width === 360 || width === 420 ? 560 : width };
             })
         : [];
       setPanes(next);
@@ -973,10 +973,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     return artifactCounts[sessionId] ?? 0;
   }
   function toggleSide() {
-    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: 360 }]);
+    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: 560 }]);
   }
   function addPane() {
-    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: 360 }]);
+    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: 560 }]);
   }
   function removePane(index: number) {
     setPanes(current => current.filter((_, position) => position !== index));
@@ -1219,9 +1219,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         {panes.map((pane, index) => <aside key={index} data-session={snapshot.sessionId ?? ""} data-pane={index} style={{ width: pane.width }} className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background">
           <Tabs value={pane.active} onValueChange={value => setPanes(current => current.map((item, position) => position === index ? { ...item, active: value } : item))} className="flex min-h-0 flex-1 flex-col gap-0">
             <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-              <TabsList className="h-8 min-w-0 flex-1 justify-start gap-1 overflow-x-auto bg-transparent p-0">
+              <TabsList variant="line" className="h-9 min-w-0 flex-1 justify-start gap-1 overflow-visible rounded-none p-0">
                 {pane.tabs.map(tab => <div key={tab} className="relative flex shrink-0 items-center">
-                  <TabsTrigger value={tab} className="h-8 rounded-md border border-transparent px-2.5 pr-7 text-xs data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:shadow-none">{tab === "artifacts" ? "Artifacts" : tab === "start" ? "Start" : tab === "files" ? "Files" : tab}</TabsTrigger>
+                  <TabsTrigger value={tab} className="h-9 flex-none px-3 pr-7 text-xs">{tab === "artifacts" ? "Artifacts" : tab === "start" ? "Start" : tab === "files" ? "Files" : tab}</TabsTrigger>
                   <button type="button" className="absolute right-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Close ${tab} tab`} title="Close tab" onClick={() => closePaneTab(index, tab)}><X className="size-3" /></button>
                 </div>)}
               </TabsList>
