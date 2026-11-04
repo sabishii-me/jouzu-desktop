@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Brain, ChevronDown, LoaderCircle, Square } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, LoaderCircle, Play, RotateCcw, Square } from "lucide-react";
 import { ChatMarkdown } from "./chat-markdown";
 
 /**
@@ -13,11 +13,12 @@ export function AgentAction({ thinking, label, running, elapsed, settled, interr
   elapsed?: string;
   settled?: "stopped" | "failed";
   interrupted?: boolean;
-  action?: { label: string; onClick: () => void; disabled?: boolean };
+  action?: { label: string; onClick: () => void; disabled?: boolean; icon?: "resume" | "retry" };
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
-  const actionButton = action && <button type="button" disabled={action.disabled} onClick={action.onClick} className="ml-auto shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-foreground hover:bg-muted disabled:opacity-50">{action.label}</button>;
+  const ActionIcon = action?.icon === "retry" ? RotateCcw : Play;
+  const actionButton = action && <button type="button" disabled={action.disabled} onClick={action.onClick} className="ml-2 inline-flex shrink-0 items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-foreground hover:bg-muted disabled:opacity-50">{action.icon && <ActionIcon className="size-3" aria-hidden="true" />}{action.label}</button>;
   if (!running && interrupted) {
     return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
       <Square className="size-3.5 shrink-0" aria-hidden="true" />
