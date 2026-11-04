@@ -935,7 +935,11 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         ? saved.panes
             .filter((pane: any) => pane && Array.isArray(pane.tabs) && pane.tabs.length && typeof pane.active === "string")
             .slice(0, 2)
-            .map((pane: any) => ({ tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active: pane.active, width: typeof pane.width === "number" ? Math.min(760, Math.max(280, pane.width)) : 360 }))
+            .map((pane: any) => {
+              const active = pane.active;
+              const width = typeof pane.width === "number" ? Math.min(760, Math.max(280, pane.width)) : 360;
+              return { tabs: pane.tabs.filter((tab: unknown) => typeof tab === "string"), active, width: active === "artifacts" && width === 420 ? 560 : width };
+            })
         : [];
       setPanes(next);
     } catch { setPanes([]); }
@@ -968,10 +972,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     return artifactCounts[sessionId] ?? 0;
   }
   function toggleSide() {
-    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: 300 }]);
+    setPanes(current => current.length ? [] : [{ tabs: ["start"], active: "start", width: 360 }]);
   }
   function addPane() {
-    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: 280 }]);
+    setPanes(current => current.length >= 2 ? current : [...current, { tabs: ["start"], active: "start", width: 360 }]);
   }
   function removePane(index: number) {
     setPanes(current => current.filter((_, position) => position !== index));
@@ -999,7 +1003,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   }
   function openArtifactsPanel() {
     setPanes(current => {
-      if (!current.length) return [{ tabs: ["artifacts"], active: "artifacts", width: 420 }];
+      if (!current.length) return [{ tabs: ["artifacts"], active: "artifacts", width: 560 }];
       return current.map((pane, position) => position !== current.length - 1 ? pane : pane.tabs.includes("artifacts") ? { ...pane, tabs: pane.tabs.filter(tab => tab !== "start"), active: "artifacts" } : { ...pane, tabs: [...pane.tabs, "artifacts"], active: "artifacts" });
     });
   }
