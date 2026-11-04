@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24.22.1'
+          node-version: '24.22.2'
       - name: Check the dispatched version
         id: check
         shell: bash
@@ -81,7 +81,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24.22.1'
+          node-version: '24.22.2'
       - name: Install frontend dependencies
         run: npm ci --prefix apps/launcher
       - name: Install the acceptance browser
@@ -183,7 +183,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24.22.1'
+          node-version: '24.22.2'
       - name: Check the updater configuration
         shell: bash
         run: |
@@ -250,4 +250,5 @@ jobs:
           cmp latest.json published.json
           asset="$(node -p "require('./published.json').platforms['windows-x86_64'].url")"
           curl -fsSL -o /dev/null "$asset"
+
 
