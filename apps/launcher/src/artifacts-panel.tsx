@@ -5,10 +5,12 @@ import { Eye, FileText, FolderOpen, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { ImageViewer } from "./components/image-viewer";
+import { ChatMarkdown } from "./chat-markdown";
 
 interface ArtifactRecord {
   id: string;
   kind?: string;
+  path?: string;
   absolutePath?: string;
   prompt?: string;
   mimeType?: string;
@@ -20,6 +22,15 @@ interface ArtifactRecord {
 
 const isImage = (mime?: string) => !!mime && mime.startsWith("image/");
 const isText = (mime?: string) => !!mime && (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+xml"));
+
+/** A stored file name, unless it is the digest-style name the store gives it. */
+function displayName(item: ArtifactRecord): string {
+  if (item.prompt?.trim()) return item.prompt.trim();
+  const file = (item.absolutePath ?? item.path ?? "").split(/[\\/]/u).pop() ?? "";
+  const stem = file.replace(/\.[^.]+$/u, "");
+  if (stem && !/^[0-9a-f]{32,}$/iu.test(stem)) return file;
+  return item.kind === "documents" ? "Text artifact" : `${item.kind ?? "Artifact"} ${item.id.slice(0, 8)}`;
+}
 
 function Thumb({ id, alt, onOpen }: { id: string; alt: string; onOpen: () => void }) {
   const [src, setSrc] = useState<string | null>(null);
@@ -40,7 +51,7 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   const [items, setItems] = useState<ArtifactRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ src: string; title: string } | null>(null);
-  const [viewingText, setViewingText] = useState<{ text: string; title: string } | null>(null);
+  const [viewingText, setViewingText] = useState<{ text: string; title: string; markdown: boolean } | null>(null);
 
   async function load() {
     try {
@@ -58,12 +69,14 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   async function view(item: ArtifactRecord) {
     try {
       const result = await invoke<{ mimeType: string; data: string }>("artifact_read", { id: item.id });
-      const title = item.prompt?.slice(0, 120) || item.id;
+      const title = displayName(item);
       if (isImage(item.mimeType ?? result.mimeType)) {
         setViewing({ src: `data:${result.mimeType};base64,${result.data}`, title });
       } else if (isText(item.mimeType ?? result.mimeType)) {
         const bytes = Uint8Array.from(atob(result.data), character => character.charCodeAt(0));
-        setViewingText({ text: new TextDecoder().decode(bytes), title });
+        const mime = item.mimeType ?? result.mimeType;
+        const markdown = mime === "text/markdown" || /\.mdx?$/iu.test(item.absolutePath ?? item.path ?? "");
+        setViewingText({ text: new TextDecoder().decode(bytes), title, markdown });
       } else if (item.absolutePath) {
         await invoke("reveal_path", { path: item.absolutePath });
       } else {
@@ -99,9 +112,9 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map(item => <div key={item.id} className="space-y-2">
             {isImage(item.mimeType)
-              ? <Thumb id={item.id} alt={item.prompt ?? item.id} onOpen={() => void view(item)} />
-              : <button type="button" className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-muted/40" onClick={() => void view(item)} title={item.prompt ?? item.id}><FileText className="size-7 text-muted-foreground" /></button>}
-            <p className="line-clamp-2 text-[11px] text-muted-foreground" title={item.prompt}>{item.prompt || item.id}</p>
+              ? <Thumb id={item.id} alt={displayName(item)} onOpen={() => void view(item)} />
+              : <button type="button" className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-muted/40" onClick={() => void view(item)} title={displayName(item)}><FileText className="size-7 text-muted-foreground" /></button>}
+            <p className="line-clamp-2 text-[11px] text-muted-foreground" title={displayName(item)}>{displayName(item)}</p>
             <p className="truncate text-[10px] text-muted-foreground">{[item.source?.model, item.dimensions?.width && item.dimensions?.height ? `${item.dimensions.width}×${item.dimensions.height}` : "", item.createdAt ? new Date(item.createdAt).toLocaleString() : ""].filter(Boolean).join(" · ")}</p>
             <div className="flex flex-wrap gap-1">
               <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => void view(item)}><Eye className="size-3" />Open</Button>
@@ -119,9 +132,10 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
           <h3 className="min-w-0 truncate text-sm font-semibold">{viewingText.title}</h3>
           <Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => setViewingText(null)}>Close</Button>
         </div>
-        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-5">{viewingText.text}</pre>
+        {viewingText.markdown
+          ? <div className="min-h-0 flex-1 overflow-auto p-4 text-sm"><ChatMarkdown text={viewingText.text} /></div>
+          : <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-5">{viewingText.text}</pre>}
       </div>
     </div>}
   </Card>;
 }
-
