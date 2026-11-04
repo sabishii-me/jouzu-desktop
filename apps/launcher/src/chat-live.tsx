@@ -11,10 +11,17 @@ function preview(tool: ToolView): string {
   return typeof value === "string" ? value : "";
 }
 
-/** Live reasoning stays out of the transcript: one line above the composer. */
-export function LiveThinking({ text }: { text: string }) {
+/** One status line above the composer: reasoning while it streams, otherwise
+ * the turn label. The two never render together. */
+export function AgentAction({ thinking, label, running, elapsed }: { thinking: string; label: string; running: boolean; elapsed?: string }) {
   const [open, setOpen] = useState(false);
-  if (!text.trim()) return null;
+  const text = thinking.trim();
+  if (!running && !text) return null;
+  if (!text) return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
+    <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+    <span>{label}</span>
+    {elapsed && <span className="tabular-nums">{elapsed}</span>}
+  </div>;
   const last = text.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
   return <div className="px-1 pb-1">
     <button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted/40" aria-expanded={open} onClick={() => setOpen(value => !value)}>

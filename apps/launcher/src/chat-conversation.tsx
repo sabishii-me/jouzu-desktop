@@ -1,14 +1,12 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown } from "lucide-react";
 import { Button } from "./components/ui/button";
-import { JouzuLoader } from "./components/ui/jouzu-loader";
 import { ChatMarkdown } from "./chat-markdown";
 import { MessageImage } from "./message-image";
 import { WorkspaceContext } from "./workspace-context";
 import type { ChatMessage, ChatProjection } from "./chat-projection";
 import { ToolRenderer } from "./tool-renderers";
 import { ActivityStrip, isRichTool, type ActivityItem } from "./tool-renderers/tool-chip";
-import { ToolFrame } from "./tool-renderers/tool-frame";
 import { TurnFooter } from "./turn-footer";
 import { TurnSummary } from "./turn-summary-card";
 import { summarizeTurn } from "./turn-summary";
@@ -72,7 +70,15 @@ function contentParts(message: ChatMessage, index: number, projection: ChatProje
     if (block.type === "toolCall") {
       const tool = projection.tools[block.id ?? ""];
       if (!tool) {
-        parts.push(<ToolFrame key={position} title={block.name ?? "Tool call"} subtitle="Waiting for runtime details" state={projection.running ? "running" : "idle"}><p className="text-[11px] text-muted-foreground">This tool has not reported details yet.</p></ToolFrame>);
+        activity.push({
+          kind: "tool",
+          tool: {
+            id: block.id ?? `pending-${index}-${position}`,
+            name: block.name ?? "Tool call",
+            args: block.arguments,
+            phase: projection.running ? "running" : "complete",
+          },
+        });
       } else if (isRichTool(tool)) {
         parts.push(<ToolRenderer key={position} tool={tool} />);
       } else {
@@ -89,14 +95,12 @@ function UserContent({ message }: { message: ChatMessage }) {
   return <>{message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : null)}</>;
 }
 
-function ChatConversationView({ projection, workspace, pending = false, startedAt, opening = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
+function ChatConversationView({ projection, workspace, busy = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; busy?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
   const scroll = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
   const [limit, setLimit] = useState(30);
-  const [now, setNow] = useState(() => Date.now());
-  const working = projection.running || pending || opening;
   const pinToBottom = () => { if (following.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; };
   useEffect(() => {
     // A session mounts with its newest turn visible. Markdown, images, and collapsed
@@ -111,15 +115,6 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); observer.disconnect(); };
   }, []);
   useEffect(() => { pinToBottom(); }, [projection]);
-  useEffect(() => {
-    if (!working) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [working]);
-  const elapsed = working && (projection.turnStartedAt ?? startedAt) ? Math.max(0, Math.floor((now - (projection.turnStartedAt ?? startedAt)!) / 1000)) : null;
-  const hasVisibleHistory = projection.messages.some(message => message.role === "user" || message.role === "assistant");
-  const showWorking = working && !(opening && hasVisibleHistory);
   const visible = projection.messages.flatMap((message, index) => message.role === "user" || message.role === "assistant" ? [{ message, index }] : []);
   const shown = visible.slice(-limit);
   const turnMarkers = visible.flatMap((item, position) => {
@@ -198,7 +193,7 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
       const turnEnd = !nextMessage || nextMessage.role === "user";
       if (last.message.errorMessage) rows.push(<p key={`error-${last.index}`} role="alert" className="select-text text-sm text-destructive">{last.message.errorMessage}</p>);
       if (turnEnd && !last.message.content.some(block => block.type === "toolCall") && last.message.stopReason !== "toolUse") {
-        rows.push(<div key={`footer-${last.index}`}><TurnSummary data={summarizeTurn(projection.messages, projection.tools, last.index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={last.index} message={last.message} onFork={onFork} forkDisabled={opening || pending} /></div>);
+        rows.push(<div key={`footer-${last.index}`}><TurnSummary data={summarizeTurn(projection.messages, projection.tools, last.index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={last.index} message={last.message} onFork={onFork} forkDisabled={busy} /></div>);
       }
     }
   }
@@ -207,9 +202,7 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
     <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div ref={content} className="mx-auto max-w-3xl space-y-3">{rows}
-        {showWorking && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><JouzuLoader className="jouzu-loader-sm" /><span>{opening ? "Opening session…" : "Working…"}</span>{!opening && elapsed !== null && <span className="tabular-nums">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>}</div>}
-      </div>
+      <div ref={content} className="mx-auto max-w-3xl space-y-3">{rows}</div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}
     </div>
     {turnMarkers.length >= 2 && <nav ref={railRef} aria-label="Conversation turns" className="absolute right-3 top-1/2 z-10 max-h-[min(420px,calc(100%_-_4rem))] w-7 -translate-y-1/2 overflow-y-auto overscroll-contain py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
