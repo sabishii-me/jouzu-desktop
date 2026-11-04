@@ -588,6 +588,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       const active = connection.current;
       if (!active) return;
       await active.runCommand(command);
+      if (command === "/flow clear") setFlowNotice("");
     }
     catch (error) { setNotification(String(error).replace(/^Error:\s*/u, "")); }
     finally { setCommandBusy(false); }
