@@ -1,5 +1,8 @@
-import { useId, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Copy } from "lucide-react";
+
+/** Chips render the same body without a second header/border. */
+export const ToolDetailContext = createContext(false);
 
 export type ToolState = "running" | "done" | "error" | "warning" | "idle";
 
@@ -46,10 +49,12 @@ export function ToolFrame({ title, subtitle, state, defaultOpen, actions, childr
   statusLabel?: string;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
+  const embedded = useContext(ToolDetailContext);
   const expandable = children !== undefined;
   const initial = (autoOpen ? defaultOpenFor(state) : state === "error" || state === "warning") || defaultOpen === true;
   const open = expandable && (manual ?? initial);
   const bodyId = useId();
+  if (embedded) return <div className="space-y-2 text-xs">{children}</div>;
   return <section className={`my-1.5 overflow-hidden rounded-lg border border-border bg-muted/20 ${className}`}>
     <div className="flex items-center gap-2 px-2.5 py-2">
       <button

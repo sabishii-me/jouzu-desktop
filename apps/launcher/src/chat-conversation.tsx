@@ -1,12 +1,13 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, Brain } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { JouzuLoader } from "./components/ui/jouzu-loader";
 import { ChatMarkdown } from "./chat-markdown";
 import { MessageImage } from "./message-image";
 import { WorkspaceContext } from "./workspace-context";
-import type { ChatMessage, ChatProjection } from "./chat-projection";
+import type { ChatMessage, ChatProjection, ToolView } from "./chat-projection";
 import { ToolRenderer } from "./tool-renderers";
+import { ToolChipGroup, isRichTool } from "./tool-renderers/tool-chip";
 import { ToolFrame } from "./tool-renderers/tool-frame";
 import { TurnFooter } from "./turn-footer";
 import { TurnSummary } from "./turn-summary-card";
@@ -57,6 +58,47 @@ function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boo
   >
     <div className="text-xs text-muted-foreground"><ChatMarkdown text={thinking} /></div>
   </ToolFrame>;
+}
+
+/**
+ * Consecutive text tools become one row of icons. Rich results (images, Flow,
+ * tasks, background work, subagents) keep their own card; nothing is dropped.
+ */
+function MessageContent({ message, index, projection, lastAssistantIndex }: {
+  message: ChatMessage;
+  index: number;
+  projection: ChatProjection;
+  lastAssistantIndex?: number;
+}) {
+  const parts: ReactNode[] = [];
+  let chips: ToolView[] = [];
+  const flush = (key: string) => {
+    if (!chips.length) return;
+    parts.push(<ToolChipGroup key={`chips-${key}`} tools={chips} />);
+    chips = [];
+  };
+  message.content.forEach((block, position) => {
+    if (block.type === "toolCall") {
+      const tool = projection.tools[block.id ?? ""];
+      if (!tool) {
+        flush(String(position));
+        parts.push(<ToolFrame key={position} title={block.name ?? "Tool call"} subtitle="Waiting for runtime details" state={projection.running ? "running" : "idle"}><p className="text-[11px] text-muted-foreground">This tool has not reported details yet.</p></ToolFrame>);
+      } else if (isRichTool(tool)) {
+        flush(String(position));
+        parts.push(<ToolRenderer key={position} tool={tool} />);
+      } else {
+        chips.push(tool);
+      }
+      return;
+    }
+    flush(String(position));
+    if (block.type === "text") parts.push(<ChatMarkdown key={position} text={block.text ?? ""} />);
+    else if (block.type === "thinking") parts.push(<ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} />);
+    else if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) parts.push(<MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />);
+    else parts.push(<p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>);
+  });
+  flush("end");
+  return <>{parts}</>;
 }
 
 function ChatConversationView({ projection, workspace, pending = false, startedAt, opening = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
@@ -144,7 +186,7 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
       <div ref={content} className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
         <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>
-        {message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : block.type === "thinking" ? <ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && index === lastAssistantIndex} /> : block.type === "toolCall" ? projection.tools[block.id ?? ""] ? <ToolRenderer key={position} tool={projection.tools[block.id!]} /> : <ToolFrame key={position} title={block.name ?? "Tool call"} subtitle="Waiting for runtime details" state={projection.running ? "running" : "idle"}><p className="text-[11px] text-muted-foreground">This tool has not reported details yet.</p></ToolFrame> : block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "") ? <MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" /> : <p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>)}
+        <MessageContent message={message} index={index} projection={projection} lastAssistantIndex={lastAssistantIndex} />
         {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
         {message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
       </article>)}
