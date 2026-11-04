@@ -177,16 +177,17 @@ export class ChatPool {
       return cached;
     }
     if (cached) this.entries.delete(key);
-    // A session owns its runtime. Do not lease a shared warm slot and switch it
-    // across branches: the old process can still hold the branch, and a warm
-    // session switch must not call switch_session at all.
-    const client = new ChatConnection(() => {}, dialog ?? (() => {}));
-    try {
-      await client.start(path, false, `session:${key}`, false);
-      await client.resumeSession(sessionPath);
-    } catch (error) {
-      await client.close();
-      throw error;
+    let client: ChatConnection;
+    try { client = await this.lease(path, sessionPath, dialog, false); }
+    catch (error) {
+      // An external process owns the branch. Only a cached client of ours can be
+      // stopped; then retry once, because stealing another process lock is not allowed.
+      if (!/already owned|busy/iu.test(String(error))) throw error;
+      const cached = this.entries.get(key);
+      if (!cached) throw error;
+      await cached.close();
+      this.entries.delete(key);
+      client = await this.lease(path, sessionPath, dialog, false);
     }
     this.entries.set(key, client);
     this.watch(client);
