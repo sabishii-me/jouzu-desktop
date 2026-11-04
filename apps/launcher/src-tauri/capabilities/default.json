@@ -27,10 +27,11 @@
           "url": "https://auth.openai.com/*"
         },
         {
-          "url": "https://github.com/shisa-ai/jouzu/*"
+          "url": "https://github.com/shisa-ai/jouzu-desktop/*"
         }
       ]
     },
     "updater:default"
   ]
 }
+

@@ -32,6 +32,14 @@ const TERMINAL_ENVIRONMENT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../packaging/launcher/terminal-environment.ps1"
 ));
+const COMMAND_PATH: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/command-path.ps1"
+));
+const COMMAND_ENTRIES: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../packaging/launcher/command-entries.ps1"
+));
 const APP_MANIFEST: &str = "{\n  \"name\": \"jouzu-desktop-runtime\",\n  \"private\": true\n}\n";
 
 type Progress<'a> = &'a dyn Fn(serde_json::Value);
@@ -425,13 +433,15 @@ fn install_tools(managed: &Path, progress: Progress) -> Result<(), String> {
 }
 
 /// These helpers are the desktop's own; the npm package does not carry them.
-fn write_tool_scripts(managed: &Path) -> Result<(), String> {
+pub(crate) fn write_tool_scripts(managed: &Path) -> Result<(), String> {
     let directory = managed.join("runtime").join("launcher-update");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     for (name, body) in [
         ("git-environment.ps1", GIT_ENVIRONMENT),
         ("extract-portable-git.ps1", GIT_EXTRACT),
         ("terminal-environment.ps1", TERMINAL_ENVIRONMENT),
+        ("command-path.ps1", COMMAND_PATH),
+        ("command-entries.ps1", COMMAND_ENTRIES),
     ] {
         std::fs::write(directory.join(name), body).map_err(|error| error.to_string())?;
     }
