@@ -76,6 +76,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     ? activeMessage.content.flatMap(block => block.type === "thinking" ? [block.thinking ?? ""] : []).join("\n")
     : "";
   const runningTools = Object.values(snapshot.projection.tools).filter(tool => tool.phase === "running");
+  useEffect(() => {
+    if (snapshot.projection.running || snapshot.pending) setSentPending(false);
+  }, [snapshot.projection.running, snapshot.pending]);
   const [draft, setDraft] = useState("");
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -129,6 +132,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   const [reportsSession, setReportsSession] = useState("");
   const [timing, setTiming] = useState<SessionTiming>();
   const [workingStartedAt, setWorkingStartedAt] = useState<number>();
+  const [sentPending, setSentPending] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -485,6 +489,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         await client.reloadSession();
         await client.sendOrSteer(value, submitted.map(item => item.image), false);
       }
+      setSentPending(true);
       if (connection.current !== client) return;
       // Only a successful send clears the sent key; text typed during the send and
       // attachments that were not submitted stay.
@@ -503,6 +508,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         try { if (await recoverSession()) return; } catch (recoveryError) { setNotification(String(recoveryError).replace(/^Error:\s*/u, "")); return; }
       }
       if (connection.current === client) setNotification(humanizeRuntimeError(message));
+      setSentPending(false);
     } finally { setCommandBusy(false); }
   }
   const name = workspaceLabel(path);
@@ -1171,7 +1177,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       </div> : !snapshot.sessionId ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Opening session…</div> : <div className="flex min-h-0 flex-1"><div className="flex min-w-[520px] flex-1 flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col">
 {snapshot.gap && <p role="status" className="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground">The transcript was refreshed after a display backlog.</p>}
-          <ChatConversation key={conversationKey} projection={conversationProjection} workspace={path} pending={snapshot.pending} startedAt={workingStartedAt} opening={false} onFork={(prompt, index) => void forkTurn(prompt, index)} onOpenArtifacts={openArtifactsPanel} />
+          <ChatConversation key={conversationKey} projection={conversationProjection} workspace={path} pending={snapshot.pending || sentPending} startedAt={workingStartedAt} opening={false} onFork={(prompt, index) => void forkTurn(prompt, index)} onOpenArtifacts={openArtifactsPanel} />
           {opening && !activePreview && <div role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-24 backdrop-blur-[1px]"><span className="rounded-lg border border-border bg-popover px-4 py-2 text-sm text-foreground shadow-lg">Opening {selectedTitle ?? name}…</span></div>}
         </div>
         <div className="relative">
