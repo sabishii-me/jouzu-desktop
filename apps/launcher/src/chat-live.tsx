@@ -15,22 +15,25 @@ function preview(tool: ToolView): string {
  * One status line above the composer. Reasoning, the current tool and the
  * generic Working label are mutually exclusive; only one of them is visible.
  */
-export function AgentAction({ thinking, label, running, elapsed, tools = [], settled }: {
+export function AgentAction({ thinking, label, running, elapsed, tools = [], settled, action }: {
   thinking: string;
   label: string;
   running: boolean;
   elapsed?: string;
   tools?: ToolView[];
   settled?: "stopped" | "failed";
+  action?: { label: string; onClick: () => void; disabled?: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
   const tool = tools.at(-1);
+  const actionButton = action && <button type="button" disabled={action.disabled} onClick={action.onClick} className="ml-auto shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-foreground hover:bg-muted disabled:opacity-50">{action.label}</button>;
   if (!running && !text && settled) {
     const Icon = settled === "failed" ? AlertTriangle : Square;
     return <div role="status" aria-live="polite" className={`flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] ${settled === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
       <span>{settled === "failed" ? "Failed" : "Stopped"}</span>
+      {actionButton}
     </div>;
   }
   if (!running && !text) return null;
@@ -40,6 +43,7 @@ export function AgentAction({ thinking, label, running, elapsed, tools = [], set
       <span className="shrink-0 font-medium text-foreground">{tool.name}</span>
       {tools.length > 1 && <span className="shrink-0 text-[10px]">+{tools.length - 1}</span>}
       <span className="min-w-0 flex-1 truncate font-mono">{preview(tool)}</span>
+      {actionButton}
       <ChevronDown className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
     </button>
     {open && <pre className="max-h-40 overflow-auto rounded-md border border-border bg-background px-3 py-2 font-mono text-[10px] text-muted-foreground">{JSON.stringify(tool.args, null, 2)}</pre>}
@@ -48,6 +52,7 @@ export function AgentAction({ thinking, label, running, elapsed, tools = [], set
     <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
     <span>{label}</span>
     {elapsed && <span className="tabular-nums">{elapsed}</span>}
+    {actionButton}
   </div>;
   const last = text.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
   return <div className="px-1 pb-1">
