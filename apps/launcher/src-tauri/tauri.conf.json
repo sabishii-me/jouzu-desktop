@@ -60,7 +60,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA2RTgxREY2NTZERkE1QTcKUldTbnBkOVc5aDNvQmcvKzVrTVpDVEp2OTRSWjlVMnk0elEwVzdvKzc2M2JDUHBvM0Q3ckEweCsK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNFMUY0RjBGOTc4Q0UzNDIKUldSQzQ0eVhEMDhmUHUxUHZXNWZFNmdkZXpHY0JzWUJQNFZlNFY3SUJJNFlaYXNBMlBsQVZ6c1IK",
       "endpoints": [
         "https://github.com/shisa-ai/jouzu-desktop/releases/download/desktop-update/latest.json"
       ],
@@ -70,6 +70,7 @@
     }
   }
 }
+
 
 
 
