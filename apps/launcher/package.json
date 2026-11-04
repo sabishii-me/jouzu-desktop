@@ -3,6 +3,7 @@
   "version": "1.0.12",
   "scripts": {
     "dev": "vite",
+    "dev:isolated": "node scripts/dev-isolated.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
