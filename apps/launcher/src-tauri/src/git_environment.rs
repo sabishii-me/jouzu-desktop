@@ -78,8 +78,14 @@ pub fn report(root: &Path) -> Result<serde_json::Value, String> {
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
-    let git = std::process::Command::new("git")
-        .arg("--version")
+    let mut command = std::process::Command::new("git");
+    command.arg("--version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let git = command
         .output()
         .ok()
         .filter(|output| output.status.success())

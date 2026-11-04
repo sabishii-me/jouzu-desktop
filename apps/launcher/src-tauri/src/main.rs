@@ -370,6 +370,17 @@ fn forget_workspace(app: tauri::AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+fn hidden_node_version(node: &std::path::Path) -> Option<String> {
+    let mut command = std::process::Command::new(node);
+    command.arg("--version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command.output().ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 #[tauri::command]
 fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let root = runtime::application_root(&app)?;
@@ -389,7 +400,7 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "root": root.to_string_lossy(),
         "app": app_path.to_string_lossy(),
         "node": root.join("runtime/node/node.exe").is_file(),
-        "nodeVersion": std::process::Command::new(root.join("runtime/node/node.exe")).arg("--version").output().ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string()),
+        "nodeVersion": hidden_node_version(&root.join("runtime/node/node.exe")),
         "nodeCurrent": crate::runtime_install::node_version_ok(&root),
         "git": root.join("runtime/git").exists(),
         "terminal": root.join("runtime/terminal").exists(),

@@ -127,7 +127,8 @@ fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
     if !script.is_file() {
         return Err("The image tool is not installed yet.".into());
     }
-    let mut child = std::process::Command::new(node)
+    let mut command = std::process::Command::new(node);
+    command
         .arg(&script)
         .args(args)
         .env("JOUZU_HOME", &home)
@@ -135,7 +136,13 @@ fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command
         .spawn()
         .map_err(|_| "The image tool could not be started.".to_string())?;
     // Never wait forever on a provider that does not answer.
