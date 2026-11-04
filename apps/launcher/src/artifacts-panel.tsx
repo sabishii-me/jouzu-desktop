@@ -36,10 +36,9 @@ function Thumb({ id, alt, onOpen }: { id: string; alt: string; onOpen: () => voi
 }
 
 /** Everything the artifact store holds, newest first (0072). */
-export function ArtifactsPanel({ sessionId, sessionFile }: { sessionId?: string; sessionFile?: string } = {}) {
+export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   const [items, setItems] = useState<ArtifactRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [allCount, setAllCount] = useState<number | undefined>(undefined);
   const [viewing, setViewing] = useState<{ src: string; title: string } | null>(null);
   const [viewingText, setViewingText] = useState<{ text: string; title: string } | null>(null);
 
@@ -48,10 +47,6 @@ export function ArtifactsPanel({ sessionId, sessionFile }: { sessionId?: string;
       const result = await invoke<{ artifacts: ArtifactRecord[] }>("artifact_list", sessionId ? { sessionId } : {});
       setItems(result.artifacts ?? []);
       setError(null);
-      if (import.meta.env.DEV) {
-        const all = await invoke<{ artifacts: ArtifactRecord[] }>("artifact_list", {});
-        setAllCount(all.artifacts?.length ?? 0);
-      }
     } catch (failure) {
       setError(String(failure));
       setItems([]);
@@ -94,7 +89,6 @@ export function ArtifactsPanel({ sessionId, sessionFile }: { sessionId?: string;
     <CardHeader>
       <CardTitle>Artifacts</CardTitle>
       <CardDescription>{sessionId ? "Artifacts produced in this session." : "Generated files stored under the agent's artifacts folder, newest first."}</CardDescription>
-      {import.meta.env.DEV && <p className="break-all font-mono text-[10px] text-muted-foreground">session={sessionId ?? "none"} file={sessionFile?.split(/[\\/]/u).pop() ?? "none"} loaded={items ? items.length : "?"} all={allCount ?? "?"} error={error ?? "none"}</p>}
     </CardHeader>
     <CardContent className="space-y-4">
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
@@ -130,3 +124,4 @@ export function ArtifactsPanel({ sessionId, sessionFile }: { sessionId?: string;
     </div>}
   </Card>;
 }
+
