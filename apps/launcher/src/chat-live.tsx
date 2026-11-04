@@ -6,21 +6,22 @@ import { ChatMarkdown } from "./chat-markdown";
  * One turn status line above the composer. It only carries turn state
  * (reasoning / working / interrupted / failed); tools stay in the activity strip.
  */
-export function AgentAction({ thinking, label, running, elapsed, settled, unknown }: {
+export function AgentAction({ thinking, label, running, elapsed, settled, background, preview }: {
   thinking: string;
   label: string;
   running: boolean;
   elapsed?: string;
   settled?: "interrupted" | "failed";
-  unknown?: boolean;
+  background?: boolean;
+  preview?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
-  if (!running && !text && unknown) {
+  if (!running && !text && background) {
     return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
-      <Square className="size-3.5 shrink-0" aria-hidden="true" />
-      <span className="font-medium">Runtime state unknown</span>
-      <span>Send a new message to retry, or reset Flow.</span>
+      <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
+      <span className="font-medium">Running in background</span>
+      <span>Open the session to follow it.</span>
     </div>;
   }
   if (!running && !text && settled) {
@@ -29,6 +30,13 @@ export function AgentAction({ thinking, label, running, elapsed, settled, unknow
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
       <span className="font-medium">{settled === "failed" ? "Failed" : "Interrupted"}</span>
       <span className="text-muted-foreground">{settled === "failed" ? "Send a new message to retry." : "Send a new message, or reset Flow, to continue."}</span>
+    </div>;
+  }
+  if (!running && !text && preview) {
+    return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
+      <Square className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="font-medium">Session preview</span>
+      <span>Runtime is not attached. Send a new message or reset Flow.</span>
     </div>;
   }
   if (!running && !text) return null;
