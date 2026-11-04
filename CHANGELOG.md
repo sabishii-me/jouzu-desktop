@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.11 - 2026-11-03
+
+- Retry the model catalog after a fresh sign-in. The first catalog refresh can
+  race a just-issued account key; the chat now retries it instead of leaving a
+  signed-in install with an empty model list. If all attempts fail, the model
+  menu and the Shisa.AI card in Settings offer an explicit retry.
+
+## 1.0.10 - 2026-11-02
+
+- Fix compact on a large session: the desktop no longer reads the whole
+  transcript to attach for compact or after it, so a response above the 32 MiB
+  JSONL frame limit can no longer close the session. Compaction changes the
+  runtime context; the view keeps the transcript it already has.
+
+## 1.0.9 - 2026-11-02
+
+- Add Codex OAuth to Add Provider: sign in with a ChatGPT Plus/Pro account
+  using the same device-code flow as Shisa.AI.
+
+## 1.0.8 - 2026-11-02
+
+- Fix the first-run runtime install: npm lifecycle scripts now find the Node
+  that the installer just downloaded, so a machine without a system Node can
+  finish provisioning.
+
 ## 1.0.1 - 2026-10-23
 
 - Ship the desktop-only installer; the Jouzu runtime is provisioned separately.

@@ -5,9 +5,12 @@ import { ChatMarkdown } from "../chat-markdown";
 import { object, type ToolView } from "../chat-projection";
 import { classifyText, diffRows, prettyJson } from "./tool-format";
 import { record, toolText } from "./types";
+import { ArtifactImage } from "./artifact-image";
+import { artifactPathFromText } from "./artifact-path";
+import { RevealPath } from "../reveal-path";
 
 const MAX_LINES = 2000;
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_TOOL_IMAGE_BYTES = 8 * 1024 * 1024;
 const ANSI = /\u001b\[([0-9;]*)m/g;
 const ANSI_COLORS: Record<number, string> = {
   30: "text-black", 31: "text-red-500", 32: "text-green-500", 33: "text-yellow-500",
@@ -91,15 +94,27 @@ function readPath(args: unknown): string | undefined {
   return typeof value?.path === "string" ? value.path : undefined;
 }
 
-function imageBlocks(result: unknown) {
+export interface ToolImageBlock {
+  mime: string;
+  data: string;
+  alt: string;
+  bytes: number;
+  tooLarge: boolean;
+}
+
+/**
+ * Keep every image block a tool returned, including an oversized or unsupported
+ * one: the image component renders a card explaining why it is not inline.
+ */
+export function imageBlocks(result: unknown): ToolImageBlock[] {
   const value = record(result);
   const blocks = value && Array.isArray(value.content) ? value.content : [];
   return blocks.flatMap(block => {
     const item = record(block);
     if (item?.type !== "image" || typeof item.data !== "string") return [];
     const mime = typeof item.mimeType === "string" ? item.mimeType : "";
-    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime) || item.data.length * 0.75 > MAX_IMAGE_BYTES) return [];
-    return [{ mime, data: item.data, alt: typeof item.alt === "string" ? item.alt : "Tool output image" }];
+    const bytes = Math.floor(item.data.length * 0.75);
+    return [{ mime, data: item.data, alt: typeof item.alt === "string" ? item.alt : "Tool output image", bytes, tooLarge: bytes > MAX_TOOL_IMAGE_BYTES }];
   });
 }
 
@@ -154,15 +169,32 @@ function resultMeta(result: unknown) {
 export function ToolOutput({ tool }: { tool: ToolView }) {
   const [expanded, setExpanded] = useState(false);
   const text = toolText(tool.result);
-  const images = imageBlocks(tool.result);
+  const blocks = imageBlocks(tool.result);
+  const details = record(record(tool.result)?.details);
+  const prompt = typeof details?.prompt === "string" ? details.prompt : "";
+  const model = typeof details?.model === "string" ? details.model : "";
+  const size = typeof details?.size === "string" ? details.size : "";
+  const metas = Array.isArray(details?.images) ? details.images : [];
+  const fallbackPath = blocks.length === 1 ? artifactPathFromText(text) : undefined;
+  const images = blocks.map((image, index) => {
+    const meta = record(metas[index]);
+    return {
+      ...image,
+      alt: prompt || image.alt,
+      path: typeof meta?.path === "string" ? meta.path : fallbackPath,
+      bytes: image.bytes,
+      width: typeof meta?.width === "number" ? meta.width : undefined,
+      height: typeof meta?.height === "number" ? meta.height : undefined,
+    };
+  });
   const path = readPath(tool.args);
   const kind = classifyText(text);
   const meta = resultMeta(tool.result);
   const long = text.length > 2000 || text.split("\n").length > 40;
-  if (images.length) return <div className="space-y-2">{images.map((image, index) => <img key={index} src={`data:${image.mime};base64,${image.data}`} alt={image.alt} className="max-h-80 max-w-full rounded-md border border-border object-contain" />)}{text && <AnsiPre text={text} expanded={expanded} />}</div>;
+  if (images.length) return <div className="space-y-3">{images.map((image, index) => <ArtifactImage key={index} image={image} caption={[model, size, image.width && image.height ? `${image.width}×${image.height}` : ""].filter(Boolean).join(" · ")} />)}{text && <AnsiPre text={text} expanded={expanded} />}</div>;
   if (!text) return <p className="text-xs text-muted-foreground">No text output.</p>;
   return <div className="space-y-1">
-    <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-muted-foreground">{tool.name === "read" && path ? path : "Output"}{meta.length ? ` · ${meta.join(" · ")}` : ""}</span><div className="flex shrink-0"><CopyButton text={text} /><DownloadButton text={text} />{long && <Button variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse" : "Expand"}</Button>}</div></div>
+    <div className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-muted-foreground">{tool.name === "read" && path ? path : "Output"}{meta.length ? ` · ${meta.join(" · ")}` : ""}</span>{tool.name === "read" && path && <RevealPath path={path} compact label="Reveal" />}</span><div className="flex shrink-0"><CopyButton text={text} /><DownloadButton text={text} />{long && <Button variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse" : "Expand"}</Button>}</div></div>
     {tool.phase === "error" && <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">Tool failed{meta.length ? ` (${meta.join(", ")})` : ""}</p>}
     {tool.name === "bash" ? <AnsiPre text={text} expanded={expanded} />
       : tool.name === "read" && markdownPath(tool.args) ? <MarkdownOutput text={text} expanded={expanded} />

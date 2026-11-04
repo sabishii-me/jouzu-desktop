@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ansiParts } from "./tool-output";
+import { ansiParts, imageBlocks } from "./tool-output";
 
 describe("tool output ANSI rendering", () => {
   it("preserves plain text and removes SGR escapes", () => {
@@ -17,5 +17,23 @@ describe("tool output ANSI rendering", () => {
     const parts = ansiParts("\u001b[1;4mhead\u001b[22;24m tail");
     expect(parts[0]?.state).toMatchObject({ bold: true, underline: true });
     expect(parts[1]?.state).toMatchObject({ bold: false, underline: false });
+  });
+});
+describe("tool output images", () => {
+  it("extracts a supported image block", () => {
+    const images = imageBlocks({ content: [{ type: "text", text: "x" }, { type: "image", mimeType: "image/png", data: "QUJD" }] });
+    expect(images).toEqual([{ mime: "image/png", data: "QUJD", alt: "Tool output image", bytes: 3, tooLarge: false }]);
+  });
+
+  it("keeps an unsupported type so the card can explain it", () => {
+    expect(imageBlocks({ content: [{ type: "image", mimeType: "image/svg+xml", data: "x" }] })).toEqual([
+      { mime: "image/svg+xml", data: "x", alt: "Tool output image", bytes: 0, tooLarge: false },
+    ]);
+  });
+
+  it("keeps oversized data for the card instead of dropping it", () => {
+    const [image] = imageBlocks({ content: [{ type: "image", mimeType: "image/png", data: "x".repeat(12 * 1024 * 1024) }] });
+    expect(image.tooLarge).toBe(true);
+    expect(image.bytes).toBeGreaterThan(8 * 1024 * 1024);
   });
 });

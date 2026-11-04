@@ -7,6 +7,7 @@ mod chat_process;
 mod chat_process;
 mod chat_transport;
 mod chat;
+mod artifacts;
 mod attachments;
 mod active_app;
 mod launcher_script;
@@ -18,6 +19,7 @@ mod command_path;
 mod managed_paths;
 mod migration;
 mod recovery;
+mod runtime_install;
 mod node_path;
 mod renderer;
 mod update_lock;
@@ -26,6 +28,7 @@ mod control;
 mod environment;
 mod runtime;
 mod sessions;
+mod image_tool;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -182,6 +185,28 @@ fn command_entry_repair(app: tauri::AppHandle) -> Result<serde_json::Value, Stri
 #[tauri::command]
 fn command_entry_remove(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     command_path::remove(&runtime::application_root(&app)?, &runtime::managed_root()?)
+}
+
+#[tauri::command]
+/// The transcript owns the URL policy: only ordinary http(s) URLs without
+/// embedded credentials leave the app, for any host.
+fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed = external_http_url(&url)?;
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(parsed.to_string(), None::<&str>)
+        .map_err(|_| "Could not open link.".to_string())
+}
+
+fn external_http_url(value: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(value).map_err(|_| "This link cannot be opened externally.".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("This link cannot be opened externally.".into());
+    }
+    Ok(parsed)
 }
 
 #[tauri::command]
@@ -364,9 +389,24 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "root": root.to_string_lossy(),
         "app": app_path.to_string_lossy(),
         "node": root.join("runtime/node/node.exe").is_file(),
+        "nodeVersion": std::process::Command::new(root.join("runtime/node/node.exe")).arg("--version").output().ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string()),
+        "nodeCurrent": crate::runtime_install::node_version_ok(&root),
         "git": root.join("runtime/git").exists(),
         "terminal": root.join("runtime/terminal").exists(),
     }))
+}
+
+#[tauri::command]
+async fn runtime_install(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let managed = runtime::managed_root()?;
+    let handle = app.clone();
+    let version = tauri::async_runtime::spawn_blocking(move || {
+        let emit = |value: serde_json::Value| { let _ = tauri::Emitter::emit(&handle, "runtime-install-progress", value); };
+        runtime_install::install(&managed, &emit)
+    })
+    .await
+    .map_err(|_| "Runtime installation failed".to_string())??;
+    Ok(serde_json::json!({ "version": version }))
 }
 
 #[tauri::command]
@@ -405,16 +445,38 @@ fn mcp_config() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn component_versions(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let root = runtime::application_root(&app)?;
-    // Component health must not disable the independent Launcher repair channel.
-    let value = active_app::resolve_app(&root, &runtime::managed_root()?)
-        .ok()
+    // The updater flags describe the shell. A missing, broken or outdated runtime must not
+    // disable them; that is the only way a broken install can still update itself.
+    let launcher_updater = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .map(|value| {
+            value["pubkey"].as_str().is_some_and(|s| !s.is_empty())
+                && value["endpoints"].as_array().is_some_and(|a| !a.is_empty())
+        })
+        .unwrap_or(false);
+    let root = runtime::application_root(&app).ok();
+    let value = root
+        .as_ref()
+        .and_then(|root| {
+            let managed = runtime::managed_root().ok()?;
+            active_app::resolve_app(root, &managed).ok()
+        })
         .and_then(|path| std::fs::read(path.join("node_modules/jouzu/package.json")).ok())
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .unwrap_or(serde_json::Value::Null);
-    Ok(
-        serde_json::json!({ "jouzuUpdaterConfigured": root.join("jouzu-update.json").is_file() && root.join("runtime/launcher-update/update-service.mjs").is_file(), "jouzu": value.get("version").and_then(|v| v.as_str()), "development": cfg!(debug_assertions), "launcherUpdaterConfigured": app.config().plugins.0.get("updater").map(|v| v["pubkey"].as_str().is_some_and(|s| !s.is_empty()) && v["endpoints"].as_array().is_some_and(|a| !a.is_empty())).unwrap_or(false) }),
-    )
+    let jouzu_updater = root.as_ref().is_some_and(|root| {
+        root.join("jouzu-update.json").is_file()
+            && root.join("runtime/launcher-update/update-service.mjs").is_file()
+    });
+    Ok(serde_json::json!({
+        "jouzuUpdaterConfigured": jouzu_updater,
+        "jouzu": value.get("version").and_then(|v| v.as_str()),
+        "development": cfg!(debug_assertions),
+        "launcherUpdaterConfigured": launcher_updater,
+    }))
 }
 
 #[tauri::command]
@@ -566,8 +628,19 @@ fn main() {
             chat::chat_start,
             chat::chat_send,
             chat::chat_poll,
+            chat::chat_scratch_dir,
+            chat::chat_poll_many,
+            chat::chat_release_generation,
             chat::chat_stop,
+            chat::chat_stop_all,
+            chat::chat_claim,
+            chat::chat_stop_session,
             attachments::read_dropped_image,
+            attachments::read_local_image,
+            attachments::reveal_path,
+            attachments::save_copy,
+            attachments::workspace_list,
+            attachments::workspace_read,
             sessions::chat_sessions,
             sessions::chat_session_update,
             sessions::chat_flow_reports,
@@ -581,7 +654,18 @@ fn main() {
             add_workspaces,
             component_versions,
             runtime_report,
+            runtime_install,
             mcp_config,
+            image_tool::tools_settings_read,
+            image_tool::tools_settings_save,
+            image_tool::image_providers,
+            image_tool::image_models,
+            image_tool::image_tool_ensure,
+            artifacts::artifact_list,
+            artifacts::artifact_read,
+            artifacts::artifact_delete,
+            artifacts::artifact_store_copy,
+            artifacts::artifact_counts,
             recovery::repair_jouzu,
             diagnostics,
             crash_dismiss,
@@ -589,6 +673,7 @@ fn main() {
             bug_report,
             terminal_open,
             open_logs,
+            open_external_url,
             command_entry_report,
             command_entry_use,
             command_entry_remove,
@@ -646,6 +731,18 @@ mod tests {
     fn rejects_invalid_preferences() {
         assert!(legacy_workspace("not json").is_err());
         assert!(legacy_workspace(r#"{"schemaVersion":2,"remember":true,"folder":"x"}"#).is_err());
+    }
+    #[test]
+    fn external_links_allow_any_http_host() {
+        assert!(external_http_url("http://localhost:8100").is_ok());
+        assert!(external_http_url("https://example.com/a?b=1").is_ok());
+    }
+    #[test]
+    fn external_links_reject_other_schemes_and_credentials() {
+        assert!(external_http_url("file:///C:/Windows/notepad.exe").is_err());
+        assert!(external_http_url("javascript:alert(1)").is_err());
+        assert!(external_http_url("https://user:pass@example.com/").is_err());
+        assert!(external_http_url("http://").is_err());
     }
 }
 

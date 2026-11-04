@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emptyProjection, historyProjection, interruptUnfinishedTools, object, projectEvent, type ChatProjection, type WireObject } from "./chat-projection";
 
+/** One id per page load: handles from an older page are released by chat_release_generation. */
+export const pageGeneration = globalThis.crypto.randomUUID();
+
 export interface ChatImage { type: "image"; data: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif" }
 export interface ChatModel { provider: string; id: string; name: string }
 export interface SessionStats {
@@ -52,6 +55,8 @@ export interface ChatSnapshot {  projection: ChatProjection;
   stats?: SessionStats;
   thinkingLevel?: string;
   thinkingLevels?: string[];
+  /** The transcript was compacted after a display backlog and will be reloaded. */
+  gap?: boolean;
 }
 interface Poll { records: WireObject[]; closed: boolean; error?: string }
 // A response watchdog, not a request deadline: the released runtime owns how long a command
@@ -67,21 +72,36 @@ export class ChatConnection {
   private timer?: ReturnType<typeof setTimeout>;
   private polling = false;
   private replaying = false;
+  private gapPending = false;
   private nextId = 0;
   private dialogs = new Map<string, number | null>();
   private lastPoll = Date.now();
   private preferredModel = readModelPreference();
   private requests = new Map<string, { command: string; resolve: (value: unknown) => void; reject: (error: Error) => void; deadline: number }>();
   snapshot: ChatSnapshot = { projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] };
-  constructor(private publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject) => void) {}
-  private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) this.publish(this.snapshot); }
-  async start(path: string, fresh = false) {
+  private subscribers = new Set<(state: ChatSnapshot) => void>();
+  constructor(publish: (state: ChatSnapshot) => void, private dialog: (request: WireObject, client: ChatConnection) => void) {
+    this.subscribers.add(publish);
+  }
+  /** A pool-owned connection can outlive one view; views subscribe instead of owning the callback. */
+  subscribe(listener: (state: ChatSnapshot) => void): () => void {
+    this.subscribers.add(listener);
+    listener(this.snapshot);
+    return () => { this.subscribers.delete(listener); };
+  }
+  setDialogHandler(handler: (request: WireObject, client: ChatConnection) => void) { this.dialog = handler; }
+  isDisposed() { return this.disposed; }
+  private update(change: Partial<ChatSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; if (!this.disposed) for (const listener of this.subscribers) listener(this.snapshot); }
+  private external = false;
+  async start(path: string, fresh = false, key = path, external = false) {
+    this.external = external;
     // The runtime replays historical messages as ordinary wire events while the
     // connection attaches. Suppress those events until get_messages has supplied
     // the authoritative transcript, so opening a saved session never animates it.
     this.replaying = true;
     try {
-      const handle = await invoke<string>("chat_start", { path });
+      await invoke("chat_release_generation", { generation: pageGeneration });
+      const handle = await invoke<string>("chat_start", { path, generation: pageGeneration, key });
       if (this.disposed) { await invoke("chat_stop", { handle }); return; }
       this.handle = handle;
       this.update({ transportReady: true });
@@ -105,13 +125,14 @@ export class ChatConnection {
       this.fail(error);
     }
   }
-  private poll = async () => {
-    if (this.disposed || this.failed || !this.handle || this.polling) return;
-    this.polling = true;
-    try {
-      const batch = await invoke<Poll>("chat_poll", { handle: this.handle });
-      if (this.disposed || this.failed) return;
-      for (const record of batch.records) {
+  get chatHandle() { return this.handle; }
+  attachView() {
+    this.external = false;
+    if (!this.disposed && !this.failed && this.handle && !this.polling) this.poll();
+  }
+  failExternal(error: string) { this.fail(new Error(error)); }
+  ingest(records: any[]) {
+      for (const record of records) {
         if (record.type === "response") {
           const pending = typeof record.id === "string" ? this.requests.get(record.id) : undefined;
           if (!pending || record.command !== pending.command || typeof record.success !== "boolean") throw new Error("Uncorrelated runtime response.");
@@ -125,10 +146,15 @@ export class ChatConnection {
         if (this.replaying && record.type !== "extension_ui_request" && record.type !== "extension_error") continue;
         if (record.type === "response") {
           continue;
+        } else if (record.type === "desktop_gap") {
+          // The native worker compacted an unread backlog. The turn continues; the
+          // view is behind until the next settle reconciles from get_messages.
+          this.gapPending = true;
+          this.update({ gap: true });
         } else if (record.type === "extension_ui_request") {
           if (record.method === "setWidget" && typeof record.widgetKey === "string") {
             const widgets = { ...(this.snapshot.widgets ?? {}) };
-            const lines = Array.isArray(record.widgetLines) ? record.widgetLines.filter((line): line is string => typeof line === "string") : undefined;
+            const lines = Array.isArray(record.widgetLines) ? record.widgetLines.filter((line: unknown): line is string => typeof line === "string") : undefined;
             if (lines?.length) widgets[record.widgetKey] = lines;
             else delete widgets[record.widgetKey];
             this.update({ widgets });
@@ -144,7 +170,7 @@ export class ChatConnection {
                 this.dialogs.set(record.id, typeof record.timeout === "number" && Number.isFinite(record.timeout) ? Date.now() + Math.max(0, record.timeout) : null);
               }
             }
-            this.dialog(record);
+            this.dialog(record, this);
           }
         }
         else if (record.type === "extension_error") {
@@ -152,12 +178,21 @@ export class ChatConnection {
         // A replaced session can leave one extension holding its previous context. That
         // lifecycle race cannot change the transcript or the current session, so do not
         // surface it as a workspace failure and ask the user to retry a completed switch.
-        if (/extension ctx is stale/iu.test(error)) return;
+        if (/extension ctx is stale/iu.test(error)) continue;
         this.update({ error });
       }
         else this.update({ projection: projectEvent(this.snapshot.projection, record) });
       }
-      if (batch.closed) throw new Error(batch.error || "Runtime disconnected. The outcome may be incomplete; no work was replayed.");
+      // Reconcile only when the turn is over: history is authoritative then, and a
+      // mid-turn get_messages would fight the live stream.
+      if (this.gapPending && this.snapshot.projection.running === false && !this.replaying && this.handle) {
+        this.gapPending = false;
+        void this.refreshHistory()
+          .then(() => this.update({ gap: false }))
+          .catch(() => { /* Keep the notice; the next settle retries. */ this.gapPending = true; });
+      }
+  }
+  tick() {
       const now = Date.now();
       const waitingForUser = this.dialogs.size > 0;
       for (const [id, deadline] of this.dialogs) if (deadline !== null && deadline <= now) this.dialogs.delete(id);
@@ -165,6 +200,16 @@ export class ChatConnection {
       if (waitingForUser) for (const pending of this.requests.values()) pending.deadline += now - this.lastPoll;
       this.lastPoll = now;
       for (const pending of this.requests.values()) if (now > pending.deadline) throw new Error("Jouzu did not answer for five minutes. The outcome is uncertain; no work was replayed.");
+  }
+  private poll = async () => {
+    if (this.disposed || this.failed || !this.handle || this.polling) return;
+    this.polling = true;
+    try {
+      const batch = await invoke<Poll>("chat_poll", { handle: this.handle });
+      if (this.disposed || this.failed) return;
+      this.ingest(batch.records);
+      if (batch.closed) throw new Error(batch.error || "Runtime disconnected. The outcome may be incomplete; no work was replayed.");
+      this.tick();
       this.polling = false;
       this.timer = setTimeout(this.poll, this.requests.size || this.dialogs.size ? POLL_ACTIVE_MS : POLL_IDLE_MS);
     } catch (error) {
@@ -187,20 +232,14 @@ export class ChatConnection {
         .catch(error => { this.requests.delete(id); reject(new Error(String(error))); });
     });
   }
-  async refreshHistory() {
+  private async readState(): Promise<Record<string, unknown>> {
     const state = await this.request("get_state");
     if (!object(state) || typeof state.sessionId !== "string" || typeof state.isStreaming !== "boolean") throw new Error("Runtime returned incompatible session state.");
-    const history = await this.request("get_messages");
-    if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
-    const projection = historyProjection(history.messages);
-    projection.running = state.isStreaming;
-    const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
     const detail = object(state.model) ? state.model : undefined;
     const model = detail && typeof detail.name === "string" && detail.name !== "unknown" ? detail.name : undefined;
     const modelProvider = detail && typeof detail.provider === "string" && detail.provider !== "unknown" ? detail.provider : undefined;
     const modelId = detail && typeof detail.id === "string" && detail.id !== "unknown" ? detail.id : undefined;
     this.update({
-      projection: reconciled,
       sessionId: state.sessionId,
       sessionFile: typeof state.sessionFile === "string" ? state.sessionFile : undefined,
       model,
@@ -208,6 +247,16 @@ export class ChatConnection {
       modelId,
       thinkingLevel: typeof state.thinkingLevel === "string" ? state.thinkingLevel : undefined,
     });
+    return state;
+  }
+  async refreshHistory() {
+    const state = await this.readState();
+    const history = await this.request("get_messages");
+    if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
+    const projection = historyProjection(history.messages);
+    projection.running = state.isStreaming as boolean;
+    const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
+    this.update({ projection: reconciled });
   }
   private async applyPreferredModel() {
     const preferred = this.preferredModel;
@@ -273,15 +322,34 @@ export class ChatConnection {
     try { await this.request("clear_queue"); } catch { /* The queue may already be empty; abort still applies. */ }
     try { await this.request("abort"); } catch (error) { this.update({ error: String(error) }); }
   }
-  async compact() {
+  /**
+   * Compact a session without loading its transcript. Attaching for compact used
+   * to call get_messages, and a large session's response exceeds the 32 MiB JSONL
+   * frame limit before compact can run. switch_session loads the runtime side;
+   * get_state is small; the view keeps the preview it already has.
+   */
+  async compactSession(sessionPath?: string) {
     if (!this.snapshot.connected || this.snapshot.pending || this.snapshot.projection.running) throw new Error("Wait for the current conversation to settle before compacting.");
     this.update({ pending: true, error: null });
+    this.replaying = true;
     try {
+      if (sessionPath && sessionPath !== this.snapshot.sessionFile) {
+        const result = await this.request("switch_session", { sessionPath });
+        if (object(result) && result.cancelled === true) throw new Error("The runtime cancelled the conversation change.");
+        await this.readState();
+      }
+      // Compaction changes the runtime context, not the transcript this view already
+      // holds. No get_messages here; the next open reads the compacted history.
       await this.request("compact");
-      await this.refreshHistory();
-    } catch (error) { throw error; }
-    finally { this.update({ pending: false }); }
+    } catch (error) {
+      this.update({ error: String(error) });
+      throw error;
+    } finally {
+      this.replaying = false;
+      this.update({ pending: false });
+    }
   }
+  async compact() { return this.compactSession(); }
   async exportHtml(outputPath: string) {
     if (!this.snapshot.connected) throw new Error("Chat is not connected.");
     await this.request("export_html", { outputPath });

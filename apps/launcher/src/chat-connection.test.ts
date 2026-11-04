@@ -111,9 +111,25 @@ describe("desktop RPC connection", () => {
     });
     await client.compact();
     expect(request).toHaveBeenCalledWith("compact");
+    // A full history refresh after compact can exceed the JSONL frame limit.
+    expect(request).not.toHaveBeenCalledWith("get_messages");
     expect(client.snapshot.pending).toBe(false);
     await client.exportHtml("C:\\tmp\\chat.html");
     expect(request).toHaveBeenLastCalledWith("export_html", { outputPath: "C:\\tmp\\chat.html" });
+  });
+  it("attaches for compact without fetching the transcript", async () => {
+    const client = new ChatConnection(() => {}, () => {});
+    client.snapshot = { ...client.snapshot, connected: true };
+    const request = vi.spyOn(client, "request").mockImplementation(async (command: string) => {
+      if (command === "get_state") return { sessionId: "big", sessionFile: "C:/sessions/big.jsonl", isStreaming: false, model: { name: "model", provider: "catalog", id: "model" } };
+      if (command === "get_messages") throw new Error("JSONL frame exceeds 33554432 bytes");
+      return undefined;
+    });
+    await client.compactSession("C:/sessions/big.jsonl");
+    expect(request).toHaveBeenCalledWith("switch_session", { sessionPath: "C:/sessions/big.jsonl" });
+    expect(request).toHaveBeenCalledWith("compact");
+    expect(request).not.toHaveBeenCalledWith("get_messages");
+    expect(client.snapshot.sessionFile).toBe("C:/sessions/big.jsonl");
   });
   it("waits out a long released-runtime cold start", async () => {
     vi.useFakeTimers();
@@ -244,3 +260,28 @@ describe("desktop RPC connection", () => {
     expect(invoke).not.toHaveBeenCalledWith("chat_poll", expect.anything());
   });
 });
+
+  it("keeps polling after a stale extension context error", async () => {
+    vi.useFakeTimers();
+    const requests: Record<string, unknown>[] = [];
+    const replied = new Set<unknown>();
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "chat_start") return "stale" as never;
+      if (command === "chat_send") { requests.push((args as { request: Record<string, unknown> }).request); return undefined as never; }
+      if (command === "chat_poll") {
+        const request = requests.find(item => ["get_state", "get_messages"].includes(String(item.type)) && !replied.has(item.id));
+        if (!request) return { records: [], closed: false } as never;
+        replied.add(request.id);
+        const stale = { type: "extension_error", extensionPath: "<inline:test>", error: "This extension ctx is stale after session replacement or reload." };
+        const response = { type: "response", id: request.id, command: request.type, success: true, data: request.type === "get_state" ? { sessionId: "stale-id", isStreaming: false } : { messages: [] } };
+        return { records: [stale, response], closed: false } as never;
+      }
+      return undefined as never;
+    });
+    const client = new ChatConnection(() => {}, () => {});
+    const starting = client.start("folder");
+    await vi.advanceTimersByTimeAsync(100);
+    await starting;
+    expect(client.snapshot.connected).toBe(true);
+    await client.close();
+  });

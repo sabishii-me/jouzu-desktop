@@ -1,4 +1,6 @@
 import { ChatWorkspace } from "./chat-workspace";
+import { ToolsPanel } from "./tools-panel";
+import { ArtifactsPanel } from "./artifacts-panel";
 import { LauncherPage } from "./components/launcher-page";
 import { ProviderPicker } from "./components/ui/provider-picker";
 import { recoveryText } from "./recovery-text";
@@ -16,13 +18,13 @@ import { parseControlState, type ControlState } from "./control-state";
 import { Switch } from "./components/ui/switch";
 import { listen } from "@tauri-apps/api/event";
 import jouzuIcon from "./assets/jouzu.svg";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Input } from "./components/ui/input";
 import { getVersion } from "@tauri-apps/api/app";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check } from "lucide-react";
+import { FolderOpen, Search, X, ArrowUpRight, Settings, Languages, KeyRound, SlidersHorizontal, RefreshCw, LoaderCircle, Minus, Maximize2, Minimize2, Plus, Copy, Check, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "./components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { ScrollArea } from "./components/ui/scroll-area";
@@ -30,12 +32,14 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "./com
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
 import { Button } from "./components/ui/button";
 import { JouzuLoader } from "./components/ui/jouzu-loader";
+import { Progress } from "./components/ui/progress";
 import { messages, locales, resolveLocale, type Locale } from "./i18n";
 import { type Workspace } from "./history";
 import { parseDiagnostics, type Diagnostics } from "./diagnostics";
 interface LauncherState { platform: "windows" | "macos" | "linux"; recent: Workspace[]; ready: boolean; bash: boolean; bundled_git: boolean }
 interface Components { jouzu: string | null; development: boolean; launcherUpdaterConfigured?: boolean; jouzuUpdaterConfigured?: boolean }
-interface RuntimeReport { version: string; root: string; app: string; node: boolean; git: boolean; terminal: boolean }
+interface RuntimeReport { status?: string; version: string | null; root: string | null; app: string | null; node: boolean; nodeVersion: string | null; nodeCurrent: boolean; git: boolean; terminal: boolean }
+
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => resolveLocale(localStorage.getItem("jouzu.ui.language") ?? navigator.language));
   const t = messages[locale];
@@ -44,6 +48,10 @@ export function App() {
   const [maximized, setMaximized] = useState(false);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [chatBusy, setChatBusy] = useState(false);
+  // The entry session connects behind the same loader the launcher starts with; after
+  // that first connect, a session switch shows the chat's own "Starting session…".
+  const [entryBooting, setEntryBooting] = useState(false);
+  const entryReady = useRef(false);
   const [restartPending, setRestartPending] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const catalogAttempted = useRef(false);
@@ -79,18 +87,18 @@ export function App() {
   const [addingConnection, setAddingConnection] = useState(false);
   const [query, setQuery] = useState("");
   const [setup, setSetup] = useState<ControlState | null>(null);
-  type OnboardingStep = "language" | "runtime" | "model";
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>("language");
-  const onboardingInitialized = useRef(false);
+  // One state machine: the runtime is an input to it, not a second screen.
+  // null = still probing, false = onboarding installs it, true = the service can run.
+  const [runtimePresent, setRuntimePresent] = useState<boolean | null>(null);
+  const [runtimeUpdating, setRuntimeUpdating] = useState<{ phase: string; error: string | null } | null>(null);
+  // One prepare surface: real download bytes, then package and verification phases.
+  const [prepare, setPrepare] = useState<{ phase: string; downloaded: number; total: number | null; error: string | null }>({ phase: "", downloaded: 0, total: null, error: null });
+  // There is no setup wizard: a missing runtime auto-prepares, and a missing
+  // model is handled in the workspace, where Settings remains reachable.
   const modelReady = setup?.modelReady;
   const needsSetup = modelReady === false;
-  const showSetup = needsSetup;
-  useEffect(() => {
-    if (!showSetup || onboardingInitialized.current) return;
-    onboardingInitialized.current = true;
-    setOnboardingStep("language");
-  }, [showSetup]);
   const [device, setDevice] = useState<{url:string;code:string} | null>(null);
+  const [providerDevice, setProviderDevice] = useState<{url:string;code:string;provider:string} | null>(null);
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
@@ -107,7 +115,10 @@ export function App() {
   }, []);
   useEffect(() => {
     if (!isTauri()) return;
-    const pending = listen<{url:string;code:string}>("control-device", event => setDevice(event.payload));
+    const pending = listen<{url:string;code:string;provider?:string}>("control-device", event => {
+      if (event.payload.provider && event.payload.provider !== "shisa") setProviderDevice({ ...event.payload, provider: event.payload.provider });
+      else setDevice(event.payload);
+    });
     return () => { pending.then(unlisten => unlisten()).catch(() => {}); };
   }, []);
   const [envRows, setEnvRows] = useState<{name:string;value:string;enabled:boolean}[]>([]);
@@ -178,6 +189,43 @@ export function App() {
     if (chatBusy) setRestartPending(true);
     else setSessionRevision(value => value + 1);
   }
+  /** The prepare screen: one automatic install, no choices. */
+  async function runPrepare() {
+    setPrepare({ phase: "start", downloaded: 0, total: null, error: null });
+    try {
+      await invoke<string>("runtime_install");
+      setRuntimePresent(true);
+      await configure({ action: "profile", profile: japaneseChoice ? "ja" : "core" });
+      void loadComponents();
+      await readStatus();
+    } catch (error) {
+      prepareStarted.current = false;
+      setPrepare(current => ({ ...current, error: String(error) }));
+    }
+  }
+
+  /** An outdated runtime is updated in place; the workspace stays open and new sessions wait. */
+  async function updateRuntime() {
+    setRuntimeUpdating({ phase: "start", error: null });
+    try {
+      await invoke<string>("runtime_install");
+      const report = await invoke<RuntimeReport>("runtime_report");
+      if (report && report.nodeCurrent === false) throw new Error("The runtime update did not finish.");
+      setRuntimeUpdating(null);
+      void (async () => { try { await invoke("image_tool_ensure"); } catch { /* the tool is optional on a fixture */ } })();
+      void loadComponents();
+      await readStatus();
+    } catch (error) {
+      setRuntimeUpdating({ phase: "error", error: String(error) });
+    }
+  }
+  const prepareStarted = useRef(false);
+  useEffect(() => {
+    if (runtimePresent !== false) { prepareStarted.current = false; return; }
+    if (prepareStarted.current) return;
+    prepareStarted.current = true;
+    void runPrepare();
+  }, [runtimePresent]);
   async function configure(request: Record<string, unknown>) {
     // A status read is not a user-visible change; only mutations show progress.
     const mutates = request.action !== "status";
@@ -192,7 +240,7 @@ export function App() {
         return true;
       }
       catch (error) { setError(String(error)); return false; }
-      finally { if (mutates) setOperation(null); setDevice(null); }
+      finally { if (mutates) setOperation(null); setDevice(null); setProviderDevice(null); }
     });
     controlQueue.current = run.catch(() => {});
     return run;
@@ -206,6 +254,14 @@ export function App() {
     });
     controlQueue.current = run.catch(() => {});
     return run;
+  }
+  async function openDeviceUrl(value: string) {
+    // Only the two documented sign-in origins may reach the system browser.
+    const url = new URL(value);
+    const shisa = url.origin === "https://platform.shisa.ai" && url.pathname === "/connect";
+    const openai = url.origin === "https://auth.openai.com";
+    if ((!shisa && !openai) || url.username || url.password) throw new Error(t.loginUrl);
+    await openUrl(url.href);
   }
   function openUpdatePanel() {
     // A waiting update is not a question to re-ask: the header opens the System list on the row that has it.
@@ -224,6 +280,9 @@ export function App() {
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 4000); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { if (settingsOpen && isTauri()) { if (!setup && !busyRef.current) void configure({ action: "status" }); void readEnvironment(); } }, [settingsOpen]);
   const refresh = async () => setState(await invoke<LauncherState>("launcher_state"));
+  const loadComponents = () => invoke<Components>("component_versions")
+    .then(setComponents)
+    .catch(error => setError(String(error)));
   // Diagnostics are separate from the launcher state: a missing record must not fail the window.
   const refreshDiagnostics = async () => {
     try { setDiagnostics(parseDiagnostics(await invoke<unknown>("diagnostics"))); }
@@ -233,11 +292,36 @@ export function App() {
     if (!isTauri()) return;
     refresh().catch(error => setError(String(error)));
     void refreshDiagnostics();
-    if (!initialStatusRequested.current) { initialStatusRequested.current = true; void readStatus(); }
     getVersion().then(setVersion).catch(error => setError(String(error)));
-    invoke<Components>("component_versions").then(setComponents).catch(error => setError(String(error)));
+    // The runtime decides whether the setup service exists; probing it first keeps a
+    // clean machine out of the status call instead of turning its absence into an alert.
+    void invoke<RuntimeReport>("runtime_report").then(report => {
+      setRuntimePresent(true);
+      if (report && report.nodeCurrent === false) { void updateRuntime(); return; }
+      void (async () => { try { await invoke("image_tool_ensure"); } catch { /* the tool is optional on a fixture */ } })();
+      void loadComponents();
+      void readStatus();
+    }).catch(error => {
+      // Only a missing runtime belongs to onboarding; any other report failure
+      // (an unsupported probe, a broken fixture) must not hide the workspace.
+      if (String(error).includes("application files are missing")) setRuntimePresent(false);
+      else setRuntimePresent(true);
+    });
   }, []);
-  // Open into the last workspace so the runtime can be warmed while the window is still loading.
+  // The prepare screen only mirrors the installer's own events; it never guesses progress.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const pending = listen<{ phase: string; downloaded?: number; total?: number | null }>("runtime-install-progress", event => {
+      setRuntimeUpdating(current => current && !current.error ? { phase: event.payload.phase, error: null } : current);
+      setPrepare(current => ({
+        ...current,
+        phase: event.payload.phase,
+        downloaded: event.payload.downloaded ?? current.downloaded,
+        total: event.payload.total ?? current.total,
+      }));
+    });
+    return () => { pending.then(unlisten => unlisten()).catch(() => {}); };
+  }, []);
   const initialWorkspaceChosen = useRef(false);
   useEffect(() => {
     if (initialWorkspaceChosen.current || activePath || !state) return;
@@ -251,11 +335,18 @@ export function App() {
   // A signed-in account supplies models through Jouzu's published catalog. The chat shell
   // asks for a refresh only when the connected runtime has no models, so warm starts do not
   // pay a network round trip. A successful refresh restarts the session with the new catalog.
-  async function refreshModelCatalog() {
-    if (catalogAttempted.current) return;
+  async function refreshModelCatalog(force = false) {
+    if (catalogAttempted.current && !force) return;
     catalogAttempted.current = true;
     setCatalogRefreshing(true);
-    try { await configure({ action: "refresh-catalogs" }); }
+    try {
+      // A newly issued account key can lag its catalog by a moment. Retry the
+      // refresh before leaving a signed-in install with an empty model list.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (await configure({ action: "refresh-catalogs" })) return;
+        if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
     finally { setCatalogRefreshing(false); }
   }
   useEffect(() => {
@@ -300,66 +391,89 @@ export function App() {
   if (sort === "name") recent.sort((a,b) => a.path.replaceAll(String.fromCharCode(92), "/").split("/").at(-1)!.localeCompare(b.path.replaceAll(String.fromCharCode(92), "/").split("/").at(-1)!, locale));
   if (sort === "path") recent.sort((a,b) => a.path.localeCompare(b.path, locale));
   const development = components?.development ?? import.meta.env.DEV;
-  const inlineProviders = showSetup && !settingsOpen;
-  const providerContent = <div className="space-y-4">                  {(inlineProviders || !addingConnection) && <><Card className={inlineProviders ? "gap-3 rounded-none border-0 bg-transparent p-0 shadow-none" : "border-border gap-4 py-5 shadow-none"}><CardHeader className={inlineProviders ? "px-0" : undefined}><CardTitle>Shisa.AI</CardTitle><CardDescription>{device ? t.waitingAuthorization : setup?.account.signedIn ? t.shisaConnected : t.shisaHint}</CardDescription></CardHeader><CardContent className={inlineProviders ? "space-y-3 px-0" : "space-y-3"}>{!device && setup?.account.revocation === "unconfirmed" && <p role="status" className="text-sm text-muted-foreground">{t.signOutUnconfirmed}</p>}{!device && <div className="flex justify-end"><Button disabled={busy || !setup} onClick={() => void configure({ action: setup?.account.signedIn ? "shisa-logout" : "shisa-login" })}>{setup?.account.signedIn ? t.signOut : t.signIn}</Button></div>}{device && <div className="space-y-3"><Input readOnly aria-label={t.loginUrl} value={device.url} onFocus={event => event.target.select()} /><Input readOnly aria-label={t.deviceCode} value={device.code} onFocus={event => event.target.select()} /><p className="text-xs text-muted-foreground">{t.loginHint}</p><div className="flex items-center justify-end gap-2"><Button variant="outline" onClick={() => void invoke("cancel_control")}>{t.cancel}</Button><Button onClick={async () => { try { const url = new URL(device.url); if (url.origin !== "https://platform.shisa.ai" || url.pathname !== "/connect" || url.username || url.password) throw new Error(t.loginUrl); await openUrl(url.href); } catch (error) { setError(String(error)); } }}><ArrowUpRight />{t.openBrowser}</Button></div></div>}</CardContent></Card>
-                  {!inlineProviders && <>                  <Card className="border-border gap-4 py-5 shadow-none"><CardHeader><CardTitle>{t.connections}</CardTitle></CardHeader><CardContent className="space-y-2">{!!setup && setup.credentials.length + setup.customProviders.length > 5 && <Input aria-label={t.searchProviders} placeholder={t.searchProviders} value={providerQuery} onChange={event => setProviderQuery(event.target.value)} />}{!addingConnection && setup && [...new Set([...setup.credentials.map(c => c.providerId), ...setup.customProviders.map(c => c.id)])].filter(id => `${id} ${setup.providers.find(p => p.id === id)?.name ?? ""}`.toLowerCase().includes(providerQuery.toLowerCase())).map(id => ({providerId:id})).map(c => <div key={c.providerId} className="flex items-center gap-2"><Button variant="outline" className="h-auto min-w-0 flex-1 justify-between gap-2 py-3" disabled={busy} onClick={() => { setProvider(c.providerId); setToken(""); const saved = setup?.customProviders.find(p => p.id === c.providerId); setConnectionMode(saved?.editable ? "custom" : "builtin"); setCustom(saved?.editable ? {provider:saved.id,url:saved.url,model:saved.model,edit:true} : {provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><span>{setup.providers.find(p => p.id === c.providerId)?.name ?? c.providerId}</span><span className="text-xs text-muted-foreground">{setup.credentials.some(key => key.providerId === c.providerId) ? t.credentialSaved : t.configuredNoKey}</span></Button></div>)}<Button variant="outline" disabled={busy || !setup} onClick={() => { setProviderQuery(""); setProvider(""); setConnectionMode("builtin"); setCustom({provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><Plus />{t.addConnection}</Button></CardContent></Card></>}</>}
+  const inlineProviders = !settingsOpen;
+  const providerInfo = setup?.providers.find(item => item.id === provider);
+  const providerOauth = connectionMode === "builtin" && provider === "openai-codex";
+  const providerSignedIn = !!setup?.credentials.some(item => item.providerId === provider);
+  // Shisa is an account, not a provider credential. Its saved key is shown by
+  // the Shisa.AI card and must not appear again as a phantom provider row.
+  const otherProviders = setup ? [...new Set([...setup.credentials.map(c => c.providerId), ...setup.customProviders.map(c => c.id)])].filter(id => id !== "shisa") : [];
+  const providerApiKey = providerInfo?.apiKey !== false;
+  const providerContent = <div className="space-y-4">                  {(inlineProviders || !addingConnection) && <><Card className={inlineProviders ? "gap-3 rounded-none border-0 bg-transparent p-0 shadow-none" : "border-border gap-4 py-5 shadow-none"}><CardHeader className={inlineProviders ? "px-0" : undefined}><CardTitle>Shisa.AI</CardTitle><CardDescription>{device ? t.waitingAuthorization : setup?.account.signedIn ? t.shisaConnected : t.shisaHint}</CardDescription></CardHeader><CardContent className={inlineProviders ? "space-y-3 px-0" : "space-y-3"}>{!device && setup?.account.revocation === "unconfirmed" && <p role="status" className="text-sm text-muted-foreground">{t.signOutUnconfirmed}</p>}{!device && <div className="flex flex-wrap justify-end gap-2">{setup?.account.signedIn && <Button variant="outline" disabled={busy || catalogRefreshing || !setup} onClick={() => void refreshModelCatalog(true)}><RefreshCw className={catalogRefreshing ? "animate-spin" : undefined} />{t.refreshModels}</Button>}<Button disabled={busy || !setup} onClick={() => void configure({ action: setup?.account.signedIn ? "shisa-logout" : "shisa-login" })}>{setup?.account.signedIn ? t.signOut : t.signIn}</Button></div>}{device && <div className="space-y-3"><Input readOnly aria-label={t.loginUrl} value={device.url} onFocus={event => event.target.select()} /><Input readOnly aria-label={t.deviceCode} value={device.code} onFocus={event => event.target.select()} /><p className="text-xs text-muted-foreground">{t.loginHint}</p><div className="flex items-center justify-end gap-2"><Button variant="outline" onClick={() => void invoke("cancel_control")}>{t.cancel}</Button><Button onClick={async () => { try { const url = new URL(device.url); if (url.origin !== "https://platform.shisa.ai" || url.pathname !== "/connect" || url.username || url.password) throw new Error(t.loginUrl); await openUrl(url.href); } catch (error) { setError(String(error)); } }}><ArrowUpRight />{t.openBrowser}</Button></div></div>}</CardContent></Card>
+                  {!inlineProviders && <>                  <Card className="border-border gap-4 py-5 shadow-none"><CardHeader><CardTitle>{t.connections}</CardTitle></CardHeader><CardContent className="space-y-2">{!!setup && otherProviders.length > 5 && <Input aria-label={t.searchProviders} placeholder={t.searchProviders} value={providerQuery} onChange={event => setProviderQuery(event.target.value)} />}{!addingConnection && setup && otherProviders.filter(id => `${id} ${setup.providers.find(p => p.id === id)?.name ?? ""}`.toLowerCase().includes(providerQuery.toLowerCase())).map(id => ({providerId:id})).map(c => <div key={c.providerId} className="flex items-center gap-2"><Button variant="outline" className="h-auto min-w-0 flex-1 justify-between gap-2 py-3" disabled={busy} onClick={() => { setProvider(c.providerId); setToken(""); const saved = setup?.customProviders.find(p => p.id === c.providerId); setConnectionMode(saved?.editable ? "custom" : "builtin"); setCustom(saved?.editable ? {provider:saved.id,url:saved.url,model:saved.model,edit:true} : {provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><span>{setup.providers.find(p => p.id === c.providerId)?.name ?? c.providerId}</span><span className="text-xs text-muted-foreground">{setup.credentials.some(key => key.providerId === c.providerId) ? t.credentialSaved : t.configuredNoKey}</span></Button></div>)}<Button variant="outline" disabled={busy || !setup} onClick={() => { setProviderQuery(""); setProvider(""); setConnectionMode("builtin"); setCustom({provider:"",url:"",model:"",edit:false}); setAddingConnection(true); }}><Plus />{t.addConnection}</Button></CardContent></Card></>}</>}
                   {(inlineProviders || addingConnection) && <section className={inlineProviders ? "space-y-3 border-t border-border pt-4" : "space-y-4 rounded-xl border border-border bg-card p-5"}><div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">{inlineProviders ? t.connections : custom.edit ? t.editConnection : t.addConnection}</h3>{!inlineProviders && <Button variant="ghost" disabled={busy} onClick={() => setAddingConnection(false)}>{t.backConnections}</Button>}</div><div className="space-y-4">
                   <div className="space-y-2">{!inlineProviders && <Label>{t.service}</Label>}<ProviderPicker value={connectionMode === "custom" ? "__custom__" : provider} disabled={busy || custom.edit} label={t.service} placeholder={t.chooseService} searchLabel={t.searchProviders} empty={t.noResults} items={[...(setup?.providers ?? []),{id:"__custom__",name:t.customProvider}]} onChange={value => { setToken(""); if(value === "__custom__") {setConnectionMode("custom");setProvider("");} else {setConnectionMode("builtin");setProvider(value);} }}/></div>
 
                   {connectionMode === "builtin" && provider &&
                   <div className="space-y-4 border-t border-border pt-4">
 
-                    {provider && <><Label>{t.apiKey}</Label><Input type="password" autoComplete="off" aria-label={t.apiKey} placeholder={t.apiKey} value={token} onChange={event => setToken(event.target.value)} /><div className="flex justify-end gap-2"><Button disabled={busy || !token.trim()} onClick={async () => { if (await configure({ action: "provider-key", provider, token })) { setToken(""); setAddingConnection(false); } }}>{t.save}</Button>{setup?.credentials.some(c => c.providerId === provider) && <Button variant="outline" disabled={busy} onClick={() => void configure({ action: "provider-remove", provider })}>{t.removeCredential}</Button>}</div>
+                    {provider && <>{providerOauth && <div className="space-y-3 rounded-lg border border-border p-3"><p className="text-sm text-muted-foreground">{providerInfo?.oauthName ?? t.oauthHint}</p>{providerSignedIn ? <div className="flex items-center justify-between gap-2"><span className="text-sm">{t.oauthConnected}</span><Button variant="outline" disabled={busy} onClick={() => void configure({ action: "provider-remove", provider })}>{t.removeCredential}</Button></div> : <div className="flex justify-end"><Button disabled={busy} onClick={async () => { await configure({ action: "provider-oauth", provider }); }}>{t.oauthSignIn}</Button></div>}{providerDevice?.provider === provider && <div className="space-y-3"><Input readOnly aria-label={t.loginUrl} value={providerDevice.url} onFocus={event => event.target.select()} />{providerDevice.code && <Input readOnly aria-label={t.deviceCode} value={providerDevice.code} onFocus={event => event.target.select()} />}<p className="text-xs text-muted-foreground">{t.loginHint}</p><div className="flex items-center justify-end gap-2"><Button variant="outline" onClick={() => void invoke("cancel_control")}>{t.cancel}</Button><Button onClick={async () => { try { await openDeviceUrl(providerDevice.url); } catch (error) { setError(String(error)); } }}><ArrowUpRight />{t.openBrowser}</Button></div></div>}</div>}{providerApiKey && <><Label>{t.apiKey}</Label><Input type="password" autoComplete="off" aria-label={t.apiKey} placeholder={t.apiKey} value={token} onChange={event => setToken(event.target.value)} /><div className="flex justify-end gap-2"><Button disabled={busy || !token.trim()} onClick={async () => { if (await configure({ action: "provider-key", provider, token })) { setToken(""); setAddingConnection(false); } }}>{t.save}</Button>{setup?.credentials.some(c => c.providerId === provider) && <Button variant="outline" disabled={busy} onClick={() => void configure({ action: "provider-remove", provider })}>{t.removeCredential}</Button>}</div></>}
                     <Label>{t.defaultModel}</Label><Select value={setup?.defaultProvider === provider ? setup.defaultModel : ""} onValueChange={model => void configure({ action: "default-model", provider, model })}><SelectTrigger className="w-full" aria-label={t.defaultModel}><SelectValue placeholder={t.defaultModel} /></SelectTrigger><SelectContent>{setup?.models.filter(m => m.provider === provider).map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></>}
                   </div>}
                   {connectionMode === "custom" &&<div className="space-y-3 border-t border-border pt-4"><p className="text-sm text-muted-foreground">{t.customHint}</p><Label>{t.providerId}</Label><Input placeholder={t.providerId} aria-label={t.providerId} disabled={custom.edit} value={custom.provider} onChange={event => setCustom({...custom,provider:event.target.value})} /><Label>{t.endpoint}</Label><Input placeholder={t.endpoint} aria-label={t.endpoint} value={custom.url} onChange={event => setCustom({...custom,url:event.target.value})} /><Label>{t.modelId}</Label><Input placeholder={t.modelId} aria-label={t.modelId} value={custom.model} onChange={event => setCustom({...custom,model:event.target.value})} /><Label>{t.apiKey}</Label><Input type="password" autoComplete="off" aria-label={t.apiKey} placeholder={t.apiKey} value={token} onChange={event=>setToken(event.target.value)}/><div className="flex justify-end pt-1"><Button disabled={busy || !custom.provider || !custom.url || !custom.model} onClick={async () => { if (await configure({action:"custom-provider",...custom})) { setCustom(value=>({...value,edit:true})); if (token.trim() && !await configure({action:"provider-key",provider:custom.provider,token})) return; setToken("");setAddingConnection(false); } }}>{t.save}</Button></div></div>}
                   </div></section>}
 </div>;
   const errorBanner = error && <div role="alert" className="fixed left-1/2 top-4 z-[60] flex w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900 shadow-xl"><div><p className="font-medium">{t.error}</p><details className="mt-2 break-all"><summary className="cursor-pointer">{t.details}</summary><p className="mt-2">{error}</p></details></div><button onClick={() => setError(null)} aria-label={t.dismiss}><X className="size-4" /></button></div>;
-  const connectingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
-    <div data-tauri-drag-region className="h-10 shrink-0" />
-    <section aria-label={t.connecting} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5"><JouzuLoader className="scale-125" /><span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>{statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}</section>
+  // One banner for every first-run screen. `fill` lets the banner take the height
+  // that a prepare or loading page would otherwise leave empty. The look is the
+  // approved prepare page: cyan wash, one glow, mark and wordmark.
+  const onboardingBanner = (title: string, action?: ReactNode, intensity = 0.55, fill = false, pageHeading = false) => <div className={`relative flex ${fill ? "min-h-0 flex-1" : "min-h-56 shrink-0"} items-center justify-center overflow-hidden border-b border-border bg-gradient-to-b from-primary/25 via-primary/5 to-background px-6`}>
+    <div className="pointer-events-none absolute -top-32 size-[28rem] rounded-full bg-primary/20 blur-3xl transition-opacity duration-700 animate-[jouzu-glow_9s_ease-in-out_infinite]" style={{ opacity: intensity }} aria-hidden="true" />
+    <div className="relative flex flex-col items-center gap-3 text-center">
+      <img src={jouzuIcon} alt="" draggable={false} className="size-20 drop-shadow-lg" />
+      <p className="text-2xl font-semibold tracking-tight">Jouzu Desktop</p>
+      <h1 data-slot={pageHeading ? "page-heading" : undefined} className="text-sm font-normal text-muted-foreground">{title}</h1>
+    </div>
+    {action && <div className="absolute right-6 top-6">{action}</div>}
+  </div>;
+  // The first-run pages have no titlebar of their own; without these a loading
+  // window cannot be closed.
+  const firstRunControls = <div className="fixed right-2 top-2 z-50 flex items-center gap-1">{isTauri() && <>
+    <Button variant="ghost" aria-label={t.minimize} title={t.minimize} onClick={() => getCurrentWindow().minimize().catch(error => setError(String(error)))}><Minus /></Button>
+    <Button variant="ghost" aria-label="Close launcher" title={t.dismiss} onClick={() => getCurrentWindow().close().catch(error => setError(String(error)))}><X /></Button>
+  </>}</div>;
+  const connectingScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {firstRunControls}
+    {onboardingBanner(t.connecting, undefined, 0.7, true)}
+    <section aria-label={t.connecting} className="flex shrink-0 flex-col items-center gap-4 px-6 pb-14 pt-8">
+      <span role="status" aria-live="polite" className="sr-only">{t.connecting}</span>
+      <Progress value={null} className="w-full max-w-xl" />
+      {statusError && <div className="flex w-full max-w-xl flex-col items-center gap-3"><p className="text-sm text-muted-foreground" role="alert">{t.connectFailed}</p><div className="flex w-full items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1"><code className="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground" title={statusError}>{statusError}</code><Button variant="ghost" className="shrink-0" aria-label={t.copy} title={t.copy} onClick={() => void copyStatusError()}>{statusCopied ? <Check className="text-primary" /> : <Copy />}</Button></div><Button onClick={() => void readStatus()}>{t.retry}</Button></div>}
+    </section>
   </main>;
-  const onboardingStepNumber = onboardingStep === "language" ? 1 : onboardingStep === "runtime" ? 2 : 3;
-  const onboardingTitle = onboardingStep === "language" ? t.setupMake : onboardingStep === "runtime" ? t.setupRuntime : t.setupConnect;
-  const onboardingDescription = onboardingStep === "language" ? t.setupPreferencesHint : onboardingStep === "runtime" ? t.setupRuntimeHint : t.setupHint;
-  const onboardingScreen = <main className="flex h-screen w-full flex-col bg-background px-5 sm:px-6">
-    <div data-tauri-drag-region className="h-10 shrink-0" />
-    {errorBanner}
-    <div className="flex min-h-0 flex-1 flex-col pb-4">
-      <LauncherPage title={onboardingTitle} description={onboardingDescription} action={<span className="text-xs text-muted-foreground">{onboardingStepNumber} / 3</span>}>
-        <ScrollArea className="min-h-0 flex-1"><div className="p-5 sm:p-6">
-          {onboardingStep === "language" ? <div className="space-y-6 pt-2">
-            <div className="space-y-2"><Label>{t.language}</Label><div role="group" aria-label={t.language} className="flex flex-wrap gap-2">{Object.entries(locales).map(([key,label])=><Button key={key} lang={key} className="min-w-28" variant={locale===key ? "default" : "outline"} aria-pressed={locale===key} onClick={()=>setLocale(key as Locale)}>{label}</Button>)}</div><p className="text-sm text-muted-foreground">{t.languageHint}</p></div>
-            <div className="space-y-2"><div className="flex items-center gap-4"><Label htmlFor="onboarding-japanese">{t.profile}</Label><Switch id="onboarding-japanese" checked={japaneseChoice} onCheckedChange={setJapaneseOverride}/></div><p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t.setupJapaneseHint}</p></div>
-            <div className="flex justify-end pt-1"><Button onClick={async () => { if (await configure({action:"profile",profile:japaneseChoice ? "ja" : "core"})) setOnboardingStep("runtime"); }}>{t.setupContinue}</Button></div>
-          </div> : onboardingStep === "runtime" ? <div className="space-y-4">
-            <div className="overflow-hidden rounded-lg border border-border">
-              <ComponentSection
-                title={t.runtime}
-                status={runtime.state ? `${t.setupRuntimeReady} v${runtime.state.version}` : runtime.error ? t.setupRuntimeMissing : t.checking}
-                tone={runtime.state ? "ok" : "missing"}
-                note={runtime.state ? `${t.runtimePath}: ${runtime.state.root}` : undefined}
-                busy={runtime.busy}
-                error={runtime.error}
-                install={runtime.state ? () => void runtime.run(async () => { await invoke("repair_jouzu"); return invoke<RuntimeReport>("runtime_report"); }) : undefined}
-                installLabel={t.runtimeRepair}
-              />
-              {state?.platform === "windows" && <><GitBashSection locale={locale} api={gitBash} /><TerminalSection locale={locale} /><CommandEntrySection locale={locale} /></>}
-            </div>
-            <div className="flex justify-between pt-1"><Button variant="outline" onClick={() => setOnboardingStep("language")}>{t.setupBack}</Button><Button disabled={!runtime.state} onClick={() => setOnboardingStep("model")}>{t.setupContinue}</Button></div>
-          </div> : <>{!settingsOpen && providerContent}</>}
-        </div></ScrollArea>
-      </LauncherPage>
+  const preparePercent = prepare.phase === "node" && prepare.total ? Math.max(3, (prepare.downloaded / prepare.total) * 40) : prepare.phase === "packages" ? 55 : prepare.phase === "verify" ? 90 : prepare.phase === "tools" ? 95 : 6;
+  // A launcher-style prepare page: banner, one bar, no choices. It belongs to the
+  // runtime step of the same state machine.
+  const prepareScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {onboardingBanner(t.prepareTitle, undefined, 0.45 + preparePercent / 200, true)}
+    <div className="flex shrink-0 justify-center px-6 pb-16 pt-8">
+      <div className="w-full max-w-xl space-y-3">
+        <div className="flex items-baseline justify-between"><span className="text-sm font-medium">{prepare.error ? t.prepareFailed : prepare.phase === "node" ? t.prepareNode : prepare.phase === "packages" ? t.preparePackages : prepare.phase === "verify" ? t.prepareVerify : prepare.phase === "tools" ? t.prepareTools : t.prepareTitle}</span><span className="text-xs text-muted-foreground">{prepare.phase === "node" && prepare.total ? `${Math.round(prepare.downloaded / 1048576)} / ${Math.round(prepare.total / 1048576)} MB` : ""}</span></div>
+        <Progress value={prepare.phase === "packages" && !prepare.error ? null : preparePercent} className="h-2.5" />
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground"><span className="break-all">{prepare.error ? prepare.error : t.prepareHint}</span>{prepare.error && <Button variant="outline" onClick={() => void runPrepare()}>{t.retry}</Button>}</div>
+      </div>
     </div>
   </main>;
-  if (!setup) return connectingScreen;
-  if (showSetup) return onboardingScreen;
+  // No language step: the one setup page left is connecting a model.
+  const modelSetupScreen = <main className="flex h-screen w-full flex-col overflow-hidden bg-background">
+    {firstRunControls}
+    {errorBanner}
+    {onboardingBanner(t.setupConnect, undefined, 0.55, false, true)}
+    <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-8">
+      <div data-slot="page-body" className="onboarding-card m-auto w-full max-w-2xl rounded-2xl border border-border bg-card/70 p-6 shadow-[0_28px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-sm sm:p-8">
+        <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{t.setupHint}</p>
+        {providerContent}
+      </div>
+    </div>
+  </main>;
+  if (runtimePresent === null) return connectingScreen;
+  if (runtimePresent === false) return prepareScreen;
+  if (setup && setup.modelReady === false) return modelSetupScreen;
   return <main aria-busy={busy || undefined} className="flex h-screen w-full flex-col overflow-hidden">
     <span role="status" aria-live="polite" className="sr-only">{busy || notice ? (operation === "preparing" ? t.preparing : operation === "launching" ? t.launching : operation === "choosing" ? t.choosing : operation === "saving" ? t.saving : notice ? t[notice] : null) : state && !state.ready ? t.repair : ""}</span>
     <header data-tauri-drag-region className="flex items-center justify-between border-b border-border px-4 py-2">
       <div className="absolute left-0 right-0 top-0 h-3" data-tauri-drag-region />
-      <div className="pointer-events-none flex items-center gap-2"><img src={jouzuIcon} alt="" draggable={false} className="size-7" /><h1 className="min-w-16 flex-1 text-sm font-semibold tracking-tight">Jouzu</h1></div>
+      <div className="pointer-events-none flex items-center gap-2"><img src={jouzuIcon} alt="" draggable={false} className="size-7" /><h1 className="min-w-16 flex-1 text-sm font-semibold tracking-tight">Jouzu</h1>{import.meta.env.DEV && <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600">DEV 1.0.12</span>}</div>
       <div className="pointer-events-none flex items-center gap-1 [&>*]:pointer-events-auto"><Dialog open={settingsOpen} onOpenChange={value => { if (!value && device) void invoke("cancel_control"); if (!value) setUpdateFocus(null); setSettingsOpen(value); }}>
         <DialogContent showCloseButton={false} className="flex h-[min(560px,85dvh)] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl border-border p-0 sm:max-w-3xl">
           {error && <p role="alert" className="border-b border-border bg-red-50 px-4 py-2 text-sm text-red-900">{error}</p>}
@@ -369,6 +483,7 @@ export function App() {
               <DialogTitle className="mb-5 flex items-center gap-2 px-2 pt-2 text-sm font-semibold"><Settings className="size-4" />{t.settings}</DialogTitle>
               <TabsList aria-label={t.settings} className="h-auto w-full items-stretch gap-1 bg-transparent p-0">
                 <TabsTrigger value="providers" className="min-h-10 justify-start gap-2 px-3"><KeyRound className="size-4 shrink-0" aria-hidden="true" />{t.providers}</TabsTrigger>
+                <TabsTrigger value="tools" className="min-h-10 justify-start gap-2 px-3"><Wrench className="size-4 shrink-0" aria-hidden="true" />{t.toolsTab}</TabsTrigger>
                 <TabsTrigger value="environment" className="min-h-10 justify-start gap-2 px-3"><SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />{t.environment}</TabsTrigger><TabsTrigger value="general" className="min-h-10 justify-start gap-2 px-3"><Languages className="size-4 shrink-0" aria-hidden="true" />{t.general}</TabsTrigger>
                 <TabsTrigger value="system" className="min-h-10 justify-start gap-2 whitespace-normal px-3 text-left"><RefreshCw className="size-4 shrink-0" aria-hidden="true" />{t.system}</TabsTrigger>
               </TabsList>
@@ -377,7 +492,9 @@ export function App() {
               <div className="px-5 pb-6 pt-14 sm:px-6">
                 <TabsContent value="providers" className="m-0 space-y-4">
                   {providerContent}
+                  
                 </TabsContent>
+                <TabsContent value="tools" className="m-0 space-y-4"><ToolsPanel /></TabsContent>
                 <TabsContent value="environment" className="m-0 space-y-4"><Card className="border-border shadow-none"><CardHeader><CardTitle>{t.environment}</CardTitle><CardDescription>{t.envHint}</CardDescription></CardHeader><CardContent className="space-y-3">
                   {envRows.map((row,index) => <div key={index} className="space-y-2 rounded-lg border border-border p-3"><div className="flex items-center gap-2">{editingEnv === index ? <Input aria-label={t.variableName} placeholder={t.variableName} value={row.name} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,name:event.target.value} : r))} /> : <span className="min-w-0 flex-1 truncate text-sm font-medium" title={row.name}>{row.name}</span>}<Button variant="ghost" disabled={busy} onClick={() => setEditingEnv(index)}>{t.editValue}</Button><Switch aria-label={t.enabled} checked={row.enabled} disabled={busy} onCheckedChange={enabled => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,enabled} : r))} /><Button variant="ghost" disabled={busy} aria-label={t.deleteEntry} onClick={() => { setEnvRows(rows => rows.filter((_,i) => i !== index)); setEditingEnv(null); }}><X /></Button></div>{editingEnv === index && <Input type="password" autoComplete="off" aria-label={t.variableValue} placeholder={t.variableValue} value={row.value} disabled={busy} onChange={event => setEnvRows(rows => rows.map((r,i) => i === index ? {...r,value:event.target.value} : r))} />}</div>)}
                   <div className="flex gap-2"><Button variant="outline" disabled={!envLoaded || busy} onClick={() => { setEditingEnv(envRows.length); setEnvRows(rows => [...rows,{name:"",value:"",enabled:true}]); }}><Plus />{t.addEntry}</Button><Button className="ml-auto" disabled={!envLoaded || busy} onClick={saveEnvironment}>{t.save}</Button></div>
@@ -443,23 +560,41 @@ export function App() {
           </div>
         </DialogContent>
       </Dialog>
+    {entryBooting && !entryReady.current && <div className="fixed inset-0 z-40 flex h-screen w-full flex-col bg-background">
+      {onboardingBanner(t.connecting, undefined, 0.7, true)}
+      <div className="flex shrink-0 justify-center px-6 pb-14 pt-8"><Progress value={null} className="w-full max-w-xl" /></div>
+    </div>}
     {errorBanner}
+    {runtimeUpdating && <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2 text-sm">
+      <span className="min-w-0 flex-1 truncate" title={runtimeUpdating.error ?? undefined}>{runtimeUpdating.error ? `${t.runtimeUpdateFailed} ${runtimeUpdating.error}` : t.runtimeUpdating}</span>
+      {runtimeUpdating.error && <Button variant="outline" onClick={() => void updateRuntime()}>{t.retry}</Button>}
+    </div>}
     {activePath && <div className="flex min-h-0 flex-1">
       <ChatWorkspace
         path={activePath}
         revision={sessionRevision}
         newSession={newSession}
+        locked={runtimeUpdating !== null}
         onStartSession={() => setNewSession(false)}
         onRetry={() => setSessionRevision(value => value + 1)}
         onBusyChange={setChatBusy}
+        onBootChange={booting => {
+          setEntryBooting(booting);
+          if (!booting) { entryReady.current = true; return; }
+          // Safety: a session that never reports "connected" must not keep the
+          // whole window behind the loader. The chat then shows its own line.
+          if (entryReady.current) return;
+          window.setTimeout(() => { if (!entryReady.current) { entryReady.current = true; setEntryBooting(false); } }, 8000);
+        }}
         catalogRefreshing={catalogRefreshing}
         canRefreshModels={setup?.account.signedIn === true}
         onModelsMissing={() => void refreshModelCatalog()}
+        onRetryModels={() => void refreshModelCatalog(true)}
         workspaces={state?.recent ?? []}
         onSelect={setActivePath}
         onAddFolder={() => void chooseFolder()}
         onRemove={id => { const workspace = state?.recent.find(item => item.id === id); if (workspace) void forget(workspace); }}
-        onTerminal={state?.platform === "windows" ? path => void launchTerminal(path) : undefined}
+
         onSettings={() => setSettingsOpen(true)}
         onUpdate={openUpdatePanel}
         updateAvailable={!!(updater.version || jouzuUpdater.version)}
@@ -467,7 +602,7 @@ export function App() {
       />
     </div>}
     {!activePath && <LauncherPage title={t.heading} description={t.intro}>
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button></div>
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6"><Button onClick={() => void chooseFolder()} disabled={!state || busy}><Plus />{t.addFolder}</Button><Button variant="outline" onClick={() => setSettingsOpen(true)}>{t.settings}</Button></div>
     </LauncherPage>}
     </main>;
 }

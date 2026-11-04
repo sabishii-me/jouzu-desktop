@@ -52,6 +52,8 @@ async function setup(page: Page) {
     w.forkCalls = [];
     w.branchCalls = [];
     w.compactCalls = [];
+    w.getMessagesCalls = [];
+    w.failMessagesFor = null;
     w.exportCalls = [];
     w.modelCalls = [];
     w.thinkingCalls = [];
@@ -60,7 +62,10 @@ async function setup(page: Page) {
     let current = "";
     let approvedLive = false;
     const records: any[] = [];
-    const response = (request: any, data?: any) => records.push({ type: "response", id: request.id, command: request.type, success: true, data });
+    const handleStates = new Map<string, { current: string; records: any[]; approvedLive: boolean }>();
+    let handleSeq = 0;
+    let currentOut = records;
+    const response = (request: any, data?: any) => currentOut.push({ type: "response", id: request.id, command: request.type, success: true, data });
     const sessionFile = () => current ? `C:/sessions/${current}.jsonl` : "C:/sessions/new.jsonl";
     const review = { ok: true, action: "inspect", sessionId: ids[2], mode: "on", items: [{ id: "matrix-review", withheld: true, ticket: "ticket", source: "SKILL.md", digest: "a".repeat(64), severity: "error", review: { source: "SKILL.md", digest: "a".repeat(64), scanner: "fixture", status: "withheld", severity: { error: 1 }, findings: [{ kind: "yara:command_injection" }] }, snapshot: { body: "reviewed body" } }] };
     const liveReview = { ...review, sessionId: ids[7], items: [{ ...review.items[0], id: "live-review", source: "LIVE.md" }] };
@@ -87,6 +92,8 @@ async function setup(page: Page) {
         if (command === "chat_session_timing") return { modelMs: 1, toolMs: 1, turns: 1, steps: 1, outputTokens: 1 };
         if (command === "environment_read") return [];
         if (command === "plugin:dialog|save") return "C:/tmp/export.html";
+        if (command === "chat_scratch_dir") return "C:/Temp/jz-scratch";
+        if (command === "chat_poll_many") return (args.handles as string[]).map(handle => ({ handle, records: (handleStates.get(handle)?.records ?? []).splice(0), closed: false }));
         if (command === "chat_start") return "matrix-test";
         if (command === "chat_poll") return { records: records.splice(0), closed: false };
         if (command === "chat_send") {
@@ -94,7 +101,11 @@ async function setup(page: Page) {
           if (request.type === "switch_session") { w.switchCalls.push(request.sessionPath); current = String(request.sessionPath).replace(/^.*[\\/]|\.jsonl$/g, ""); response(request, { cancelled: false }); }
           else if (request.type === "new_session") { current = ""; response(request, { cancelled: false }); }
           else if (request.type === "get_state") response(request, { sessionId: current || "new", sessionFile: sessionFile(), isStreaming: false, model: { name: "Matrix model" } });
-          else if (request.type === "get_messages") response(request, { messages: histories[sessionFile()] ?? [] });
+          else if (request.type === "get_messages") {
+            w.getMessagesCalls.push(sessionFile());
+            if (w.failMessagesFor === sessionFile()) currentOut.push({ type: "response", id: request.id, command: "get_messages", success: false, error: "JSONL frame exceeds 33554432 bytes" });
+            else response(request, { messages: histories[sessionFile()] ?? [] });
+          }
           else if (request.type === "get_available_models") response(request, { models: [{ provider: "fixture", id: "deterministic", name: "Matrix model" }, { provider: "fixture", id: "alternate", name: "Alternate model" }] });
           else if (request.type === "get_available_thinking_levels") response(request, { levels: ["low", "medium"] });
           else if (request.type === "get_session_stats") response(request, { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: { total: 1 } });
@@ -105,11 +116,11 @@ async function setup(page: Page) {
             }
             if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes("inspect")) {
               const payload = current === ids[7]
-                ? (approvedLive ? { ...liveReview, items: [] } : liveReview)
+                ? (state.approvedLive ? { ...liveReview, items: [] } : liveReview)
                 : { ...review, sessionId: current || "new", items: [] };
               records.push({ type: "extension_ui_request", id: `tg-${w.promptCalls.length}`, method: "notify", message: `JOUZU_TEXTGUARD ${JSON.stringify(payload)}` });
             }
-            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes('"action":"approve"') && current === ids[7]) approvedLive = true;
+            if (String(request.message).startsWith("/textguard-desktop") && String(request.message).includes('"action":"approve"') && current === ids[7]) state.approvedLive = true;
             response(request);
           }
           else if (request.type === "get_fork_messages") {
@@ -221,7 +232,7 @@ test("matrix: TextGuard history is hidden while the session is only previewed", 
   }
 });
 
-test("matrix: TextGuard mode is a composer dropdown until something is blocked", async ({ page }) => {
+test("matrix: TextGuard mode is a composer dropdown", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: /^S2\b/ }).click();
   const composer = page.getByLabel("Message Jouzu");
@@ -234,7 +245,7 @@ test("matrix: TextGuard mode is a composer dropdown until something is blocked",
   await expect(menu.getByRole("menuitemradio", { name: "On" })).toHaveAttribute("aria-checked", "true");
   await menu.getByRole("menuitemradio", { name: "Strict" }).click();
   await expect(menu).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.some((call: string) => call.includes('"action":"mode"') && call.includes('"mode":"strict"')))).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).promptCalls.some((call: string) => call.includes('/textguard strict')))).toBe(true);
 });
 test("matrix: a live TextGuard alert turns the composer icon red", async ({ page }) => {
   await setup(page);
@@ -307,7 +318,7 @@ test("matrix: fork from a preview attaches and opens the branch", async ({ page 
   await page.getByRole("button", { name: "Branch into a new conversation" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
   await expect(page.getByText("Branched into a new conversation.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
   expect(await page.evaluate(() => (window as any).branchCalls))
@@ -333,6 +344,22 @@ test("matrix: fork on the attached session switches to the branch", async ({ pag
       "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
       "C:/sessions/branch-1.jsonl",
     ]);
+});
+
+test("matrix: compact from a preview never fetches the transcript", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.failMessagesFor = "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl";
+    w.getMessagesCalls.length = 0;
+  });
+  await page.getByRole("button", { name: /^S1\b/ }).click();
+  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
+  await page.getByRole("button", { name: "Add files or run commands" }).click();
+  await page.getByRole("menuitem", { name: /Compact/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).compactCalls.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).getMessagesCalls)).toEqual([]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("matrix: compact from a preview attaches that session first", async ({ page }) => {
@@ -362,18 +389,6 @@ test("matrix: export from a preview attaches before exporting", async ({ page })
     .toEqual([{ session: "00000000-0000-4000-8000-000000000002", path: "C:/tmp/export.html" }]);
 });
 
-test("matrix: reload from a preview attaches that session first", async ({ page }) => {
-  await setup(page);
-  await page.getByRole("button", { name: /^S1\b/ }).click();
-  await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
-  await page.getByRole("button", { name: "Reload session" }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).switchCalls.length)).toBe(2);
-  expect(await page.evaluate(() => (window as any).switchCalls))
-    .toEqual([
-      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
-      "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl",
-    ]);
-});
 
 test("matrix: changing the model from a preview attaches that session first", async ({ page }) => {
   await setup(page);
@@ -420,7 +435,7 @@ test("matrix: fork at the selected turn keeps that turn", async ({ page }) => {
   await expect(page.getByText("second answer")).toBeVisible();
   await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByText("first answer")).toBeVisible();
   await expect(page.getByText("second answer")).toBeVisible();
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
@@ -434,9 +449,10 @@ test("matrix: fork on a single-turn session keeps its turn", async ({ page }) =>
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await page.getByRole("button", { name: "Branch into a new conversation" }).last().click();
   await expect.poll(() => page.evaluate(() => (window as any).branchCalls.length)).toBe(1);
-  await expect(page.getByRole("button", { name: "Reload session" })).toBeVisible();
+  await expect(page.getByLabel("Message Jouzu")).toBeVisible();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("short answer");
   await expect(page.getByLabel("Message Jouzu")).toHaveValue("");
   expect(await page.evaluate(() => (window as any).branchCalls))
     .toEqual([{ source: "C:/sessions/00000000-0000-4000-8000-000000000002.jsonl", index: 1 }]);
 });
+

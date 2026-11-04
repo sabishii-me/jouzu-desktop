@@ -11,7 +11,7 @@ function providerLabel(provider: string) {
   return id.replaceAll("-", " ").replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
 }
 
-function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel, thinkingLevels, onThinking, onOpen }: {
+function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel, thinkingLevels, onThinking, onOpen, onRetry }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   models: readonly ChatModel[];
@@ -21,6 +21,7 @@ function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel,
   thinkingLevels: readonly string[];
   onThinking: (level: string) => void;
   onOpen?: () => void;
+  onRetry?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -43,7 +44,7 @@ function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel,
     {open && <div role="menu" aria-label="Model selection" className="absolute bottom-full right-0 z-30 mb-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-2 shadow-xl">
       <Input autoFocus aria-label="Search models" placeholder="Search models" value={query} onChange={event => setQuery(event.target.value)} className="mb-2" />
       <div className="max-h-72 overflow-y-auto">
-        {!models.length && <p className="px-2 py-3 text-sm text-muted-foreground">No models available. Configure a provider in Settings.</p>}
+        {!models.length && <div className="px-2 py-3"><p className="text-sm text-muted-foreground">No models available. Configure a provider in Settings.</p>{onRetry && <Button type="button" variant="outline" className="mt-2 h-7 px-2 text-xs" onClick={onRetry}>Retry models</Button>}</div>}
         {!!models.length && !visible.length && <p className="px-2 py-3 text-sm text-muted-foreground">No matching models</p>}
         {providers.map(provider => <section key={provider} className="mb-2">
           <h3 className="px-2 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{providerLabel(provider)}</h3>
@@ -132,6 +133,7 @@ export interface ComposerProps {
   model?: string;
   onSelectModel: (provider: string, id: string) => void;
   onRefreshModels?: () => void;
+  onRetryModels?: () => void;
   thinkingLevel?: string;
   thinkingLevels: readonly string[];
   onThinkingLevel: (level: string) => void;
@@ -155,7 +157,7 @@ function TextGuardControl({ control }: { control: NonNullable<ComposerProps["tex
     </div>}
   </div>;
 }
-export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -189,7 +191,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="hidden text-xs text-muted-foreground lg:inline">{!connected ? "Connecting…" : unavailable ? "Session unavailable" : opening ? "Opening session…" : pending ? "Sending…" : running ? "Enter to steer" : "Enter to send · Shift+Enter for newline"}</span>
-          <ModelMenu open={modelOpen} onOpenChange={setModelOpen} models={models} model={model} onSelect={onSelectModel} onOpen={onRefreshModels} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} onThinking={onThinkingLevel} />
+          <ModelMenu open={modelOpen} onOpenChange={setModelOpen} models={models} model={model} onSelect={onSelectModel} onOpen={onRefreshModels} onRetry={onRetryModels} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} onThinking={onThinkingLevel} />
           {running && <Button type="button" variant="outline" className="h-8 px-2" onClick={onStop}><Square className="size-3.5" />Stop</Button>}
           <Button type="submit" className="h-8 px-2" disabled={!connected || pending || opening || unavailable || readingImages || !draft.trim()}><Send className="size-3.5" />{running ? "Steer" : "Send"}</Button>
         </div>

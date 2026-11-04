@@ -689,7 +689,8 @@ mod tests {
         let older = directory.path().join("older.jsonl");
         let newer = directory.path().join("newer.jsonl");
         write_session(&older, r"\\?\C:\Work\One", "  Fix   the parser  ");
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&older).unwrap().set_modified(old_time).unwrap();
         write_session(&newer, r"C:\Work\Two", "Add a workspace rail");
         let sessions = list_sessions(directory.path());
         assert_eq!(sessions.len(), 2);

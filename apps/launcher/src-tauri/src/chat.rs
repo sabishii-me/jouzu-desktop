@@ -8,7 +8,13 @@ use std::{
 };
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
-const MAX_BUFFER: usize = 64 * 1024 * 1024;
+const HARD_BYTES: usize = 64 * 1024 * 1024;
+// A slow consumer is a desktop problem. Crossing the soft limit compacts the
+// unread queue and keeps the turn alive; only a wedged runtime reaches the hard
+// limit, where the runtime is stopped instead of the transcript being trusted.
+const SOFT_RECORDS: usize = 512;
+const SOFT_BYTES: usize = 16 * 1024 * 1024;
+const HARD_RECORDS: usize = 4096;
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const EXIT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -86,6 +92,68 @@ impl ExitDrain {
         }
     }
 }
+/// Records a pending request must always receive, and the ones that only draw.
+fn is_structural(record: &Value) -> bool {
+    let kind = record.get("type").and_then(Value::as_str).unwrap_or("");
+    matches!(
+        kind,
+        "response"
+            | "extension_ui_request"
+            | "extension_error"
+            | "message_start"
+            | "message_end"
+            | "agent_start"
+            | "agent_end"
+            | "agent_settled"
+            | "compaction_start"
+            | "compaction_end"
+            | "auto_retry_start"
+            | "auto_retry_end"
+            | "turn_start"
+            | "turn_end"
+            | "tool_start"
+            | "tool_end"
+            | "error"
+    )
+}
+
+/// Drop verbose backlog oldest-first until the queue is under the soft limits.
+/// Structural records survive, and one `desktop_gap` marker tells the view to
+/// reconcile from the durable transcript once the turn settles.
+fn compact_backlog(output: &mut Output) {
+    if output.records.len() <= SOFT_RECORDS && output.bytes <= SOFT_BYTES {
+        return;
+    }
+    let before = output.records.len();
+    let mut kept: VecDeque<Value> = VecDeque::with_capacity(before);
+    let mut bytes = 0usize;
+    let mut dropped = 0usize;
+    let mut dropped_bytes = 0usize;
+    // Structural records are rare and small; verbose ones are what grows.
+    for record in output.records.drain(..) {
+        if is_structural(&record) {
+            bytes += serde_json::to_vec(&record).map_or(0, |value| value.len());
+            kept.push_back(record);
+        } else {
+            dropped += 1;
+            dropped_bytes += serde_json::to_vec(&record).map_or(0, |value| value.len());
+        }
+    }
+    output.records = kept;
+    output.bytes = bytes;
+    if dropped > 0 {
+        output.dropped = output.dropped.saturating_add(dropped);
+        output.records.push_back(serde_json::json!({
+            "type": "desktop_gap",
+            "dropped": dropped,
+            "bytes": dropped_bytes,
+        }));
+        if let Ok(size) = serde_json::to_vec(output.records.back().unwrap()) {
+            output.bytes += size.len();
+        }
+    }
+}
+
 fn append_error(error: &mut Option<String>, message: String) {
     if let Some(error) = error {
         error.push_str("; ");
@@ -101,9 +169,15 @@ struct Output {
     closed: bool,
     error: Option<String>,
     cleanup_error: Option<String>,
+    /// How many records the last soft compaction dropped, so the webview learns
+    /// once that its view is behind the transcript.
+    dropped: usize,
 }
 struct Session {
     owner: String,
+    generation: String,
+    key: String,
+    last_poll: Instant,
     input: mpsc::SyncSender<Vec<u8>>,
     stop: mpsc::Sender<()>,
     output: Arc<Mutex<Output>>,
@@ -118,6 +192,8 @@ pub struct Poll {
     records: Vec<Value>,
     closed: bool,
     error: Option<String>,
+    /// Set while the view is behind the transcript after a compacted backlog.
+    compacted: usize,
 }
 impl ChatService {
     pub fn shutdown(&self) {
@@ -159,6 +235,26 @@ fn stop_sessions(mut sessions: Vec<Session>) {
         let _ = join_session(session);
     }
 }
+fn stale_generation_handles(sessions: &HashMap<String, Session>, owner: &str, generation: &str) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|(_, session)| session.owner == owner && session.generation != generation)
+        .map(|(handle, _)| handle.clone())
+        .collect()
+}
+
+fn reaped_handles(sessions: &HashMap<String, Session>, owner: &str, kept: &[String], now: Instant) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|(handle, session)| {
+            session.owner == owner
+                && !kept.contains(handle)
+                && now.duration_since(session.last_poll) > Duration::from_secs(60)
+        })
+        .map(|(handle, _)| handle.clone())
+        .collect()
+}
+
 fn validate(request: &Value) -> Result<(), String> {
     let object = request
         .as_object()
@@ -307,31 +403,52 @@ pub fn chat_start(
     window: tauri::WebviewWindow,
     state: tauri::State<ChatService>,
     path: String,
+    generation: Option<String>,
+    key: Option<String>,
 ) -> Result<String, String> {
     if window.label() != "main" {
         return Err("Chat is restricted to the main window".into());
     }
-    // A webview reload does not run the previous page's React cleanup, so its chat
-    // process can survive with a Flow attachment. The desktop owns exactly one chat
-    // view; retire any previous process before starting the next one.
-    let stale: Vec<Session> = {
-        let mut previous = state
-            .sessions
-            .lock()
-            .map_err(|_| "Chat state unavailable")?;
-        previous.drain().map(|(_, session)| session).collect()
-    };
-    stop_sessions(stale);
+    // A pool handle is generation-scoped: a page load releases the previous
+    // generation explicitly, so a new handle must not stop other live sessions.
+    // Legacy callers pass no generation and keep the single-runtime cleanup.
+    if generation.is_none() {
+        let stale: Vec<Session> = {
+            let mut previous = state
+                .sessions
+                .lock()
+                .map_err(|_| "Chat state unavailable")?;
+            previous.drain().map(|(_, session)| session).collect()
+        };
+        stop_sessions(stale);
+    }
     let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "Chat state unavailable")?;
-    if sessions.len() >= 8 {
-        return Err("Close a conversation before starting another".into());
-    }
     let cwd = std::fs::canonicalize(&path).map_err(|_| "Workspace folder is unavailable")?;
     if !cwd.is_dir() {
         return Err("Workspace must be a folder".into());
+    }
+    // Ownership is per session/branch. A pool slot keeps a unique key until it is
+    // leased; the visible entry uses its session key. Only the same key is stopped.
+    let session_key = key.unwrap_or_else(|| cwd.to_string_lossy().into_owned());
+    let same: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.key == session_key)
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let previous: Vec<Session> = same
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    if !previous.is_empty() {
+        drop(sessions);
+        stop_sessions(previous);
+        sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "Chat state unavailable")?;
     }
     let root = crate::runtime::application_root(&app)?;
     let managed = crate::runtime::managed_root()?;
@@ -452,13 +569,16 @@ pub fn chat_start(
                 |record| {
                     if let Ok(mut output) = worker_output.lock() {
                         let value = Value::Object(record);
-                        let size = serde_json::to_vec(&value).map_or(MAX_BUFFER + 1, |v| v.len());
-                        if output.bytes + size > MAX_BUFFER || output.records.len() >= 2048 {
+                        let size = serde_json::to_vec(&value).map_or(HARD_BYTES + 1, |v| v.len());
+                        if output.bytes + size > HARD_BYTES || output.records.len() >= HARD_RECORDS {
                             overflow = true;
                             return;
                         }
                         output.bytes += size;
                         output.records.push_back(value);
+                        // A slow consumer is the desktop's problem: compact the
+                        // backlog and keep the turn alive.
+                        compact_backlog(&mut output);
                     } else {
                         overflow = true;
                     }
@@ -470,7 +590,7 @@ pub fn chat_start(
             }
             if overflow {
                 failure = Some(
-                    "Chat output exceeded the desktop buffer; session interrupted without replay"
+                    "The runtime stopped responding and was restarted; the transcript was kept"
                         .into(),
                 );
                 break 'run;
@@ -505,6 +625,9 @@ pub fn chat_start(
         handle.clone(),
         Session {
             owner: window.label().into(),
+            generation: generation.unwrap_or_default(),
+            key: session_key,
+            last_poll: Instant::now(),
             input,
             stop,
             output,
@@ -541,26 +664,200 @@ pub fn chat_poll(
     state: tauri::State<ChatService>,
     handle: String,
 ) -> Result<Poll, String> {
-    let sessions = state
+    let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "Chat state unavailable")?;
     let session = sessions
-        .get(&handle)
+        .get_mut(&handle)
         .filter(|s| s.owner == window.label())
         .ok_or("Unknown chat connection")?;
+    session.last_poll = Instant::now();
     let mut output = session
         .output
         .lock()
         .map_err(|_| "Chat output unavailable")?;
     let records = output.records.drain(..).collect();
     output.bytes = 0;
+    let compacted = std::mem::take(&mut output.dropped);
     Ok(Poll {
         records,
         closed: output.closed,
         error: output.error.clone(),
+        compacted,
     })
 }
+
+#[derive(Serialize)]
+pub struct PoolPoll {
+    handle: String,
+    records: Vec<Value>,
+    closed: bool,
+    error: Option<String>,
+    compacted: usize,
+}
+
+/// One poll call serves every live session so the pool needs one timer.
+#[tauri::command]
+pub fn chat_scratch_dir() -> Result<String, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!("jouzu-warm-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn chat_poll_many(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    handles: Vec<String>,
+) -> Result<Vec<PoolPoll>, String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let now = Instant::now();
+    let mut polls = Vec::with_capacity(handles.len());
+    for handle in &handles {
+        let Some(session) = sessions.get_mut(handle) else {
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()), compacted: 0 });
+            continue;
+        };
+        if session.owner != window.label() {
+            polls.push(PoolPoll { handle: handle.clone(), records: Vec::new(), closed: true, error: Some("Unknown chat connection".into()), compacted: 0 });
+            continue;
+        }
+        session.last_poll = now;
+        let mut output = session
+            .output
+            .lock()
+            .map_err(|_| "Chat output unavailable")?;
+        polls.push(PoolPoll {
+            handle: handle.clone(),
+            records: output.records.drain(..).collect(),
+            closed: output.closed,
+            error: output.error.clone(),
+            compacted: std::mem::take(&mut output.dropped),
+        });
+    }
+    // A page load releases the previous generation explicitly; the reaper is the
+    // backstop for a closed page that never ran its cleanup.
+    let reaped: Vec<String> = reaped_handles(&sessions, window.label(), &handles, Instant::now());
+    let stopped: Vec<Session> = reaped
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        std::thread::spawn(move || stop_sessions(stopped));
+    }
+    Ok(polls)
+}
+
+/// Stop every session created by an older page generation, keeping the current one.
+#[tauri::command]
+pub fn chat_release_generation(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    generation: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let stale: Vec<String> = stale_generation_handles(&sessions, window.label(), &generation);
+    let stopped: Vec<Session> = stale
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        stop_sessions(stopped);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chat_claim(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    handle: String,
+    session_key: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    if sessions
+        .iter()
+        .any(|(other, session)| other != &handle && session.owner == window.label() && session.key == session_key)
+    {
+        return Err("Session is owned by another runtime".into());
+    }
+    let session = sessions
+        .get_mut(&handle)
+        .ok_or_else(|| "Unknown chat connection".to_string())?;
+    if session.owner != window.label() {
+        return Err("Unknown chat connection".into());
+    }
+    session.key = session_key;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chat_stop_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+    session_key: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let handles: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.owner == window.label() && session.key == session_key)
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = handles
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        stop_sessions(stopped);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chat_stop_all(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let handles: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.owner == window.label())
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = handles
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        stop_sessions(stopped);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn chat_stop(
     window: tauri::WebviewWindow,
@@ -585,6 +882,48 @@ pub fn chat_stop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn delta(index: usize) -> Value {
+        serde_json::json!({ "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "delta": format!("chunk-{index}") } })
+    }
+
+    #[test]
+    fn classification_keeps_responses_and_dialogs() {
+        assert!(is_structural(&serde_json::json!({ "type": "response" })));
+        assert!(is_structural(&serde_json::json!({ "type": "extension_ui_request" })));
+        assert!(is_structural(&serde_json::json!({ "type": "agent_settled" })));
+        assert!(!is_structural(&delta(0)));
+        assert!(!is_structural(&serde_json::json!({ "type": "extension_ui_request_widget" })));
+    }
+
+    #[test]
+    fn a_soft_limit_compacts_verbose_records_and_marks_one_gap() {
+        let mut output = Output::default();
+        output.records.push_back(serde_json::json!({ "type": "response", "id": "r1" }));
+        for index in 0..(SOFT_RECORDS + 64) {
+            output.records.push_back(delta(index));
+        }
+        output.bytes = SOFT_BYTES + 1;
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), 2, "the response and one gap marker survive");
+        assert_eq!(output.records[0]["type"], "response");
+        assert_eq!(output.records[1]["type"], "desktop_gap");
+        assert_eq!(output.dropped, SOFT_RECORDS + 64);
+        // A second compaction with nothing to drop adds no marker.
+        let before = output.records.len();
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), before);
+    }
+
+    #[test]
+    fn a_queue_under_the_soft_limit_is_left_alone() {
+        let mut output = Output::default();
+        output.records.push_back(delta(0));
+        output.bytes = 64;
+        compact_backlog(&mut output);
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.dropped, 0);
+    }
 
     #[test]
     fn exit_drain_keeps_final_records_after_would_block() {
@@ -717,6 +1056,9 @@ mod tests {
         (
             Session {
                 owner: "main".into(),
+                generation: String::new(),
+                key: String::new(),
+                last_poll: Instant::now(),
                 input,
                 stop,
                 output: Arc::new(Mutex::new(Output::default())),
@@ -724,6 +1066,27 @@ mod tests {
             },
             stopping,
         )
+    }
+
+    #[test]
+    fn generation_and_reaper_pick_only_stale_handles() {
+        let mut sessions = HashMap::new();
+        let (mut old, _) = test_session();
+        old.generation = "old".into();
+        old.last_poll = Instant::now() - Duration::from_secs(120);
+        let (mut live, _) = test_session();
+        live.generation = "new".into();
+        sessions.insert("old".into(), old);
+        sessions.insert("live".into(), live);
+
+        let mut stale = stale_generation_handles(&sessions, "main", "new");
+        stale.sort();
+        assert_eq!(stale, vec!["old"]);
+
+        let mut reaped = reaped_handles(&sessions, "main", &[], Instant::now());
+        reaped.sort();
+        assert_eq!(reaped, vec!["old"]);
+        assert!(reaped_handles(&sessions, "main", &["old".into()], Instant::now()).is_empty());
     }
 
     #[test]

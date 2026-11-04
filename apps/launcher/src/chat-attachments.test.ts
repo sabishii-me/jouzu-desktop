@@ -1,5 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
-import { MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, readImageAttachment, removeSubmittedImages, validateImageBytes, validateImageSelection, type ImageAttachment } from "./chat-attachments";
+import { describe, expect, it } from "vitest";
+import { MAX_IMAGE_BYTES, MAX_SEND_IMAGE_BASE64, MAX_SEND_TOTAL_BASE64, MAX_TOTAL_IMAGE_BYTES, base64Length, fitsSendBudget, readImageAttachment, removeSubmittedImages, validateImageBytes, validateImageSelection, type ImageAttachment } from "./chat-attachments";
+
+const fileOf = (bytes: Uint8Array, name = "photo.png", type = "image/png") => ({
+  name,
+  type,
+  size: bytes.length,
+  arrayBuffer: async () => bytes.slice().buffer,
+} as unknown as File);
+
+const attachmentOf = (base64: number, id = "a"): ImageAttachment => ({
+  id,
+  name: "a.png",
+  size: 1,
+  image: { type: "image", data: "x".repeat(base64), mimeType: "image/png" },
+});
 
 const signatures = [
   ["image/png", [137, 80, 78, 71, 13, 10, 26, 10]],
@@ -41,28 +55,19 @@ describe("image attachments", () => {
   });
   it("reads asynchronously and emits raw base64, not a data URL", async () => {
     const bytes = new Uint8Array(signatures[0][1]);
-    class Reader {
-      result: ArrayBuffer | null = null;
-      onload?: () => void;
-      readAsArrayBuffer() { queueMicrotask(() => { this.result = bytes.buffer; this.onload?.(); }); }
-    }
-    vi.stubGlobal("FileReader", Reader);
-    try {
-      const result = await readImageAttachment({ name: "photo.png", type: "image/png", size: bytes.length } as File);
-      expect(result.image).toEqual({ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
-      expect(result.name).toBe("photo.png");
-    } finally { vi.unstubAllGlobals(); }
+    const result = await readImageAttachment(fileOf(bytes));
+    expect(result.image).toEqual({ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
+    expect(result.name).toBe("photo.png");
   });
   it("rejects unreadable and mismatched files", async () => {
-    class Reader {
-      result = new Uint8Array([1, 2, 3]).buffer;
-      onload?: () => void;
-      readAsArrayBuffer() { queueMicrotask(() => this.onload?.()); }
-    }
-    vi.stubGlobal("FileReader", Reader);
-    try {
-      await expect(readImageAttachment({ name: "fake.png", type: "image/png", size: 3 } as File)).rejects.toThrow(/contents/);
-      await expect(readImageAttachment({ name: "changed.png", type: "image/png", size: 8 } as File)).rejects.toThrow(/size changed/);
-    } finally { vi.unstubAllGlobals(); }
+    await expect(readImageAttachment(fileOf(new Uint8Array([1, 2, 3])))).rejects.toThrow(/contents/);
+    await expect(readImageAttachment({ name: "changed.png", type: "image/png", size: 9, arrayBuffer: async () => new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer } as unknown as File)).rejects.toThrow(/size changed/);
+  });
+  it("keeps one message inside the runtime's flow submission budget", () => {
+    expect(base64Length(3)).toBe(4);
+    expect(base64Length(0)).toBe(0);
+    expect(fitsSendBudget([attachmentOf(MAX_SEND_IMAGE_BASE64)])).toBe(true);
+    expect(fitsSendBudget([attachmentOf(MAX_SEND_TOTAL_BASE64 / 2), attachmentOf(MAX_SEND_TOTAL_BASE64 / 2, "b")])).toBe(true);
+    expect(fitsSendBudget([attachmentOf(MAX_SEND_TOTAL_BASE64 + 4)])).toBe(false);
   });
 });

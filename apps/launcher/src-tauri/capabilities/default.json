@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "dialog:allow-confirm",
     "core:window:allow-minimize",
     "core:window:allow-close",
@@ -21,6 +22,9 @@
       "allow": [
         {
           "url": "https://platform.shisa.ai/connect*"
+        },
+        {
+          "url": "https://auth.openai.com/*"
         },
         {
           "url": "https://github.com/shisa-ai/jouzu/*"
