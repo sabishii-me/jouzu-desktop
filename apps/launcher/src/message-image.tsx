@@ -344,7 +344,7 @@ function RemoteImageCard({ url, host, alt, openable }: { url: string; host: stri
       </div>
     </div>
     {openable && <div className="flex justify-end border-t border-border/60 px-2 py-1">
-      <Button variant="ghost" className={CARD_ACTION} onClick={() => { void openUrl(url).catch(() => {}); }}><ExternalLink className="size-3" />Open</Button>
+      <Button variant="ghost" className={CARD_ACTION} onClick={() => { void invoke("open_external_url", { url }).catch(() => openUrl(url).catch(() => {})); }}><ExternalLink className="size-3" />Open</Button>
     </div>}
   </figure>;
 }
@@ -413,3 +413,4 @@ export function MessageImage({ kind, source, alt = "", workspace, bytes, path, s
   if (classification.type === "local") return <LocalImage workspace={root ?? ""} path={classification.path} name={classification.name} alt={alt} caption={caption} />;
   return <ImageFallbackCard reason={classification.reason} name={classification.name} path={classification.path} bytes={classification.bytes} detail={classification.detail} />;
 }
+
