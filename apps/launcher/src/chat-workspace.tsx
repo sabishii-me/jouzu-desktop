@@ -23,6 +23,7 @@ import { humanizeRuntimeError, isCapacityError } from "./runtime-errors";
 import { beginDialogResponse, emptyDialogQueue, enqueueDialog, expireDialogs, nextDialogDeadline, removeDialog, type DialogAnswer, type DialogQueue } from "./dialog-queue";
 import { BackgroundMenu, deriveFlow, deriveSubagents, FlowMenu, latestFlowError, SubagentMenu } from "./tool-renderers";
 import { SessionStatsBar } from "./session-stats-bar";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import { parseTextGuardNotice, parseTextGuardResult, TextGuardBar, type TextGuardData, type TextGuardItem } from "./textguard-bar";
 import type { SessionTiming } from "./chat-connection";
 
@@ -1216,17 +1217,23 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
         {panes.map((pane, index) => <aside key={index} data-session={snapshot.sessionId ?? ""} data-pane={index} style={{ width: pane.width }} className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-background">
-          <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-            {pane.tabs.map(tab => <div key={tab} className={`flex items-center gap-1 rounded-t-md border border-b-0 px-2 py-1 text-xs ${pane.active === tab ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}>
-              <button type="button" onClick={() => setPanes(current => current.map((item, position) => position === index ? { ...item, active: tab } : item))}>{tab === "artifacts" ? "Artifacts" : tab === "start" ? "Start" : tab === "files" ? "Files" : tab}</button>
-              <button type="button" className="rounded p-0.5 hover:bg-muted" aria-label={`Close ${tab} tab`} title="Close tab" onClick={() => closePaneTab(index, tab)}><X className="size-3" /></button>
-            </div>)}
-            <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Add panel tab" title="Add tab" onClick={() => addPaneTab(index)}><Plus className="size-3.5" /></Button>
-            <div className="ml-auto flex items-center">
-              {index === panes.length - 1 && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label={panes.length < 2 ? "Split pane" : "Close second pane"} title={panes.length < 2 ? "Split pane" : "Close second pane"} onClick={() => panes.length < 2 ? addPane() : removePane(1)}><Columns2 className="size-3.5" /></Button>}
+          <Tabs value={pane.active} onValueChange={value => setPanes(current => current.map((item, position) => position === index ? { ...item, active: value } : item))} className="flex min-h-0 flex-1 flex-col gap-0">
+            <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+              <TabsList className="h-8 min-w-0 flex-1 justify-start gap-1 overflow-x-auto bg-transparent p-0">
+                {pane.tabs.map(tab => <div key={tab} className="relative flex shrink-0 items-center">
+                  <TabsTrigger value={tab} className="h-8 rounded-md border border-transparent px-2.5 pr-7 text-xs data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:shadow-none">{tab === "artifacts" ? "Artifacts" : tab === "start" ? "Start" : tab === "files" ? "Files" : tab}</TabsTrigger>
+                  <button type="button" className="absolute right-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Close ${tab} tab`} title="Close tab" onClick={() => closePaneTab(index, tab)}><X className="size-3" /></button>
+                </div>)}
+              </TabsList>
+              <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label="Add panel tab" title="Add tab" onClick={() => addPaneTab(index)}><Plus className="size-3.5" /></Button>
+              <div className="ml-auto flex items-center">
+                {index === panes.length - 1 && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label={panes.length < 2 ? "Split pane" : "Close second pane"} title={panes.length < 2 ? "Split pane" : "Close second pane"} onClick={() => panes.length < 2 ? addPane() : removePane(1)}><Columns2 className="size-3.5" /></Button>}
+              </div>
             </div>
-          </div>
-<div className="min-h-0 flex-1 overflow-auto p-3">{pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel sessionId={artifactsSessionId} workspace={path} references={outputReferences} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}</div>
+            <TabsContent value={pane.active} className="min-h-0 flex-1 overflow-auto p-3">
+              {pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel embedded sessionId={artifactsSessionId} workspace={path} references={outputReferences} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}
+            </TabsContent>
+          </Tabs>
           <div role="separator" aria-orientation="vertical" aria-label="Resize pane" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPane.current = { index, startX: event.clientX, startWidth: pane.width }; event.preventDefault(); }} />
         </aside>)}
       </div>}

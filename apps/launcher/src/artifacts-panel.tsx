@@ -67,7 +67,7 @@ function Thumb({ id, alt, onOpen }: { id: string; alt: string; onOpen: () => voi
 }
 
 /** Stored artifacts plus the turn's in-place outputs; Save freezes a copy. */
-export function ArtifactsPanel({ sessionId, references = [], workspace }: { sessionId?: string; references?: readonly OutputReference[]; workspace?: string } = {}) {
+export function ArtifactsPanel({ sessionId, references = [], workspace, embedded = false }: { sessionId?: string; references?: readonly OutputReference[]; workspace?: string; embedded?: boolean } = {}) {
   const [items, setItems] = useState<ArtifactRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -138,12 +138,12 @@ export function ArtifactsPanel({ sessionId, references = [], workspace }: { sess
     }
   }
 
-  return <Card className="border-border shadow-none">
-    <CardHeader>
+  return <Card className={embedded ? "border-0 bg-transparent shadow-none" : "border-border shadow-none"}>
+    {!embedded && <CardHeader>
       <CardTitle>Artifacts</CardTitle>
       <CardDescription>{sessionId ? "AI outputs for this session. Save freezes a copy into the artifact store; unsaved items stay in the workspace." : "Saved artifacts, newest first."}</CardDescription>
-    </CardHeader>
-    <CardContent className="space-y-4">
+    </CardHeader>}
+    <CardContent className={embedded ? "space-y-4 p-0" : "space-y-4"}>
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       {!items && !error && <p className="text-sm text-muted-foreground">Loading artifacts…</p>}
       {items && !visible.length && <p className="text-sm text-muted-foreground">No AI outputs in this session yet.</p>}
