@@ -1012,9 +1012,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     ? activeMessage.content.flatMap(block => block.type === "thinking" ? [block.thinking ?? ""] : []).join("\n")
     : "";
   const lastMessage = conversationProjection.messages.at(-1);
-  const settled = !conversationProjection.running && lastMessage?.role === "assistant"
-    ? lastMessage.stopReason === "aborted" ? "interrupted" as const
-      : lastMessage.stopReason === "error" ? "failed" as const
+  const settled = !conversationProjection.running && !sentPending
+    ? lastMessage?.role === "assistant" && lastMessage.stopReason === "error" ? "failed" as const
+      : lastMessage?.role === "toolResult" || (lastMessage?.role === "assistant" && (lastMessage.stopReason === "aborted" || lastMessage.stopReason === "toolUse")) ? "interrupted" as const
         : undefined
     : undefined;
   const outputReferences = useMemo(
