@@ -775,7 +775,7 @@ pub fn chat_release_generation(
         .collect();
     drop(sessions);
     if !stopped.is_empty() {
-        std::thread::spawn(move || stop_sessions(stopped));
+        stop_sessions(stopped);
     }
     Ok(())
 }

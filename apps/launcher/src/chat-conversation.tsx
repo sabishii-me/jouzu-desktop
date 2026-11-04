@@ -95,7 +95,7 @@ function UserContent({ message }: { message: ChatMessage }) {
   return <>{message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : null)}</>;
 }
 
-function ChatConversationView({ projection, workspace, busy = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; busy?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
+function ChatConversationView({ projection, workspace, busy = false, pendingUser = "", onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; busy?: boolean; pendingUser?: string; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
   const scroll = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -202,7 +202,12 @@ function ChatConversationView({ projection, workspace, busy = false, onFork, onO
     <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div ref={content} className="mx-auto max-w-3xl space-y-3">{rows}</div>
+      <div ref={content} className="mx-auto max-w-3xl space-y-3">{rows}
+        {pendingUser && <article aria-label="user message" className="ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left opacity-70">
+          <div className="mb-2 text-xs font-medium text-muted-foreground">You</div>
+          <ChatMarkdown text={pendingUser} />
+        </article>}
+      </div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}
     </div>
     {turnMarkers.length >= 2 && <nav ref={railRef} aria-label="Conversation turns" className="absolute right-3 top-1/2 z-10 max-h-[min(420px,calc(100%_-_4rem))] w-7 -translate-y-1/2 overflow-y-auto overscroll-contain py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
