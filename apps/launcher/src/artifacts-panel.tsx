@@ -6,11 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./com
 import { Button } from "./components/ui/button";
 import { ImageViewer } from "./components/image-viewer";
 import { ChatMarkdown } from "./chat-markdown";
+import type { OutputReference } from "./artifact-references";
 
 interface ArtifactRecord {
   id: string;
   kind?: string;
   path?: string;
+  originPath?: string;
   absolutePath?: string;
   prompt?: string;
   mimeType?: string;
@@ -18,10 +20,28 @@ interface ArtifactRecord {
   createdAt?: string;
   dimensions?: { width?: number; height?: number };
   source?: { model?: string; provider?: string };
+  /** A workspace original: visible in the panel, not frozen into the store. */
+  reference?: boolean;
 }
 
 const isImage = (mime?: string) => !!mime && mime.startsWith("image/");
 const isText = (mime?: string) => !!mime && (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+xml"));
+
+const EXT_MIME: Record<string, [string, string]> = {
+  png: ["image/png", "images"], jpg: ["image/jpeg", "images"], jpeg: ["image/jpeg", "images"],
+  webp: ["image/webp", "images"], gif: ["image/gif", "images"],
+  md: ["text/markdown", "documents"], mdx: ["text/markdown", "documents"], txt: ["text/plain", "documents"],
+  json: ["application/json", "documents"], csv: ["text/csv", "documents"], pdf: ["application/pdf", "documents"],
+  html: ["text/html", "documents"], htm: ["text/html", "documents"], xml: ["application/xml", "documents"],
+};
+
+function referenceRecord(reference: OutputReference): ArtifactRecord {
+  const extension = reference.path.split(".").pop()?.toLowerCase() ?? "";
+  const [mimeType, kind] = EXT_MIME[extension] ?? ["application/octet-stream", "data"];
+  return { id: `reference:${reference.path}`, reference: true, kind, mimeType, path: reference.path, absolutePath: reference.path, prompt: reference.name };
+}
+
+const normalizePath = (path?: string) => (path ?? "").replaceAll("\\", "/").replace(/\/+/gu, "/").toLowerCase();
 
 /** A stored file name, unless it is the digest-style name the store gives it. */
 function displayName(item: ArtifactRecord): string {
@@ -46,10 +66,11 @@ function Thumb({ id, alt, onOpen }: { id: string; alt: string; onOpen: () => voi
   </button>;
 }
 
-/** Everything the artifact store holds, newest first (0072). */
-export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
+/** Stored artifacts plus the turn's in-place outputs; Save freezes a copy. */
+export function ArtifactsPanel({ sessionId, references = [], workspace }: { sessionId?: string; references?: readonly OutputReference[]; workspace?: string } = {}) {
   const [items, setItems] = useState<ArtifactRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ src: string; title: string } | null>(null);
   const [viewingText, setViewingText] = useState<{ text: string; title: string; markdown: boolean } | null>(null);
 
@@ -65,6 +86,25 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   }
 
   useEffect(() => { void load(); }, [sessionId]);
+
+  async function save(reference: OutputReference) {
+    if (!workspace || saving) return;
+    setSaving(reference.path);
+    try {
+      await invoke("artifact_store_copy", { workspace, path: reference.path, ...(sessionId ? { sessionId } : {}), prompt: reference.name });
+      await load();
+      setError(null);
+    } catch (failure) {
+      setError(String(failure));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const stored = items ?? [];
+  const storedOrigins = new Set(stored.map(item => normalizePath(item.originPath)).filter(Boolean));
+  const referencesOnly = references.filter(reference => !storedOrigins.has(normalizePath(reference.path))).map(referenceRecord);
+  const visible = [...stored, ...referencesOnly];
 
   async function view(item: ArtifactRecord) {
     try {
@@ -101,25 +141,32 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   return <Card className="border-border shadow-none">
     <CardHeader>
       <CardTitle>Artifacts</CardTitle>
-      <CardDescription>{sessionId ? "Stored artifacts for this session. Workspace files are in Files." : "Generated files stored under the agent's artifacts folder, newest first."}</CardDescription>
+      <CardDescription>{sessionId ? "AI outputs for this session. Save freezes a copy into the artifact store; unsaved items stay in the workspace." : "Saved artifacts, newest first."}</CardDescription>
     </CardHeader>
     <CardContent className="space-y-4">
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       {!items && !error && <p className="text-sm text-muted-foreground">Loading artifacts…</p>}
-      {items && !items.length && <p className="text-sm text-muted-foreground">{sessionId ? "No artifacts in this session. Files the turn wrote are workspace files, not artifacts; open Files to browse them." : "No artifacts yet. Generated files appear here."}</p>}
-      {items && items.length > 0 && <>
-        <p className="text-xs text-muted-foreground">{items.length} artifact{items.length === 1 ? "" : "s"}</p>
+      {items && !visible.length && <p className="text-sm text-muted-foreground">No AI outputs in this session yet.</p>}
+      {items && visible.length > 0 && <>
+        <p className="text-xs text-muted-foreground">{visible.length} artifact{visible.length === 1 ? "" : "s"}</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {items.map(item => <div key={item.id} className="space-y-2">
-            {isImage(item.mimeType)
+          {visible.map(item => <div key={item.id} className="space-y-2">
+            {isImage(item.mimeType) && !item.reference
               ? <Thumb id={item.id} alt={displayName(item)} onOpen={() => void view(item)} />
-              : <button type="button" className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-muted/40" onClick={() => void view(item)} title={displayName(item)}><FileText className="size-7 text-muted-foreground" /></button>}
+              : <button type="button" className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-muted/40" onClick={() => { if (!item.reference) void view(item); }} title={displayName(item)}><FileText className="size-7 text-muted-foreground" /></button>}
             <p className="line-clamp-2 text-[11px] text-muted-foreground" title={displayName(item)}>{displayName(item)}</p>
-            <p className="truncate text-[10px] text-muted-foreground">{[item.source?.model, item.dimensions?.width && item.dimensions?.height ? `${item.dimensions.width}×${item.dimensions.height}` : "", item.createdAt ? new Date(item.createdAt).toLocaleString() : ""].filter(Boolean).join(" · ")}</p>
+            <p className="truncate text-[10px] text-muted-foreground">{item.reference ? "Not saved · workspace reference" : [item.source?.model, item.dimensions?.width && item.dimensions?.height ? `${item.dimensions.width}×${item.dimensions.height}` : "", item.createdAt ? new Date(item.createdAt).toLocaleString() : ""].filter(Boolean).join(" · ")}</p>
             <div className="flex flex-wrap gap-1">
-              <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => void view(item)}><Eye className="size-3" />Open</Button>
-              {item.absolutePath && <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => { void invoke("reveal_path", { path: item.absolutePath }).catch(() => {}); }}><FolderOpen className="size-3" />Reveal</Button>}
-              <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px] text-destructive" onClick={() => void remove(item)}><Trash2 className="size-3" />Delete</Button>
+              {item.reference
+                ? <>
+                    {workspace && <Button variant="outline" className="h-7 gap-1 px-2 text-[11px]" disabled={saving === item.path} onClick={() => { const reference = references.find(value => normalizePath(value.path) === normalizePath(item.path)); if (reference) void save(reference); }}><FileText className="size-3" />{saving === item.path ? "Saving…" : "Save"}</Button>}
+                    <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => { void invoke("reveal_path", { path: item.absolutePath }).catch(() => {}); }}><FolderOpen className="size-3" />Reveal</Button>
+                  </>
+                : <>
+                    <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => void view(item)}><Eye className="size-3" />Open</Button>
+                    {item.absolutePath && <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px]" onClick={() => { void invoke("reveal_path", { path: item.absolutePath }).catch(() => {}); }}><FolderOpen className="size-3" />Reveal</Button>}
+                    <Button variant="ghost" className="h-7 gap-1 px-2 text-[11px] text-destructive" onClick={() => void remove(item)}><Trash2 className="size-3" />Delete</Button>
+                  </>}
             </div>
           </div>)}
         </div>
