@@ -54,6 +54,11 @@ export interface ChatWorkspaceProps {
 const lastSegment = (path: string) => path.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? path;
 const workspaceLabel = (path: string) => lastSegment(path) === "default-workspace" ? "Default workspace" : lastSegment(path);
 const normalizedPath = (path: string) => path.replaceAll("\\", "/").replace(/\/+$/u, "").toLowerCase();
+/** The UUID at the end of a session file stem; a preview has no live session state. */
+const sessionIdFromFile = (path?: string): string | undefined => {
+  const name = path?.replaceAll("\\", "/").split("/").filter(Boolean).at(-1)?.replace(/\.jsonl$/u, "") ?? "";
+  return /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.exec(name)?.[1];
+};
 function relativeTime(updated: number) {
   const seconds = Math.max(0, Math.round(Date.now() / 1000 - updated));
   if (seconds < 60) return "now";
@@ -976,6 +981,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       <fieldset disabled={dialog.responding || !snapshot.transportReady} className="mt-3 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => void reply({ cancelled: true })}>Cancel</Button>{dialog.method === "confirm" ? <><Button variant="outline" onClick={() => void reply({ confirmed: false })}>No</Button><Button onClick={() => void reply({ confirmed: true })}>Yes</Button></> : dialog.method === "select" ? (dialog.options ?? []).map(option => <Button key={option} onClick={() => void reply({ value: option })}>{option}</Button>) : <Button onClick={() => void reply({ value: answer })}>Submit</Button>}</fieldset></section>;
   const selectedTitle = sessions.find(session => normalizedPath(session.path) === selectedKey)?.title;
   const activePreview = preview && normalizedPath(preview.path) === selectedKey ? preview : null;
+  // A preview is read from disk, so the live connection has no sessionId yet.
+  // The session file's UUID is the same identifier the artifact sidecars store.
+  const artifactsSessionId = activePreview ? sessionIdFromFile(activePreview.path) : snapshot.sessionId;
   const opening = !hero && !!selectedSession && selectedKey !== activeSession && !activePreview;
   // One gate: the entry session is connected before the chat UI appears, so the user
   // never sees a second, still-blocked "Connecting…" state.
@@ -1161,7 +1169,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
               {index === panes.length - 1 && <Button variant="ghost" className="size-7 shrink-0 p-0" aria-label={panes.length < 2 ? "Split pane" : "Close second pane"} title={panes.length < 2 ? "Split pane" : "Close second pane"} onClick={() => panes.length < 2 ? addPane() : removePane(1)}><Columns2 className="size-3.5" /></Button>}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3">{pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel sessionId={snapshot.sessionId} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">{pane.active === "start" ? <PanelStart onOpen={id => openPaneView(index, id)} /> : pane.active === "artifacts" ? <ArtifactsPanel sessionId={artifactsSessionId} sessionFile={activePreview?.path ?? snapshot.sessionFile} /> : pane.active === "files" ? <FilesPanel path={path} /> : null}</div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize pane" className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" onPointerDown={event => { resizingPane.current = { index, startX: event.clientX, startWidth: pane.width }; event.preventDefault(); }} />
         </aside>)}
       </div>}
