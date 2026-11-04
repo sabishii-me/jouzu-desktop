@@ -1,0 +1,5 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "ai.shisa.jouzu.desktop.dev",
+  "productName": "Jouzu Desktop Dev"
+}
