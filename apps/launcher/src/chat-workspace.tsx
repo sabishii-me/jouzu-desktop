@@ -73,7 +73,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   const [snapshot, setSnapshot] = useState<ChatSnapshot>({ projection: emptyProjection(), connected: false, pending: false, error: null, models: [], thinkingLevels: [] });
   const [workingStartedAt, setWorkingStartedAt] = useState<number>();
   const [sentPending, setSentPending] = useState(false);
-  const [restartingRuntime, setRestartingRuntime] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!snapshot.projection.running && !sentPending) return;
@@ -482,16 +481,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       client = connection.current;
       if (!client) return;
       const running = client.snapshot.projection.running;
-      try {
-        await client.sendOrSteer(value, submitted.map(item => item.image), running);
-      } catch (first) {
-        // A turn can be aborted in the UI while the runtime still owns the
-        // stream. switch_session rebuilds that runtime state, then the same
-        // prompt can go once instead of leaving the session permanently stuck.
-        if (!/Agent is already processing/iu.test(String(first))) throw first;
-        await client.reloadSession();
-        await client.sendOrSteer(value, submitted.map(item => item.image), false);
-      }
+      await client.sendOrSteer(value, submitted.map(item => item.image), running);
       setSentPending(true);
       if (connection.current !== client) return;
       // Only a successful send clears the sent key; text typed during the send and
@@ -578,22 +568,8 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       setSwitching(false);
     }
   }
-  async function restartRuntime() {
-    if (restartingRuntime) return;
-    setRestartingRuntime(true);
-    try {
-      const client = connection.current;
-      if (client) await client.close();
-      setSentPending(false);
-      onRetry?.();
-      setNotification("Runtime resumed.");
-    } catch (error) {
-      setNotification(String(error).replace(/^Error:\s*/u, ""));
-    } finally {
-      setRestartingRuntime(false);
-    }
-  }
-  async function reloadSession() {    const client = connection.current;
+  async function reloadSession() {
+    const client = connection.current;
     if (!client || commandBusy) return;
     setCommandBusy(true);
     try {
@@ -1035,13 +1011,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   const liveThinking = conversationProjection.running && activeMessage && !hasRunningTool
     ? activeMessage.content.flatMap(block => block.type === "thinking" ? [block.thinking ?? ""] : []).join("\n")
     : "";
-  const lastMessage = conversationProjection.messages.at(-1);
-  const inferredRunning = !conversationProjection.running && !sentPending && (lastMessage?.role === "toolResult" || (lastMessage?.role === "assistant" && lastMessage.stopReason === "toolUse"));
-  const settled = !conversationProjection.running && !sentPending && !inferredRunning && lastMessage?.role === "assistant"
-    ? lastMessage.stopReason === "aborted" ? "stopped" as const
-      : lastMessage.stopReason === "error" ? "failed" as const
-        : undefined
-    : undefined;
   const outputReferences = useMemo(
     () => collectOutputReferences(conversationProjection.messages, artifactsSessionId),
     [conversationProjection.messages, artifactsSessionId],
@@ -1211,7 +1180,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         </div>
         <div className="relative">
           <div className="mx-auto w-full max-w-3xl">
-            <AgentAction thinking={liveThinking} label={conversationProjection.running ? "Working…" : "Starting…"} running={conversationProjection.running || sentPending} elapsed={elapsed} settled={settled} interrupted={inferredRunning} action={inferredRunning || settled ? { label: settled === "failed" ? "Retry" : "Resume", icon: settled === "failed" ? "retry" : "resume", onClick: () => void restartRuntime(), disabled: restartingRuntime } : undefined} />
+            <AgentAction thinking={liveThinking} label={conversationProjection.running ? "Working…" : "Starting…"} running={conversationProjection.running || sentPending} elapsed={elapsed} />
           </div>
           {dialogNode && <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 px-3">{dialogNode}</div>}
           <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview) || locked } opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} onRetryModels={canRefreshModels ? onRetryModels : undefined} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />

@@ -1,45 +1,24 @@
 import { useState } from "react";
-import { AlertTriangle, Brain, ChevronDown, LoaderCircle, Play, RotateCcw, Square } from "lucide-react";
+import { Brain, ChevronDown, LoaderCircle } from "lucide-react";
 import { ChatMarkdown } from "./chat-markdown";
 
 /**
  * One turn status line above the composer. It only carries turn state
- * (reasoning / working / stopped / failed); tools stay in the activity strip.
+ * (reasoning / working); tools stay in the activity strip.
  */
-export function AgentAction({ thinking, label, running, elapsed, settled, interrupted, action }: {
+export function AgentAction({ thinking, label, running, elapsed }: {
   thinking: string;
   label: string;
   running: boolean;
   elapsed?: string;
-  settled?: "stopped" | "failed";
-  interrupted?: boolean;
-  action?: { label: string; onClick: () => void; disabled?: boolean; icon?: "resume" | "retry" };
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
-  const ActionIcon = action?.icon === "retry" ? RotateCcw : Play;
-  const actionButton = action && <button type="button" disabled={action.disabled} onClick={action.onClick} className="ml-2 inline-flex shrink-0 items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-foreground hover:bg-muted disabled:opacity-50">{action.icon && <ActionIcon className="size-3" aria-hidden="true" />}{action.label}</button>;
-  if (!running && interrupted) {
-    return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
-      <Square className="size-3.5 shrink-0" aria-hidden="true" />
-      <span>Interrupted</span>
-      {actionButton}
-    </div>;
-  }
-  if (!running && !text && settled) {
-    const Icon = settled === "failed" ? AlertTriangle : Square;
-    return <div role="status" aria-live="polite" className={`flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] ${settled === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
-      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-      <span>{settled === "failed" ? "Failed" : "Stopped"}</span>
-      {actionButton}
-    </div>;
-  }
   if (!running && !text) return null;
   if (!text) return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
     <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
     <span>{label}</span>
     {elapsed && <span className="tabular-nums">{elapsed}</span>}
-    {actionButton}
   </div>;
   const last = text.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
   return <div className="px-1 pb-1">
