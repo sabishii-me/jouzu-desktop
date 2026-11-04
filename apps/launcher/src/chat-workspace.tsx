@@ -286,7 +286,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       else parkPrevious(client ?? null);
     };
   }, [path, revision]);
-  useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running || draft.trim().length > 0); }, [snapshot.pending, snapshot.projection.running, draft, onBusyChange]);
+  // Only a live turn blocks a runtime restart. A saved draft does not: it lives in
+  // localStorage and must not make a model refresh wait for the composer to empty.
+  useEffect(() => { onBusyChange?.(snapshot.pending || snapshot.projection.running); }, [snapshot.pending, snapshot.projection.running, onBusyChange]);
   // The app keeps its own loader up until the entry session is connected, so the
   // workspace never opens on a second, still-blocked "Starting session…" state.
   useEffect(() => { onBootChange?.(!snapshot.connected); }, [snapshot.connected, onBootChange]);
@@ -1185,4 +1187,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     {textguardPanel}
   </div>;
 }
+
+
 
