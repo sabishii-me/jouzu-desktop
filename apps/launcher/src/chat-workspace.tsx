@@ -1017,9 +1017,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       : lastMessage.stopReason === "error" ? "failed" as const
         : undefined
     : undefined;
-  const poolRunning = activePreview ? chatPool.isRunning(activePreview.path) : false;
-  const background = !!activePreview && poolRunning;
-  const previewMode = !!activePreview && !poolRunning;
   const outputReferences = useMemo(
     () => collectOutputReferences(conversationProjection.messages, artifactsSessionId),
     [conversationProjection.messages, artifactsSessionId],
@@ -1189,7 +1186,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         </div>
         <div className="relative">
           <div className="mx-auto w-full max-w-3xl">
-            <AgentAction thinking={liveThinking} label={conversationProjection.running ? "Working…" : "Starting…"} running={conversationProjection.running || sentPending} elapsed={elapsed} settled={settled} background={background} preview={previewMode} />
+            <AgentAction thinking={liveThinking} label={conversationProjection.running ? "Working…" : "Starting…"} running={conversationProjection.running || sentPending} elapsed={elapsed} settled={settled} />
           </div>
           {dialogNode && <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 px-3">{dialogNode}</div>}
           <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview) || locked } opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} onRetryModels={canRefreshModels ? onRetryModels : undefined} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
