@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 
 /// The runtime is the official npm package, installed from the official registry.
 const NODE_VERSION: &str = "24.22.1";
+const JOUZU_VERSION: &str = "0.2.4";
 const NODE_BASE: &str = "https://nodejs.org/dist";
 const LOCKFILE: &str = "4.1.2";
 const MAX_ARCHIVE: u64 = 192 * 1024 * 1024;
@@ -244,7 +245,7 @@ fn npm_install(node: &Path, app: &Path, progress: Progress) -> Result<(), String
     command
         .arg(&npm)
         .arg("install")
-        .arg("jouzu@latest")
+        .arg(format!("jouzu@{JOUZU_VERSION}"))
         .arg(format!("proper-lockfile@{LOCKFILE}"))
         .arg("--omit=dev")
         .arg("--no-audit")
