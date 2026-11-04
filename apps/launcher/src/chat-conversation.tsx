@@ -1,13 +1,13 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, Brain } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { JouzuLoader } from "./components/ui/jouzu-loader";
 import { ChatMarkdown } from "./chat-markdown";
 import { MessageImage } from "./message-image";
 import { WorkspaceContext } from "./workspace-context";
-import type { ChatMessage, ChatProjection, ToolView } from "./chat-projection";
+import type { ChatMessage, ChatProjection } from "./chat-projection";
 import { ToolRenderer } from "./tool-renderers";
-import { ToolChipGroup, isRichTool } from "./tool-renderers/tool-chip";
+import { ActivityStrip, isRichTool, type ActivityItem } from "./tool-renderers/tool-chip";
 import { ToolFrame } from "./tool-renderers/tool-frame";
 import { TurnFooter } from "./turn-footer";
 import { TurnSummary } from "./turn-summary-card";
@@ -46,19 +46,6 @@ function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = fals
   const metrics = turnUsageAt(messages, index);
   return <TurnFooter message={message} usage={metrics.usage} startedAt={metrics.startedAt} onFork={onFork ? () => onFork(turnPrompt(messages, index), index) : undefined} forkDisabled={forkDisabled} />;
 }
-function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boolean }) {
-  const preview = thinking.split(/\r?\n/).find(line => line.trim())?.replace(/\s+/g, " ").trim() ?? "";
-  return <ToolFrame
-    title="Thinking"
-    subtitle={preview || "…"}
-    state={streaming ? "running" : "done"}
-    statusLabel={streaming ? "Thinking" : "Thought"}
-    autoOpen={false}
-    icon={streaming ? <JouzuLoader className="jouzu-loader-sm shrink-0" /> : <Brain className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
-  >
-    <div className="text-xs text-muted-foreground"><ChatMarkdown text={thinking} /></div>
-  </ToolFrame>;
-}
 
 /**
  * Consecutive text tools become one row of icons. Rich results (images, Flow,
@@ -70,11 +57,11 @@ function MessageContent({ message, index, projection }: {
   projection: ChatProjection;
 }) {
   const parts: ReactNode[] = [];
-  let chips: ToolView[] = [];
+  let activity: ActivityItem[] = [];
   const flush = (key: string) => {
-    if (!chips.length) return;
-    parts.push(<ToolChipGroup key={`chips-${key}`} tools={chips} />);
-    chips = [];
+    if (!activity.length) return;
+    parts.push(<ActivityStrip key={`activity-${key}`} items={activity} />);
+    activity = [];
   };
   message.content.forEach((block, position) => {
     if (block.type === "toolCall") {
@@ -86,18 +73,37 @@ function MessageContent({ message, index, projection }: {
         flush(String(position));
         parts.push(<ToolRenderer key={position} tool={tool} />);
       } else {
-        chips.push(tool);
+        activity.push({ kind: "tool", tool });
       }
+      return;
+    }
+    if (block.type === "thinking") {
+      activity.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: projection.running && projection.activeMessage === index });
       return;
     }
     flush(String(position));
     if (block.type === "text") parts.push(<ChatMarkdown key={position} text={block.text ?? ""} />);
-    else if (block.type === "thinking") parts.push(<ThinkingRow key={position} thinking={block.thinking ?? ""} streaming={projection.running && projection.activeMessage === index} />);
     else if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) parts.push(<MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />);
     else parts.push(<p key={position} className="text-xs text-muted-foreground">Unsupported content: {block.type}</p>);
   });
   flush("end");
   return <>{parts}</>;
+}
+
+function activityItems(message: ChatMessage, index: number, projection: ChatProjection): ActivityItem[] | null {
+  if (message.errorMessage) return null;
+  const items: ActivityItem[] = [];
+  for (const [position, block] of message.content.entries()) {
+    if (block.type === "thinking") {
+      items.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: projection.running && projection.activeMessage === index });
+      continue;
+    }
+    if (block.type !== "toolCall") return null;
+    const tool = projection.tools[block.id ?? ""];
+    if (!tool || isRichTool(tool)) return null;
+    items.push({ kind: "tool", tool });
+  }
+  return items;
 }
 
 function ChatConversationView({ projection, workspace, pending = false, startedAt, opening = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
@@ -177,23 +183,42 @@ function ChatConversationView({ projection, workspace, pending = false, startedA
     setActiveTurn(position);
     setLimit(value => Math.max(value, visible.length - position + 1));
   }
+  const rows: ReactNode[] = [];
+  for (let cursor = 0; cursor < shown.length; cursor++) {
+    const first = shown[cursor];
+    const firstItems = activityItems(first.message, first.index, projection);
+    if (firstItems) {
+      let next = cursor;
+      const items: ActivityItem[] = [];
+      while (next < shown.length) {
+        const candidate = activityItems(shown[next].message, shown[next].index, projection);
+        if (!candidate) break;
+        items.push(...candidate);
+        next += 1;
+      }
+      if (items.length) {
+        const firstIndex = first.index;
+        rows.push(<div key={`activity-${firstIndex}`} ref={node => { if (node) articleRefs.current.set(firstIndex, node); else articleRefs.current.delete(firstIndex); }}><ActivityStrip items={items} /></div>);
+        cursor = next - 1;
+        continue;
+      }
+    }
+    const { message, index } = first;
+    const nextMessage = projection.messages[index + 1];
+    const turnEnd = !nextMessage || nextMessage.role === "user";
+    rows.push(<article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
+      {message.role === "user" && <div className="mb-2 text-xs font-medium text-muted-foreground">You</div>}
+      <MessageContent message={message} index={index} projection={projection} />
+      {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
+      {turnEnd && message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
+    </article>);
+  }
   return <WorkspaceContext.Provider value={workspace}>
     <section aria-label="Conversation" className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-8" onScroll={event => { const view = event.currentTarget; following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; setShowLatest(!following.current); if (turnMarkers.length) { const max = view.scrollHeight - view.clientHeight; const ratio = max > 0 ? Math.min(1, Math.max(0, view.scrollTop / max)) : 0; setActiveTurn(Math.min(turnMarkers.length - 1, Math.round(ratio * (turnMarkers.length - 1)))); } }}>
       {!visible.length && <div className="mx-auto max-w-xl py-16 text-center"><h2 className="text-xl font-semibold">What would you like to work on?</h2><p className="mt-3 text-sm text-muted-foreground">Ask Jouzu to explore your workspace, explain code, or make a change.</p></div>}
       {visible.length > shown.length && <div className="mx-auto mb-4 flex max-w-3xl justify-center"><Button variant="outline" className="h-7 px-3 text-xs" onClick={() => setLimit(value => value + 50)}>Show {visible.length - shown.length} earlier message{visible.length - shown.length === 1 ? "" : "s"}</Button></div>}
-      <div ref={content} className="mx-auto max-w-3xl space-y-6">{shown.map(({ message, index }) => {
-        const next = projection.messages[index + 1];
-        const turnEnd = !next || next.role === "user";
-        const firstAssistant = message.role === "assistant" && projection.messages[index - 1]?.role !== "assistant";
-        const showLabel = message.role === "user" || firstAssistant;
-        return <article key={index} ref={node => { if (node) articleRefs.current.set(index, node); else articleRefs.current.delete(index); }} aria-label={`${message.role} message`} className={`[content-visibility:auto] [contain-intrinsic-size:auto_160px] ${message.role === "user" ? "ml-6 rounded-xl border border-border bg-muted/50 px-4 py-2 text-left" : "min-w-0"}`}>
-          {showLabel && <div className="mb-2 text-xs font-medium text-muted-foreground">{message.role === "assistant" ? "Jouzu" : "You"}</div>}
-          <MessageContent message={message} index={index} projection={projection} />
-          {message.errorMessage && <p role="alert" className="select-text text-sm text-destructive">{message.errorMessage}</p>}
-          {turnEnd && message.role === "assistant" && !message.content.some(block => block.type === "toolCall") && message.stopReason !== "toolUse" && <><TurnSummary data={summarizeTurn(projection.messages, projection.tools, index)} workspace={workspace} onOpenArtifacts={onOpenArtifacts} /><FinalTurnFooter messages={projection.messages} index={index} message={message} onFork={onFork} forkDisabled={opening || pending} /></>}
-        </article>;
-      })}
+      <div ref={content} className="mx-auto max-w-3xl space-y-3">{rows}
         {showWorking && <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><JouzuLoader className="jouzu-loader-sm" /><span>{opening ? "Opening session…" : "Working…"}</span>{!opening && elapsed !== null && <span className="tabular-nums">{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span>}</div>}
       </div>
       {showLatest && <div className="pointer-events-none sticky bottom-0 flex justify-end pt-3"><Button variant="outline" className="pointer-events-auto shadow" onClick={() => { following.current = true; if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; setShowLatest(false); }}><ArrowDown />Latest</Button></div>}

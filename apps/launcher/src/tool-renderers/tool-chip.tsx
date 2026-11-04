@@ -1,19 +1,20 @@
 import { useId, useState } from "react";
 import {
-  FilePenLine, FilePlus2, FileText, FolderOpen, Globe, ListChecks,
-  LoaderCircle, Search, Terminal, Wrench, X,
+  Brain, FilePenLine, FilePlus2, FileText, FolderOpen, Globe, ListChecks,
+  Search, Terminal, Wrench, X,
 } from "lucide-react";
 import type { ToolView } from "../chat-projection";
-import { flowReport } from "./flow-report";
+import { ChatMarkdown } from "../chat-markdown";
 import { ToolRenderer } from "./index";
 import { ToolDetailContext, type ToolState } from "./tool-frame";
-import { toolText } from "./types";
 
-const RICH = /^(generate_image|Task|bg_|agent_wait|subagent)/u;
+export type ActivityItem =
+  | { kind: "tool"; tool: ToolView }
+  | { kind: "thinking"; id: string; text: string; streaming: boolean };
 
-/** A tool whose result needs its own card stays a card; everything else is a chip. */
+/** Images need their visual result in the transcript; everything else is a chip. */
 export function isRichTool(tool: ToolView): boolean {
-  return RICH.test(tool.name) || !!flowReport(toolText(tool.result));
+  return tool.name === "generate_image";
 }
 
 export function toolState(tool: ToolView): ToolState {
@@ -38,55 +39,69 @@ const ICONS: Record<string, typeof Wrench> = {
   schedule_prompt: ListChecks,
 };
 
-function Chip({ tool, open, onToggle, bodyId }: { tool: ToolView; open: boolean; onToggle: () => void; bodyId: string }) {
-  const state = toolState(tool);
-  const Icon = ICONS[tool.name] ?? Wrench;
-  const label = `${tool.name} · ${state === "running" ? "running" : state === "error" ? "failed" : "done"}`;
-  return <button
-    type="button"
-    aria-label={label}
-    aria-expanded={open}
-    aria-controls={open ? bodyId : undefined}
-    title={label}
-    onClick={onToggle}
-    className={`relative inline-flex size-8 items-center justify-center rounded-md border transition-colors ${
-      state === "running" ? "border-primary/50 text-primary"
-        : state === "error" ? "border-destructive/50 text-destructive"
-          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-    } ${open ? "bg-muted text-foreground" : "bg-muted/20"}`}
-  >
-    <Icon className="size-4" aria-hidden="true" />
-    <span className={`absolute -right-0.5 -top-0.5 size-2 rounded-full border border-background ${
-      state === "running" ? "animate-pulse bg-primary"
-        : state === "error" ? "bg-destructive"
-          : "bg-emerald-500"
-    }`} aria-hidden="true" />
-    {state === "running" && <LoaderCircle className="absolute size-3 animate-spin opacity-0" aria-hidden="true" />}
-  </button>;
+function stateDot(state: ToolState) {
+  return state === "running" ? "animate-pulse bg-primary"
+    : state === "error" ? "bg-destructive"
+      : state === "warning" ? "bg-amber-500"
+        : "bg-emerald-500";
 }
 
-/**
- * Settled tools collapse to a row of icons. One click opens the same body the
- * old full-width card used, without keeping every card open in the transcript.
- */
-export function ToolChipGroup({ tools }: { tools: ToolView[] }) {
+function itemKey(item: ActivityItem) {
+  return item.kind === "tool" ? item.tool.id : item.id;
+}
+
+function itemLabel(item: ActivityItem) {
+  if (item.kind === "thinking") return item.streaming ? "Thinking · running" : "Thinking · done";
+  return `${item.tool.name} · ${toolState(item.tool) === "error" ? "failed" : toolState(item.tool)}`;
+}
+
+/** Thinking and tool calls share one 32 px activity strip; only the expanded
+ * item takes vertical space. */
+export function ActivityStrip({ items }: { items: ActivityItem[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const detailId = useId();
-  const open = openId ? tools.find(tool => tool.id === openId) : undefined;
+  const open = openId ? items.find(item => itemKey(item) === openId) : undefined;
   return <div className="my-1.5 space-y-1.5">
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Tool calls">
-      {tools.map(tool => <Chip key={tool.id} tool={tool} open={tool.id === openId} onToggle={() => setOpenId(tool.id === openId ? null : tool.id)} bodyId={detailId} />)}
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Activity">
+      {items.map(item => {
+        const state = item.kind === "thinking" ? (item.streaming ? "running" : "done") : toolState(item.tool);
+        const Icon = item.kind === "thinking" ? Brain : ICONS[item.tool.name] ?? Wrench;
+        const label = itemLabel(item);
+        const id = itemKey(item);
+        return <button
+          key={id}
+          type="button"
+          aria-label={label}
+          aria-expanded={id === openId}
+          aria-controls={id === openId ? detailId : undefined}
+          title={label}
+          onClick={() => setOpenId(id === openId ? null : id)}
+          className={`relative inline-flex size-8 items-center justify-center rounded-md border transition-colors ${
+            state === "running" ? "border-primary/50 text-primary"
+              : state === "error" ? "border-destructive/50 text-destructive"
+                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          } ${id === openId ? "bg-muted text-foreground" : "bg-muted/20"}`}
+        >
+          <Icon className="size-4" aria-hidden="true" />
+          <span className={`absolute -right-0.5 -top-0.5 size-2 rounded-full border border-background ${stateDot(state)}`} aria-hidden="true" />
+        </button>;
+      })}
     </div>
     {open && <div id={detailId} className="rounded-lg border border-border bg-background/60">
       <div className="flex items-center justify-between border-b border-border px-2 py-1">
-        <span className="truncate text-[11px] font-medium">{open.name}</span>
-        <button type="button" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close tool details" onClick={() => setOpenId(null)}><X className="size-3" /></button>
+        <span className="truncate text-[11px] font-medium">{open.kind === "thinking" ? "Thinking" : open.tool.name}</span>
+        <button type="button" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close activity details" onClick={() => setOpenId(null)}><X className="size-3" /></button>
       </div>
-      <div className="p-2">
-        <ToolDetailContext.Provider value>
-          <ToolRenderer tool={open} />
-        </ToolDetailContext.Provider>
+      <div className="p-2 text-xs">
+        {open.kind === "thinking"
+          ? <ChatMarkdown text={open.text} />
+          : <ToolDetailContext.Provider value><ToolRenderer tool={open.tool} /></ToolDetailContext.Provider>}
       </div>
     </div>}
   </div>;
+}
+
+/** Small compatibility wrapper for callers that only have tools. */
+export function ToolChipGroup({ tools }: { tools: ToolView[] }) {
+  return <ActivityStrip items={tools.map(tool => ({ kind: "tool" as const, tool }))} />;
 }
