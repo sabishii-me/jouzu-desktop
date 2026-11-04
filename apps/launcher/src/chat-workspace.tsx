@@ -467,6 +467,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   async function send() {
     let client = connection.current;
     if (!client || readingRef.current) return;
+    if (selectedSession && normalizedPath(client.snapshot.sessionFile ?? "") !== normalizedPath(selectedSession)) {
+      setNotification("Wait for this session to open.");
+      return;
+    }
     const value = draft;
     const submitted = attachmentRef.current;
     const wasHero = hero;
@@ -787,6 +791,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     setSelectedSession(sessionPath);
     setHero(false);
     loadPreview(sessionPath);
+    // A preview is read-only until the runtime attaches. Start that attach now;
+    // the composer stays disabled while the selected session is not the bound one.
+    void startSwitch(sessionPath);
   }
   async function forkTurn(prompt: string, messageIndex: number) {
     let client = connection.current;
@@ -1000,6 +1007,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   // never sees a second, still-blocked "Connecting…" state.
   const booting = !snapshot.connected && !sessionError;
   const conversationProjection = activePreview?.projection ?? snapshot.projection;
+  const attached = !selectedSession || normalizedPath(snapshot.sessionFile ?? "") === normalizedPath(selectedSession);
   const activeMessage = conversationProjection.activeMessage === null ? undefined : conversationProjection.messages[conversationProjection.activeMessage];
   const hasRunningTool = Object.values(conversationProjection.tools).some(tool => tool.phase === "running");
   const liveThinking = conversationProjection.running && activeMessage && !hasRunningTool
@@ -1183,7 +1191,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
             <AgentAction thinking={liveThinking} label="Working…" running={conversationProjection.running} elapsed={elapsed} settled={settled} />
           </div>
           {dialogNode && <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 px-3">{dialogNode}</div>}
-          <Composer connected={snapshot.connected} pending={snapshot.pending || commandBusy || (opening && !activePreview) || locked } opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} onRetryModels={canRefreshModels ? onRetryModels : undefined} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
+          <Composer connected={snapshot.connected && attached} pending={snapshot.pending || commandBusy || (opening && !activePreview) || locked } opening={opening && !activePreview} unavailable={!!sessionError} running={composerRunning} draft={draft} onDraft={updateDraft} onSend={() => void send()} onStop={() => void connection.current?.abort()} onCompact={() => void compactConversation()} onExport={() => void exportConversation()} compatibility={snapshot.projection.compatibility} attachments={attachments} onAddImages={files => void addImages(files)} onRemoveImage={id => updateAttachments(attachmentRef.current.filter(item => item.id !== id))} readingImages={readingImages} attachmentError={attachmentError} models={snapshot.models ?? []} model={snapshot.model} onSelectModel={(provider, id) => void selectSessionModel(provider, id)} onRefreshModels={() => void connection.current?.loadModels()} onRetryModels={canRefreshModels ? onRetryModels : undefined} thinkingLevel={snapshot.thinkingLevel} thinkingLevels={snapshot.thinkingLevels ?? []} onThinkingLevel={level => void selectThinkingLevel(level)} textguard={textguardControl} />
         </div>
         <SessionStatsBar stats={snapshot.stats} timing={timing} />
         </div>
