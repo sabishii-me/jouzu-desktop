@@ -101,12 +101,12 @@ export function ArtifactsPanel({ sessionId }: { sessionId?: string } = {}) {
   return <Card className="border-border shadow-none">
     <CardHeader>
       <CardTitle>Artifacts</CardTitle>
-      <CardDescription>{sessionId ? "Artifacts produced in this session." : "Generated files stored under the agent's artifacts folder, newest first."}</CardDescription>
+      <CardDescription>{sessionId ? "Stored artifacts for this session. Workspace files are in Files." : "Generated files stored under the agent's artifacts folder, newest first."}</CardDescription>
     </CardHeader>
     <CardContent className="space-y-4">
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       {!items && !error && <p className="text-sm text-muted-foreground">Loading artifacts…</p>}
-      {items && !items.length && <p className="text-sm text-muted-foreground">No artifacts yet. Generated files appear here.</p>}
+      {items && !items.length && <p className="text-sm text-muted-foreground">{sessionId ? "No artifacts in this session. Files the turn wrote are workspace files, not artifacts; open Files to browse them." : "No artifacts yet. Generated files appear here."}</p>}
       {items && items.length > 0 && <>
         <p className="text-xs text-muted-foreground">{items.length} artifact{items.length === 1 ? "" : "s"}</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
