@@ -1,19 +1,28 @@
 import { useState } from "react";
-import { Brain, ChevronDown, LoaderCircle } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, LoaderCircle, Square } from "lucide-react";
 import { ChatMarkdown } from "./chat-markdown";
 
 /**
  * One turn status line above the composer. It only carries turn state
- * (reasoning / working); tools stay in the activity strip.
+ * (reasoning / working / interrupted / failed); tools stay in the activity strip.
  */
-export function AgentAction({ thinking, label, running, elapsed }: {
+export function AgentAction({ thinking, label, running, elapsed, settled }: {
   thinking: string;
   label: string;
   running: boolean;
   elapsed?: string;
+  settled?: "interrupted" | "failed";
 }) {
   const [open, setOpen] = useState(false);
   const text = thinking.trim();
+  if (!running && !text && settled) {
+    const Icon = settled === "failed" ? AlertTriangle : Square;
+    return <div role="status" aria-live="polite" className={`flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] ${settled === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="font-medium">{settled === "failed" ? "Failed" : "Interrupted"}</span>
+      <span className="text-muted-foreground">{settled === "failed" ? "Send a new message to retry." : "Send a new message, or reset Flow, to continue."}</span>
+    </div>;
+  }
   if (!running && !text) return null;
   if (!text) return <div role="status" aria-live="polite" className="flex min-h-6 items-center gap-2 px-1 py-1 text-[11px] text-muted-foreground">
     <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
