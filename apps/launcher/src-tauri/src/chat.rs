@@ -781,6 +781,31 @@ pub fn chat_release_generation(
 }
 
 #[tauri::command]
+pub fn chat_stop_all(
+    window: tauri::WebviewWindow,
+    state: tauri::State<ChatService>,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Chat state unavailable")?;
+    let handles: Vec<String> = sessions
+        .iter()
+        .filter(|(_, session)| session.owner == window.label())
+        .map(|(handle, _)| handle.clone())
+        .collect();
+    let stopped: Vec<Session> = handles
+        .into_iter()
+        .filter_map(|handle| sessions.remove(&handle))
+        .collect();
+    drop(sessions);
+    if !stopped.is_empty() {
+        stop_sessions(stopped);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn chat_stop(
     window: tauri::WebviewWindow,
     state: tauri::State<ChatService>,

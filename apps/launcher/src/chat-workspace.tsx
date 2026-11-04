@@ -666,7 +666,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     return true;
   }
   /** The one place that changes which runtime session is loaded. */
-  async function switchSession(target: string) {
+  async function switchSession(target: string, recovered = false) {
     const client = connection.current;
     if (!client || switchingRef.current) return;
     if (target !== "new" && normalizedPath(target) === normalizedPath(client.snapshot.sessionFile ?? "")) {
@@ -700,6 +700,13 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     } catch (error) {
       if (connection.current !== client) return;
       const message = String(error).replace(/^Error:\s*/u, "");
+      if (!recovered && /owned|busy|unavailable|exited|disposed/iu.test(message)) {
+        await invoke("chat_stop_all").catch(() => {});
+        chatPool.forget(target);
+        switchingRef.current = false;
+        switchingTarget.current = null;
+        return switchSession(target, true);
+      }
       const readable = previewRef.current && normalizedPath(previewRef.current.path) === normalizedPath(target);
       if (readable) {
         // The transcript is already on screen. Never replace a readable session with a blank

@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9223");
+const page = browser.contexts()[0].pages()[0];
+await page.waitForTimeout(1000);
+const b = page.locator('button[title*="01a1a4ad"]').first();
+if (await b.count()) await b.click();
+await page.waitForTimeout(6000);
+const composer=page.getByLabel("Message Jouzu");
+await composer.fill("继续");
+const send=page.getByRole("button",{name:"Send"}).first();
+console.log("disabled="+await send.isDisabled().catch(()=>null));
+await send.click();
+await page.waitForTimeout(15000);
+console.log((await page.locator("body").innerText()).slice(-240));
+await browser.close();

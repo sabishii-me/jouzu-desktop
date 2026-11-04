@@ -203,6 +203,15 @@ export class ChatPool {
     return client;
   }
 
+  /** Drop a dead entry after the native owner was force-stopped. */
+  forget(sessionPath: string): void {
+    const key = entryKey(sessionPath);
+    const client = this.entries.get(key);
+    this.entries.delete(key);
+    if (client) { this.unwatch(client); void client.close(); }
+    this.emitStatus();
+  }
+
   /** Keep an existing client under its session path so switching back is instant. */
   remember(sessionPath: string, client: ChatConnection): void {
     this.entries.set(entryKey(sessionPath), client);

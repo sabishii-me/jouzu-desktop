@@ -632,6 +632,7 @@ fn main() {
             chat::chat_poll_many,
             chat::chat_release_generation,
             chat::chat_stop,
+            chat::chat_stop_all,
             attachments::read_dropped_image,
             attachments::read_local_image,
             attachments::reveal_path,
