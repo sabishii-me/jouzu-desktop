@@ -7,6 +7,7 @@ import { MessageImage } from "./message-image";
 import { WorkspaceContext } from "./workspace-context";
 import type { ChatMessage, ChatProjection } from "./chat-projection";
 import { ToolRenderer } from "./tool-renderers";
+import { ToolFrame } from "./tool-renderers/tool-frame";
 import { TurnFooter } from "./turn-footer";
 import { TurnSummary } from "./turn-summary-card";
 import { summarizeTurn } from "./turn-summary";
@@ -46,16 +47,16 @@ function FinalTurnFooter({ messages, index, message, onFork, forkDisabled = fals
 }
 function ThinkingRow({ thinking, streaming }: { thinking: string; streaming: boolean }) {
   const preview = thinking.split(/\r?\n/).find(line => line.trim())?.replace(/\s+/g, " ").trim() ?? "";
-  return <details className="my-1.5 rounded-lg border border-border bg-muted/20">
-    <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
-      <Brain className="size-3.5 shrink-0" aria-hidden="true" />
-      <span className="shrink-0 font-medium text-foreground">Thinking</span>
-      <span className="shrink-0" aria-hidden="true">·</span>
-      <span className="min-w-0 flex-1 truncate">{preview || "…"}</span>
-      {streaming && <JouzuLoader className="jouzu-loader-sm shrink-0" />}
-    </summary>
-    <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground"><ChatMarkdown text={thinking} /></div>
-  </details>;
+  return <ToolFrame
+    title="Thinking"
+    subtitle={preview || "…"}
+    state={streaming ? "running" : "done"}
+    statusLabel={streaming ? "Thinking" : "Thought"}
+    autoOpen={false}
+    icon={streaming ? <JouzuLoader className="jouzu-loader-sm shrink-0" /> : <Brain className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+  >
+    <div className="text-xs text-muted-foreground"><ChatMarkdown text={thinking} /></div>
+  </ToolFrame>;
 }
 
 function ChatConversationView({ projection, workspace, pending = false, startedAt, opening = false, onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; pending?: boolean; startedAt?: number; opening?: boolean; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
