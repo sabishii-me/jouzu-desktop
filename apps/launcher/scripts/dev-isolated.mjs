@@ -18,5 +18,6 @@ const child = spawn(command, ["tauri", "dev", "--config", "src-tauri/tauri.dev.c
   cwd: resolve(here),
   env,
   stdio: "inherit",
+  shell: process.platform === "win32",
 });
 child.on("exit", code => process.exit(code ?? 0));
