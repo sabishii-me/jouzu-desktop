@@ -78,7 +78,8 @@ function MessageContent({ message, index, projection }: {
       return;
     }
     if (block.type === "thinking") {
-      activity.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: projection.running && projection.activeMessage === index });
+      const streaming = projection.running && projection.activeMessage === index;
+      if (!streaming) activity.push({ kind: "thinking", id: `thinking-${index}-${position}`, text: block.thinking ?? "", streaming: false });
       return;
     }
     flush(String(position));
