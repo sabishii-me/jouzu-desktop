@@ -107,6 +107,7 @@ test("the last workspace opens and prewarms chat without a workspace click", asy
   await page.getByLabel("Message Jouzu").fill("Explain this project");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("Hello from Jouzu");
+  await page.getByRole("button", { name: /Thinking/ }).click();
   await expect(page.getByRole("article", { name: "assistant message" })).toContainText("Live thinking preview");
   const flow = page.getByRole("button", { name: "Flow", exact: true });
   await expect(flow).toBeVisible();
@@ -135,3 +136,4 @@ test("the last workspace opens and prewarms chat without a workspace click", asy
   await expect(page.getByRole("article")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open in terminal", exact: true })).toHaveCount(0);
 });
+
