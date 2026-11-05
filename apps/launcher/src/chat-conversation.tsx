@@ -186,7 +186,7 @@ function ChatConversationView({ projection, workspace, busy = false, pendingUser
       activity.push(...split.activity);
       last = item;
     }
-    if (parts.length) rows.push(<div key={`text-${group[0].index}`} className="space-y-2">{parts}</div>);
+    if (parts.length) rows.push(<article key={`text-${group[0].index}`} aria-label="assistant message" ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }} className="space-y-2">{parts}</article>);
     if (activity.length) rows.push(<div key={`activity-${group[0].index}`} ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }}><ActivityStrip items={activity} /></div>);
     if (last) {
       const nextMessage = projection.messages[last.index + 1];
