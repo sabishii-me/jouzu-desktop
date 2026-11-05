@@ -140,7 +140,8 @@ try {
       if (!Number.isInteger(contextWindow) || contextWindow < 1024 || contextWindow > 2_000_000) throw new Error('Invalid context window');
       const maxTokens = request.maxTokens === undefined ? 4096 : Number(request.maxTokens);
       if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > contextWindow) throw new Error('Invalid max output');
-      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), reasoning: false, cost: {input:0,output:0,cacheRead:0,cacheWrite:0}, ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), input: imageInput ? ['text', 'image'] : ['text'], contextWindow, maxTokens }] };
+      const previous = existing?.models?.[0];
+      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...previous, id: request.model.trim(), name: request.model.trim(), reasoning: previous?.reasoning ?? false, cost: previous?.cost ?? {input:0,output:0,cacheRead:0,cacheWrite:0}, input: imageInput ? ['text', 'image'] : ['text'], contextWindow, maxTokens }] };
       writeFilePrivateAtomic(staged, JSON.stringify(config), paths.agentDir);
       const { ModelConfig } = await pi('model-config');
       const validated = await ModelConfig.load(staged);
@@ -193,6 +194,7 @@ try {
   console.log(JSON.stringify({ error: messages[action] ?? 'Unsupported configuration operation.' }));
   process.exitCode = 1;
 }
+
 
 
 
