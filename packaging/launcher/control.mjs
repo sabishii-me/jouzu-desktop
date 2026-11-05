@@ -135,7 +135,7 @@ try {
       const existing = config.providers[request.provider];
       if (request.edit !== true && (existing || runtime.getProvider(request.provider))) throw new Error('Provider already exists');
       if (request.edit === true && (!existing || existing.api !== 'openai-completions' || existing.models?.length !== 1)) throw new Error('This provider requires advanced editing');
-      const imageInput = request.imageInput !== false;
+      const imageInput = request.imageInput === true;
       const contextWindow = request.contextWindow === undefined ? 32768 : Number(request.contextWindow);
       if (!Number.isInteger(contextWindow) || contextWindow < 1024 || contextWindow > 2_000_000) throw new Error('Invalid context window');
       const maxTokens = request.maxTokens === undefined ? 4096 : Number(request.maxTokens);
@@ -193,6 +193,7 @@ try {
   console.log(JSON.stringify({ error: messages[action] ?? 'Unsupported configuration operation.' }));
   process.exitCode = 1;
 }
+
 
 
 

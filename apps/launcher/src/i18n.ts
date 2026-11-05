@@ -13,7 +13,7 @@ connectionType: "Connection type", presetService: "Preset service", service: "Se
  configuredNoKey: "Configured · no saved key",
 sort: "Sort folders", sortAdded: "Added order", sortName: "Folder name", sortPath: "Full path", shisaHint: "Connect Shisa.AI to use its coding models. Authorize this device in your browser.", shisaConnected: "Connected to Shisa.AI.", refreshModels: "Refresh models", signOutUnconfirmed: "Signed out on this device. The remote session could not be confirmed closed; check the Shisa.AI dashboard.", connections: "Other providers", savedNotTested: "Saved · not tested", addConnection: "Add provider", backConnections: "Back to providers",
  cancel: "Cancel",
-customProvider: "Custom provider", customHint: "OpenAI-compatible chat API. Text and image input; 32K context, 4K output. API key is optional for services that do not require authentication.", providerId: "Provider ID", endpoint: "API base URL", modelId: "Model ID",
+customProvider: "Custom provider", customHint: "OpenAI-compatible chat API. Text input by default; 32K context, 4K output. API key is optional for services that do not require authentication.", providerId: "Provider ID", endpoint: "API base URL", modelId: "Model ID",
 environment: "Environment", envHint: "Applies to new sessions from this launcher. Removing an override restores inherited values.", variableName: "Name", variableValue: "Value", enabled: "Enabled", deleteEntry: "Remove entry", addEntry: "Add variable",
 signIn: "Sign in to Shisa.AI", signOut: "Sign out", oauthSignIn: "Sign in with ChatGPT", oauthHint: "Sign in with the provider account.", oauthConnected: "Signed in.", loginUrl: "Sign-in URL", deviceCode: "Device code", loginHint: "Open this URL in your browser and enter the code. Waiting up to 3 minutes.",
 providers: "Model providers", apiKey: "API key", save: "Save", removeCredential: "Remove saved key", defaultModel: "Default model", launch: "Open Jouzu here", dropHint: "Drop folders here",
@@ -39,7 +39,7 @@ connectionType: "接続の種類", presetService: "プリセットサービス",
  configuredNoKey: "設定済み・保存キーなし",
 sort: "並び順", sortAdded: "追加順", sortName: "フォルダー名", sortPath: "パス", shisaHint: "Shisa.AI のコーディングモデルを利用します。ブラウザーでこのデバイスを認証してください。", shisaConnected: "Shisa.AI に接続しています。", refreshModels: "モデルを更新", signOutUnconfirmed: "この端末ではサインアウトしました。リモートのセッション終了を確認できませんでした。Shisa.AI ダッシュボードを確認してください。", connections: "他のプロバイダー", savedNotTested: "保存済み・未検証", addConnection: "プロバイダーを追加", backConnections: "プロバイダーに戻る",
  cancel: "キャンセル",
-customProvider: "カスタムプロバイダー", customHint: "OpenAI 互換チャット API。テキストと画像入力、32K コンテキスト・4K 出力。認証不要のサービスでは API キーを省略できます。", providerId: "プロバイダー ID", endpoint: "API ベース URL", modelId: "モデル ID",
+customProvider: "カスタムプロバイダー", customHint: "OpenAI 互換チャット API。テキスト入力（画像は任意）、32K コンテキスト・4K 出力。認証不要のサービスでは API キーを省略できます。", providerId: "プロバイダー ID", endpoint: "API ベース URL", modelId: "モデル ID",
 environment: "環境変数", envHint: "このランチャーから開く新しいセッションに適用。上書きを削除すると継承値に戻ります。", variableName: "名前", variableValue: "値", enabled: "有効", deleteEntry: "項目を削除", addEntry: "変数を追加",
 signIn: "Shisa.AI にログイン", signOut: "ログアウト", oauthSignIn: "ChatGPT でサインイン", oauthHint: "プロバイダーのアカウントでサインインします。", oauthConnected: "サインイン済み。", loginUrl: "ログイン URL", deviceCode: "デバイスコード", loginHint: "ブラウザーで URL を開き、コードを入力してください。最大3分間待機します。",
 providers: "モデルプロバイダー", apiKey: "API キー", save: "保存", removeCredential: "保存したキーを削除", defaultModel: "既定のモデル", launch: "ここで Jouzu を開く", dropHint: "フォルダーをドロップ",
@@ -64,7 +64,7 @@ connectionType: "连接类型", presetService: "预设服务", service: "服务"
  configuredNoKey: "已配置 · 未保存密钥",
 sort: "排序", sortAdded: "添加顺序", sortName: "文件夹名称", sortPath: "完整路径", shisaHint: "连接 Shisa.AI 使用编程模型，在浏览器中授权此设备。", shisaConnected: "已连接 Shisa.AI。", refreshModels: "刷新模型", signOutUnconfirmed: "已在此设备退出登录。无法确认远程会话已关闭，请在 Shisa.AI 控制台确认。", connections: "其他模型服务", savedNotTested: "已保存 · 未验证", addConnection: "添加服务", backConnections: "返回服务列表",
  cancel: "取消",
-customProvider: "自定义提供商", customHint: "OpenAI 兼容聊天 API。文本和图像输入，32K 上下文、4K 输出。免认证服务可留空 API 密钥。", providerId: "提供商 ID", endpoint: "API 基础地址", modelId: "模型 ID",
+customProvider: "自定义提供商", customHint: "OpenAI 兼容聊天 API。默认文本输入，可选图像，32K 上下文、4K 输出。免认证服务可留空 API 密钥。", providerId: "提供商 ID", endpoint: "API 基础地址", modelId: "模型 ID",
 environment: "环境变量", envHint: "仅用于此启动器打开的新会话。删除覆盖项后恢复继承值。", variableName: "变量名", variableValue: "值", enabled: "启用", deleteEntry: "移除条目", addEntry: "添加变量",
 signIn: "登录 Shisa.AI", signOut: "退出登录", oauthSignIn: "使用 ChatGPT 登录", oauthHint: "使用提供商账号登录。", oauthConnected: "已登录。", loginUrl: "登录地址", deviceCode: "设备码", loginHint: "在浏览器打开此地址并输入设备码，最多等待 3 分钟。",
 providers: "模型提供商", apiKey: "API 密钥", save: "保存", removeCredential: "移除已保存密钥", defaultModel: "默认模型", launch: "在此打开 Jouzu", dropHint: "拖入文件夹",
@@ -89,7 +89,7 @@ connectionType: "連接類型", presetService: "預設服務", service: "服務"
  configuredNoKey: "已設定 · 未儲存金鑰",
 sort: "排序", sortAdded: "新增順序", sortName: "資料夾名稱", sortPath: "完整路徑", shisaHint: "連接 Shisa.AI 使用程式模型，在瀏覽器中授權此裝置。", shisaConnected: "已連接 Shisa.AI。", refreshModels: "重新整理模型", signOutUnconfirmed: "已在此裝置登出。無法確認遠端工作階段已關閉，請在 Shisa.AI 主控台確認。", connections: "其他模型服務", savedNotTested: "已儲存 · 未驗證", addConnection: "新增服務", backConnections: "返回服務清單",
  cancel: "取消",
-customProvider: "自訂供應商", customHint: "OpenAI 相容聊天 API。文字與圖像輸入，32K 上下文、4K 輸出。免驗證服務可不填 API 金鑰。", providerId: "供應商 ID", endpoint: "API 基底網址", modelId: "模型 ID",
+customProvider: "自訂供應商", customHint: "OpenAI 相容聊天 API。預設文字輸入，可選圖像，32K 上下文、4K 輸出。免驗證服務可不填 API 金鑰。", providerId: "供應商 ID", endpoint: "API 基底網址", modelId: "模型 ID",
 environment: "環境變數", envHint: "僅用於此啟動器開啟的新工作階段。刪除覆寫項目後恢復繼承值。", variableName: "變數名稱", variableValue: "值", enabled: "啟用", deleteEntry: "移除項目", addEntry: "新增變數",
 signIn: "登入 Shisa.AI", signOut: "登出", oauthSignIn: "使用 ChatGPT 登入", oauthHint: "使用供應商帳號登入。", oauthConnected: "已登入。", loginUrl: "登入網址", deviceCode: "裝置碼", loginHint: "在瀏覽器開啟此網址並輸入裝置碼，最多等候 3 分鐘。",
 providers: "模型供應商", apiKey: "API 金鑰", save: "儲存", removeCredential: "移除已儲存金鑰", defaultModel: "預設模型", launch: "在此開啟 Jouzu", dropHint: "拖入資料夾",
@@ -110,6 +110,7 @@ export function resolveLocale(value: string | null): Locale {
  if (language.startsWith("zh")) return "zh-Hans";
  return "en";
 }
+
 
 
 
