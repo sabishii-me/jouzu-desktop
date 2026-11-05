@@ -26,7 +26,7 @@ pub async fn jouzu_update(app: tauri::AppHandle, chat: tauri::State<'_, crate::c
    let target=semver::Version::parse(version.as_deref().ok_or("Missing update version")?).map_err(|e|e.to_string())?;
    if target<=current{return Err("Update must be newer than the active version".into());}
   }
-  let mut command=Command::new(root.join("runtime/node/node.exe"));
+  let mut command=Command::new(crate::runtime_install::node_executable(&root));
   command.arg(root.join("runtime/launcher-update/update-service.mjs")).arg(&root).arg(&managed).arg(&action).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
   // The staged health check uses os.tmpdir(). A desktop child can inherit a TEMP
   // directory it cannot create under; keep the check inside the managed update root.
@@ -49,3 +49,4 @@ pub async fn jouzu_update(app: tauri::AppHandle, chat: tauri::State<'_, crate::c
   Ok(value)
  }).await.map_err(|e|e.to_string())?
 }
+

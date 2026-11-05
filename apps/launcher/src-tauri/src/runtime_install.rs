@@ -122,7 +122,23 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn archive_name() -> String {
-    format!("node-v{NODE_VERSION}-win-x64.zip")
+    #[cfg(windows)]
+    return format!("node-v{NODE_VERSION}-win-x64.zip");
+    #[cfg(target_os = "macos")]
+    return format!("node-v{NODE_VERSION}-darwin-arm64.tar.gz");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    return format!("node-v{NODE_VERSION}-linux-x64.tar.gz");
+}
+
+/// The Node executable inside the managed runtime: `node.exe` on Windows, `bin/node`
+/// in the official Unix tarball.
+pub fn node_executable(root: &Path) -> PathBuf {
+    let directory = root.join("runtime").join("node");
+    if cfg!(windows) {
+        directory.join("node.exe")
+    } else {
+        directory.join("bin").join("node")
+    }
 }
 
 fn digest_for(shasums: &str, name: &str) -> Option<String> {
@@ -136,10 +152,15 @@ fn digest_for(shasums: &str, name: &str) -> Option<String> {
 }
 
 fn tar_exe() -> PathBuf {
-    let root = std::env::var_os("SystemRoot")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-    root.join("System32").join("tar.exe")
+    #[cfg(windows)]
+    {
+        let root = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        return root.join("System32").join("tar.exe");
+    }
+    #[cfg(not(windows))]
+    return PathBuf::from("tar");
 }
 
 fn extract(archive: &Path, directory: &Path) -> Result<(), String> {
@@ -162,7 +183,7 @@ fn version_matches(actual: &str) -> bool {
 
 /// Whether the managed Node is the pinned, patched build.
 pub fn node_version_ok(root: &Path) -> bool {
-    let executable = root.join("runtime").join("node").join("node.exe");
+    let executable = node_executable(root);
     if !executable.is_file() {
         return false;
     }
@@ -178,7 +199,7 @@ pub fn node_version_ok(root: &Path) -> bool {
 
 fn ensure_node(managed: &Path, progress: Progress) -> Result<PathBuf, String> {
     let node = managed.join("runtime").join("node");
-    let executable = node.join("node.exe");
+    let executable = node_executable(managed);
     if executable.is_file() {
         if node_version_ok(managed) {
             return Ok(executable);
@@ -233,13 +254,24 @@ fn installer_path(node: &Path, app: &Path) -> Result<std::ffi::OsString, String>
 }
 
 fn npm_install(node: &Path, app: &Path, progress: Progress) -> Result<(), String> {
-    let npm = node
-        .parent()
-        .unwrap()
-        .join("node_modules")
-        .join("npm")
-        .join("bin")
-        .join("npm-cli.js");
+    let npm = if cfg!(windows) {
+        node.parent()
+            .unwrap()
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js")
+    } else {
+        node.parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("lib")
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js")
+    };
     if !npm.is_file() {
         return Err("The Node package does not carry npm.".into());
     }
@@ -472,7 +504,7 @@ mod tests {
     #[test]
     fn the_package_installer_puts_the_bundled_node_before_the_existing_path() {
         let root = tempfile::tempdir().unwrap();
-        let node = root.path().join("runtime/node/node.exe");
+        let node = node_executable(root.path());
         let app = root.path().join("app");
         let path = installer_path(&node, &app).unwrap();
         let entries: Vec<_> = std::env::split_paths(&path).collect();
@@ -496,7 +528,7 @@ mod tests {
     fn installs_the_official_runtime() {
         let managed = tempfile::tempdir().unwrap();
         let version = install_runtime(managed.path(), &|_| {}).unwrap();
-        assert!(managed.path().join("runtime/node/node.exe").is_file());
+        assert!(node_executable(managed.path()).is_file());
         assert!(managed.path().join("app/bootstrap.mjs").is_file());
         assert!(managed.path().join("app/node_modules/jouzu/package.json").is_file());
         assert!(!version.is_empty(), "the installed package version is reported");

@@ -489,7 +489,7 @@ pub fn chat_start(
         "rpc".into(),
     ];
     let mut process = crate::chat_process::ChatProcess::spawn(
-        &root.join("runtime/node/node.exe"),
+        &crate::runtime_install::node_executable(&root),
         &args,
         &cwd,
         &environment.into_values().collect::<Vec<_>>(),
@@ -1152,7 +1152,7 @@ mod tests {
         env.push(("JOUZU_NO_UPDATE".into(), "1".into()));
         let lease = crate::update_lock::lock(dir.path(), false).unwrap();
         let mut process = crate::chat_process::ChatProcess::spawn(
-            &root.join("runtime/node/node.exe"),
+            &crate::runtime_install::node_executable(&root),
             &[
                 root.join("app/bootstrap.mjs").into_os_string(),
                 "--mode".into(),
@@ -1288,3 +1288,4 @@ mod tests {
         .is_ok());
     }
 }
+

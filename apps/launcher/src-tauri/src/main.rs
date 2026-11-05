@@ -151,7 +151,7 @@ fn terminal_open(app: tauri::AppHandle, path: Option<String>) -> Result<(), Stri
     let bash = git_environment::find(&root)?;
     let host = terminal::host(&root)
         .ok_or("Windows Terminal is unavailable. Install it from the launcher.")?;
-    let status = std::process::Command::new(root.join("runtime/node/node.exe"))
+    let status = std::process::Command::new(crate::runtime_install::node_executable(&root))
         .arg(root.join("runtime/launcher-update/open-terminal.mjs"))
         .arg(&slot)
         .arg(&managed)
@@ -399,8 +399,8 @@ fn runtime_report(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "version": version,
         "root": root.to_string_lossy(),
         "app": app_path.to_string_lossy(),
-        "node": root.join("runtime/node/node.exe").is_file(),
-        "nodeVersion": hidden_node_version(&root.join("runtime/node/node.exe")),
+        "node": crate::runtime_install::node_executable(&root).is_file(),
+        "nodeVersion": hidden_node_version(&crate::runtime_install::node_executable(&root)),
         "nodeCurrent": crate::runtime_install::node_version_ok(&root),
         "git": root.join("runtime/git").exists(),
         "terminal": root.join("runtime/terminal").exists(),
@@ -778,4 +778,5 @@ mod build_check_tests {
         assert_eq!(production_build_check(arguments(&["jouzu-desktop.exe"])), None);
     }
 }
+
 
