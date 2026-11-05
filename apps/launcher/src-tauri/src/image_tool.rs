@@ -117,8 +117,7 @@ pub fn save_tools(managed: &Path, image: &serde_json::Value) -> Result<serde_jso
 
 /// Run the extension's CLI entry with the same home the runtime uses.
 fn run_cli(managed: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
-    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
-    let node = managed.join("runtime").join("node").join(node_name);
+    let node = crate::runtime_install::node_executable(managed);
     if !node.is_file() {
         return Err("The runtime is not installed yet.".into());
     }

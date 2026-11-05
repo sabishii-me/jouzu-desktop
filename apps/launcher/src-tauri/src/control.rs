@@ -34,7 +34,7 @@ pub async fn control_request(
         let _lease = crate::update_lock::lock(&runtime::managed_root()?, false)?;
         let root = runtime::application_root(&app)?;
         let script = include_str!("../../../../packaging/launcher/control.mjs");
-        let mut command = Command::new(root.join("runtime/node/node.exe"));
+        let mut command = Command::new(crate::runtime_install::node_executable(&root));
         command
             .arg("--input-type=module")
             .arg("--eval")
@@ -105,3 +105,4 @@ pub async fn control_request(
     .await
     .map_err(|e| e.to_string())?
 }
+
