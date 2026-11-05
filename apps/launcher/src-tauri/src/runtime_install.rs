@@ -457,10 +457,13 @@ pub fn install(managed: &Path, progress: Progress) -> Result<String, String> {
 
 /// The tool components are part of the same install, not a menu.
 fn install_tools(managed: &Path, progress: Progress) -> Result<(), String> {
-    progress(serde_json::json!({ "phase": "tools", "tool": "git" }));
-    crate::git_environment::install(managed)?;
-    progress(serde_json::json!({ "phase": "tools", "tool": "terminal" }));
-    crate::terminal::install(managed)?;
+    #[cfg(windows)]
+    {
+        progress(serde_json::json!({ "phase": "tools", "tool": "git" }));
+        crate::git_environment::install(managed)?;
+        progress(serde_json::json!({ "phase": "tools", "tool": "terminal" }));
+        crate::terminal::install(managed)?;
+    }
     Ok(())
 }
 
