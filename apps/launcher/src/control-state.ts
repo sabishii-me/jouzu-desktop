@@ -3,7 +3,7 @@ export interface ControlState {
   connectionCheck?: { provider: string; status: string };
   profile: string | null;
   account: { signedIn: boolean; revocation?: "confirmed" | "unconfirmed" | "not-linked" };
-  customProviders: { id: string; url: string; model: string; editable: boolean }[];
+  customProviders: { id: string; url: string; model: string; editable: boolean; imageInput?: boolean; contextWindow?: number; maxTokens?: number }[];
   providers: { id: string; name: string; oauth?: boolean; oauthName?: string; apiKey?: boolean }[];
   credentials: { providerId: string }[];
   models: { provider: string; id: string; name: string }[];

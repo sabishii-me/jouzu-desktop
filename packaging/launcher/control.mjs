@@ -135,7 +135,12 @@ try {
       const existing = config.providers[request.provider];
       if (request.edit !== true && (existing || runtime.getProvider(request.provider))) throw new Error('Provider already exists');
       if (request.edit === true && (!existing || existing.api !== 'openai-completions' || existing.models?.length !== 1)) throw new Error('This provider requires advanced editing');
-      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), reasoning: false, input: ['text', 'image'], cost: {input:0,output:0,cacheRead:0,cacheWrite:0}, contextWindow: 32768, maxTokens: 4096, ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), input: ['text', 'image'] }] };
+      const imageInput = request.imageInput !== false;
+      const contextWindow = request.contextWindow === undefined ? 32768 : Number(request.contextWindow);
+      if (!Number.isInteger(contextWindow) || contextWindow < 1024 || contextWindow > 2_000_000) throw new Error('Invalid context window');
+      const maxTokens = request.maxTokens === undefined ? 4096 : Number(request.maxTokens);
+      if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > contextWindow) throw new Error('Invalid max output');
+      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), reasoning: false, cost: {input:0,output:0,cacheRead:0,cacheWrite:0}, ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), input: imageInput ? ['text', 'image'] : ['text'], contextWindow, maxTokens }] };
       writeFilePrivateAtomic(staged, JSON.stringify(config), paths.agentDir);
       const { ModelConfig } = await pi('model-config');
       const validated = await ModelConfig.load(staged);
@@ -162,7 +167,7 @@ try {
   const savedConfig = await ModelConfig.load(join(paths.agentDir, 'models.json'));
   const customProviders = savedConfig.getProviderIds().map(id => {
     const p = savedConfig.getProvider(id);
-    return { id, url: p.baseUrl, model: p.models?.[0]?.id, editable: p.api === 'openai-completions' && p.models?.length === 1 };
+    const m = p.models?.[0]; return { id, url: p.baseUrl, model: m?.id, editable: p.api === 'openai-completions' && p.models?.length === 1, imageInput: Array.isArray(m?.input) && m.input.includes('image'), contextWindow: m?.contextWindow, maxTokens: m?.maxTokens };
   });
   const { readShisaAccountStatus } = await load('shisa-link/account');
   const account = { ...readShisaAccountStatus(paths), ...(signOutRevocation ? { revocation: signOutRevocation } : {}) };
@@ -188,5 +193,6 @@ try {
   console.log(JSON.stringify({ error: messages[action] ?? 'Unsupported configuration operation.' }));
   process.exitCode = 1;
 }
+
 
 
