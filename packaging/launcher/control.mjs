@@ -135,7 +135,7 @@ try {
       const existing = config.providers[request.provider];
       if (request.edit !== true && (existing || runtime.getProvider(request.provider))) throw new Error('Provider already exists');
       if (request.edit === true && (!existing || existing.api !== 'openai-completions' || existing.models?.length !== 1)) throw new Error('This provider requires advanced editing');
-      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), reasoning: false, input: ['text'], cost: {input:0,output:0,cacheRead:0,cacheWrite:0}, contextWindow: 32768, maxTokens: 4096, ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim() }] };
+      config.providers[request.provider] = { ...existing, baseUrl: url.href, api: 'openai-completions', authHeader: true, models: [{ ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), reasoning: false, input: ['text', 'image'], cost: {input:0,output:0,cacheRead:0,cacheWrite:0}, contextWindow: 32768, maxTokens: 4096, ...existing?.models?.[0], id: request.model.trim(), name: request.model.trim(), input: ['text', 'image'] }] };
       writeFilePrivateAtomic(staged, JSON.stringify(config), paths.agentDir);
       const { ModelConfig } = await pi('model-config');
       const validated = await ModelConfig.load(staged);
@@ -188,3 +188,5 @@ try {
   console.log(JSON.stringify({ error: messages[action] ?? 'Unsupported configuration operation.' }));
   process.exitCode = 1;
 }
+
+
