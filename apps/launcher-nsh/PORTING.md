@@ -50,11 +50,26 @@ plugin setup is replaced by the NSH runner and `App.tsx`.
   headless tests.
 - **Window focus update checks**: NSH has no window-focus event; the periodic
   update schedule still runs (`update-schedule.ts`).
-- **Ctrl+, settings shortcut**: not ported (no global key handler yet).
 - **Rename session** uses an in-app dialog instead of `window.prompt`.
 - **Pane resize** uses the gesture responder instead of pointer events.
-- **Custom title bar / tray hide button**: the system title bar is kept; the
-  window controls are the platform's own.
+- **Close-to-tray**: the custom title bar is restored (see below), but its close
+  button is the platform's own, which quits — NSH has no tray to hide into.
+
+## Feature-parity fixes (after first live review)
+
+- **Connecting-page loop**: the full-window loader is guarded by `entryReady`
+  exactly as the baseline (`entryBooting && !entryReady`); once the entry
+  session connects, later disconnects show the chat's own line, not the loader.
+- **Custom title bar**: restored via `Window.setTitleBar({style:"hidden"})` +
+  a `windowDrag` region with the JZ mark, "Jouzu" and the DEV badge; the
+  platform caption buttons (minimize/maximize/close) stay in `titleBar()`'s
+  reserved area. Window title set to "Jouzu".
+- **Ctrl/Cmd+,** opens settings (`keymap.bind("mod+,")`).
+- **Status-error copy** button on the connecting screen (`Clipboard.writeText`).
+- **DEV badge** driven by the backend's `component_versions.development`.
+- Audited and confirmed as baseline dead code (not ported, no parity loss):
+  the App-level folder drag-drop (`listRef` never attached), `launchTerminal`,
+  and the launcher-list `sort`/`query` filtering.
 
 ## Verification (2026-11-06, Windows)
 

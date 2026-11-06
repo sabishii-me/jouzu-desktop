@@ -3,12 +3,12 @@
  * screens read these signals; the configuration service keeps its one-request
  * queue, and the runtime state machine (probe → prepare → connect) is unchanged.
  */
-import { signal, computed, effect, setColorScheme } from "nsh";
+import { signal, computed, effect, setColorScheme, keymap, Clipboard } from "nsh";
 import { invoke } from "./host/invoke";
 import { listen } from "./host/events";
 import { localStorage } from "./host/storage";
 import { openFolder } from "./host/dialog";
-import { APP_VERSION } from "./host/window";
+import { APP_VERSION, developmentFlag } from "./host/window";
 import { messages, resolveLocale, type Locale } from "./i18n";
 import { parseControlState, type ControlState } from "./control-state";
 import { parseDiagnostics, type Diagnostics } from "./diagnostics";
@@ -53,7 +53,9 @@ export function createAppStore() {
   const sessionRevision = signal(0);
   const chatBusy = signal(false);
   const entryBooting = signal(false);
-  let entryReady = false;
+  // Once the entry session has connected once, the full-window loader never
+  // returns; later disconnects are the chat's own "Starting session…" line.
+  const entryReady = signal(false);
   const restartPending = signal(false);
   const catalogRefreshing = signal(false);
   let catalogAttempted = false;
@@ -115,8 +117,22 @@ export function createAppStore() {
 
   const refresh = async () => state.set(await invoke<LauncherState>("launcher_state"));
   const loadComponents = () => invoke<Components>("component_versions")
-    .then(value => components.set(value))
+    .then(value => { components.set(value); developmentFlag.set(value.development === true); })
     .catch(failure => error.set(String(failure)));
+
+  // Ctrl/Cmd+, opens settings, as the baseline's window keydown handler did.
+  keymap.bind("mod+,", () => settingsOpen.set(true));
+
+  const statusCopied = signal(false);
+  async function copyStatusError() {
+    const message = statusError();
+    if (!message) return;
+    try {
+      await Clipboard.writeText(message);
+      statusCopied.set(true);
+      setTimeout(() => statusCopied.set(false), 2000);
+    } catch (failure) { error.set(String(failure)); }
+  }
   const refreshDiagnostics = async () => {
     try { diagnostics.set(parseDiagnostics(await invoke<unknown>("diagnostics"))); }
     catch { diagnostics.set(null); }
@@ -311,10 +327,10 @@ export function createAppStore() {
   });
   function onBootChange(booting: boolean) {
     entryBooting.set(booting);
-    if (!booting) { entryReady = true; return; }
+    if (!booting) { entryReady.set(true); return; }
     // A session that never connects must not keep the window behind the loader.
-    if (entryReady) return;
-    setTimeout(() => { if (!entryReady) { entryReady = true; entryBooting.set(false); } }, 8000);
+    if (entryReady()) return;
+    setTimeout(() => { if (!entryReady()) { entryReady.set(true); entryBooting.set(false); } }, 8000);
   }
   async function recoverRuntime() {
     operation.set("saving"); error.set(null);
@@ -328,8 +344,8 @@ export function createAppStore() {
   }
 
   return {
-    locale, theme, t, activePath, newSession, sessionRevision, chatBusy, entryBooting, catalogRefreshing,
-    state, error, statusError, operation, busy, version, diagnostics, components, settingsTab, settingsOpen,
+    locale, theme, t, activePath, newSession, sessionRevision, chatBusy, entryBooting, entryReady, catalogRefreshing,
+    state, error, statusError, statusCopied, copyStatusError, operation, busy, version, diagnostics, components, settingsTab, settingsOpen,
     updateFocus, repair, connectionMode, providerQuery, addingConnection, setup, runtimePresent, runtimeUpdating,
     prepare, device, providerDevice, envRows, editingEnv, envLoaded, custom, provider, token, notice,
     jouzuUpdater, updater, gitBash, runtime,

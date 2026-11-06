@@ -8,6 +8,7 @@ import { Progress } from "./src/ui/progress";
 import { Dialog, DialogTitle, DialogDescription } from "./src/ui/dialog";
 import { Icon } from "./src/ui/icons";
 import { JouzuLoader } from "./src/ui/jouzu-loader";
+import { TitleBar } from "./src/ui/title-bar";
 import { ChatWorkspace } from "./src/chat-workspace";
 import { ProviderSettings } from "./src/settings-dialog";
 import { SettingsShell } from "./src/settings-shell";
@@ -32,20 +33,23 @@ function Shell() {
     }
   })();
   return (
-    <View class="flex-1 bg-background">
-      <If when={!!bootError()} else={
-        <If when={ready()} else={
-          <View class="flex-1 items-center justify-center">
-            <JouzuLoader />
-          </View>
+    <View class="flex-1 flex-col bg-background">
+      <TitleBar />
+      <View class="min-h-0 flex-1 flex-col">
+        <If when={!!bootError()} else={
+          <If when={ready()} else={
+            <View class="flex-1 items-center justify-center">
+              <JouzuLoader />
+            </View>
+          }>
+            <App />
+          </If>
         }>
-          <App />
+          <View class="flex-1 items-center justify-center p-6">
+            <Text class="text-sm text-destructive">{bootError() ?? ""}</Text>
+          </View>
         </If>
-      }>
-        <View class="flex-1 items-center justify-center p-6">
-          <Text class="text-sm text-destructive">{bootError() ?? ""}</Text>
-        </View>
-      </If>
+      </View>
     </View>
   );
 }
@@ -136,6 +140,9 @@ function App() {
                 <Text class="text-sm text-muted-foreground" role="alert">{t().connectFailed}</Text>
                 <View class="w-full flex-row items-center gap-2 rounded-lg border border-border bg-card py-2 pl-3 pr-1">
                   <Text class="select-text min-w-0 flex-1 truncate text-xs text-muted-foreground">{app.statusError() ?? ""}</Text>
+                  <Button variant="ghost" className="shrink-0 px-2" aria-label={t().copy} onClick={() => void app.copyStatusError()}>
+                    <Icon name={app.statusCopied() ? "Check" : "Copy"} size={16} />
+                  </Button>
                 </View>
                 <Button onClick={() => void app.readStatus()}>{t().retry}</Button>
               </View>
@@ -173,7 +180,7 @@ function MainScreen(props: { app: AppStore }) {
           </If>
         </View>
       </Dialog>
-      <If when={app.entryBooting()}>
+      <If when={app.entryBooting() && !app.entryReady()}>
         <View class="absolute inset-0 z-40 flex-col bg-background">
           <Banner title={t().connecting} fill />
           <View class="shrink-0 items-center px-6 pb-14 pt-8">
