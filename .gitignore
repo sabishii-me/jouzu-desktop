@@ -7,3 +7,6 @@ ci-artifacts/
 .env
 .env.*
 *.log
+
+# agent session state
+.pi/
