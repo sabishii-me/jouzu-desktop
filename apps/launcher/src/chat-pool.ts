@@ -217,7 +217,13 @@ export class ChatPool {
 
   /** Keep an existing client under its session path so switching back is instant. */
   remember(sessionPath: string, client: ChatConnection): void {
-    this.entries.set(entryKey(sessionPath), client);
+    const key = entryKey(sessionPath);
+    const previous = this.entries.get(key);
+    if (previous && previous !== client) {
+      this.unwatch(previous);
+      void previous.close();
+    }
+    this.entries.set(key, client);
     this.watch(client);
     this.emitStatus();
     while (this.entries.size > this.maxSessions) {
