@@ -200,14 +200,14 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
   };
   return <div className={hero ? "px-0 pb-0 pt-0" : "px-3 pb-3 pt-2 sm:px-6"}>
     {!!compatibility.length && <p role="status" className="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground">Some runtime events have no display: {compatibility.join(", ")}</p>}
-    <form aria-label="Message composer" onPaste={pasteFiles} className={`mx-auto flex max-w-3xl flex-col gap-2 border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12)] focus-within:ring-1 focus-within:ring-ring ${hero ? "rounded-3xl p-3" : "rounded-2xl p-2.5"}`} onSubmit={event => { event.preventDefault(); submit(); }}>
+    <form aria-label="Message composer" onPaste={pasteFiles} className={`relative mx-auto flex max-w-3xl flex-col gap-2 border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12)] focus-within:ring-1 focus-within:ring-ring ${hero ? "rounded-3xl p-3" : "rounded-2xl p-2.5"}`} onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachmentError && <p role="alert" className="px-1 text-sm text-destructive">{attachmentError}</p>}
       {!!attachments.length && <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-1">{attachments.map(item => <li key={item.id} className="relative max-w-36 rounded-lg border border-border p-1.5"><img src={`data:${item.image.mimeType};base64,${item.image.data}`} alt={`Preview of ${item.name}`} className="h-16 w-24 object-contain" /><div className="flex items-center gap-1"><p className="min-w-0 flex-1 truncate text-xs" title={item.name}>{item.name}</p><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove ${item.name}`} onClick={() => onRemoveImage?.(item.id)}><X className="size-3" /></Button></div></li>)}</ul>}
       {!!queued.length && <div role="status" aria-label="Queued messages" className="space-y-1 px-1">{queued.map((text, index) => <p key={`${index}-${text}`} className="truncate rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">Queued: {text}</p>)}</div>}
       {!!videos.length && <ul aria-label="Attached videos" className="flex flex-wrap gap-2 px-1">{videos.map(url => <li key={url} className="flex max-w-full items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs"><Video className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate" title={url}>{url}</span><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove video ${url}`} onClick={() => onRemoveVideo?.(url)}><X className="size-3" /></Button></li>)}</ul>}
       {videoOpen && <div className="flex items-center gap-2 px-1"><Input aria-label="Video URL" placeholder="https://…/video.mp4" value={videoDraft} onChange={event => setVideoDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } } }} /><Button type="button" onClick={() => { const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } }}>Add</Button></div>}
       {videoError && <p role="alert" className="px-1 text-xs text-destructive">{videoError}</p>}
-      {slashQuery !== null && commandMatches.length > 0 && <div role="menu" aria-label="Commands" className="mx-1 mb-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
+      {slashQuery !== null && commandMatches.length > 0 && <div role="menu" aria-label="Commands" className="absolute bottom-full left-0 right-0 z-40 mb-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
         {commandMatches.map((command, index) => <button key={command.id} type="button" role="menuitem" disabled={command.disabled} onMouseEnter={() => setCommandIndex(index)} onClick={() => runCommand(command)} className={`flex w-full items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left ${index === commandIndex ? "bg-accent" : ""} disabled:opacity-45`}><span className="min-w-0"><span className="block text-sm">{command.label}</span><span className="block truncate text-xs text-muted-foreground">{command.description}</span></span><span className="text-[10px] text-muted-foreground">/{command.id}</span></button>)}
       </div>}
       <textarea aria-label="Message Jouzu" placeholder="Message Jouzu…" value={draft} onChange={event => { onDraft(event.target.value); setCommandIndex(0); }} rows={3} className="max-h-60 min-h-16 w-full resize-y bg-transparent px-1 text-sm outline-none" onKeyDown={event => {
@@ -237,6 +237,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     </form>
   </div>;
 }
+
 
 
 
