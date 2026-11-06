@@ -134,6 +134,7 @@ export interface ComposerProps {
   onAddImages?: (files: File[]) => void;
   onRemoveImage?: (id: string) => void;
   videos?: readonly string[];
+  queued?: readonly string[];
   onAddVideo?: (url: string) => string | null;
   onRemoveVideo?: (url: string) => void;
   readingImages?: boolean;
@@ -166,7 +167,7 @@ function TextGuardControl({ control }: { control: NonNullable<ComposerProps["tex
     </div>}
   </div>;
 }
-export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, onReloadMcp, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, onReloadMcp, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], queued = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -202,6 +203,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     <form aria-label="Message composer" onPaste={pasteFiles} className={`mx-auto flex max-w-3xl flex-col gap-2 border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12)] focus-within:ring-1 focus-within:ring-ring ${hero ? "rounded-3xl p-3" : "rounded-2xl p-2.5"}`} onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachmentError && <p role="alert" className="px-1 text-sm text-destructive">{attachmentError}</p>}
       {!!attachments.length && <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-1">{attachments.map(item => <li key={item.id} className="relative max-w-36 rounded-lg border border-border p-1.5"><img src={`data:${item.image.mimeType};base64,${item.image.data}`} alt={`Preview of ${item.name}`} className="h-16 w-24 object-contain" /><div className="flex items-center gap-1"><p className="min-w-0 flex-1 truncate text-xs" title={item.name}>{item.name}</p><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove ${item.name}`} onClick={() => onRemoveImage?.(item.id)}><X className="size-3" /></Button></div></li>)}</ul>}
+      {!!queued.length && <div role="status" aria-label="Queued messages" className="space-y-1 px-1">{queued.map((text, index) => <p key={`${index}-${text}`} className="truncate rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">Queued: {text}</p>)}</div>}
       {!!videos.length && <ul aria-label="Attached videos" className="flex flex-wrap gap-2 px-1">{videos.map(url => <li key={url} className="flex max-w-full items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs"><Video className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate" title={url}>{url}</span><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove video ${url}`} onClick={() => onRemoveVideo?.(url)}><X className="size-3" /></Button></li>)}</ul>}
       {videoOpen && <div className="flex items-center gap-2 px-1"><Input aria-label="Video URL" placeholder="https://…/video.mp4" value={videoDraft} onChange={event => setVideoDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } } }} /><Button type="button" onClick={() => { const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } }}>Add</Button></div>}
       {videoError && <p role="alert" className="px-1 text-xs text-destructive">{videoError}</p>}
@@ -235,6 +237,8 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     </form>
   </div>;
 }
+
+
 
 
 
