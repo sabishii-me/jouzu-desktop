@@ -147,7 +147,7 @@ function App() {
   );
 }
 
-mount(Shell);
+
 /** The workspace screen: header-less native window, chat, settings, repair. */
 function MainScreen(props: { app: AppStore }) {
   const app = props.app;

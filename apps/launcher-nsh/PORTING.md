@@ -56,6 +56,18 @@ plugin setup is replaced by the NSH runner and `App.tsx`.
 - **Custom title bar / tray hide button**: the system title bar is kept; the
   window controls are the platform's own.
 
+## Verification (2026-11-06, Windows)
+
+- `nsh check`: passes (cargo check + TypeScript, whole app).
+- `nsh test`: 126 tests — 124 passed, 0 failed, 2 ignored (the baseline's
+  ignored Rust tests), including the headless UI smoke test.
+- `nsh run`: live Win32 window verified by screenshot — sidebar with real
+  workspaces and session history from the managed runtime, hero composer,
+  model picker populated from the live runtime, settings reachable.
+- Cosmetic gaps: NSH warns on `break-all`, `break-words`, `whitespace-pre*`
+  and one opacity-suffixed token class it does not implement; long tool
+  output wraps differently than the baseline until NSH grows those utilities.
+
 ## Layout
 
 ```
