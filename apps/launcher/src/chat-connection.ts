@@ -318,8 +318,19 @@ export class ChatConnection {
     // Stop suppressing once the user writes a new turn; from here events are live.
     this.replaying = false;
     this.update({ pending: true, error: null });
+    const payload = { message, ...(images.length ? { images } : {}) };
     try {
-      await this.request(running ? "steer" : "prompt", { message, ...(images.length ? { images } : {}) });
+      try {
+        await this.request(running ? "steer" : "prompt", payload);
+      } catch (error) {
+        // The projection can lag the runtime by one event. Retry the same message
+        // as a steer instead of surfacing a transient "already processing" error.
+        if (!running && /already processing/iu.test(String(error))) {
+          await this.request("steer", payload);
+        } else {
+          throw error;
+        }
+      }
     } catch (error) { this.update({ error: String(error) }); throw error; }
     finally { this.update({ pending: false }); }
   }

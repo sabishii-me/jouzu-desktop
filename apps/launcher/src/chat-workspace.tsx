@@ -516,9 +516,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       if (!await ensureSelectedSession(client)) { setNotification("The session is still opening."); return; }
       client = connection.current;
       if (!client) return;
-      let running = client.snapshot.projection.running;
-      try { running = await client.isStreaming(); } catch { /* fall back to the event projection */ }
-      if (connection.current !== client) return;
+      const running = client.snapshot.projection.running;
       if (running) setQueuedSteers(current => [...current, value]);
       try { await client.sendOrSteer(value, submitted.map(item => item.image), running); }
       catch (error) { if (running) setQueuedSteers(current => { const at = current.lastIndexOf(value); return at < 0 ? current : [...current.slice(0, at), ...current.slice(at + 1)]; }); throw error; }
@@ -1283,6 +1281,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     {textguardPanel}
   </div>;
 }
+
 
 
 
