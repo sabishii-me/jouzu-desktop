@@ -354,7 +354,9 @@ function PaneView(props: { w: ChatWorkspaceStore; index: number; references: Ret
               <If when={pane()?.active === "start"} else={
                 <If when={pane()?.active === "artifacts"} else={
                   <If when={pane()?.active === "files"}>
-                    <FilesPanel path={w.selectedSessionWorkspacePath()} />
+                    <Each of={[w.selectedSessionWorkspacePath()]} key={workspacePath => workspacePath}>
+                      {(workspacePath) => <FilesPanel path={workspacePath()} />}
+                    </Each>
                   </If>
                 }>
                   <ArtifactsPanel embedded sessionId={w.artifactsSessionId()} workspace={w.selectedSessionWorkspacePath()} references={props.references} />
@@ -570,15 +572,18 @@ function MainArea(props: { w: ChatWorkspaceStore; host: ChatWorkspaceProps; outp
                 <If when={!!w.snapshot().gap}>
                   <Text class="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground">The transcript was refreshed after a display backlog.</Text>
                 </If>
-                <ChatConversation
-                  key={w.conversationKey()}
-                  projection={w.conversationProjection()}
-                  workspace={props.host.path}
-                  busy={w.snapshot().pending}
-                  pendingUser={w.pendingUser()}
-                  onFork={(prompt, index) => void w.forkTurn(prompt, index)}
-                  onOpenArtifacts={() => w.openArtifactsPanel()}
-                />
+                <Each of={[w.conversationKey()]} key={sessionKey => sessionKey}>
+                  {() => (
+                    <ChatConversation
+                      projection={w.conversationProjection()}
+                      workspace={props.host.path}
+                      busy={w.snapshot().pending}
+                      pendingUser={w.pendingUser()}
+                      onFork={(prompt, index) => void w.forkTurn(prompt, index)}
+                      onOpenArtifacts={() => w.openArtifactsPanel()}
+                    />
+                  )}
+                </Each>
               </View>
               <View class="relative flex-col">
                 <View class="mx-auto w-full max-w-3xl flex-col">

@@ -1,28 +1,36 @@
-# Jouzu Desktop
+# Jouzu Desktop (NSH)
 
-A TSX app with a Rust crate of its own: `App.tsx` is the app, and the directory is also a crate (`Cargo.toml`,
-`src/lib.rs`; `nsh.json` `"rust": "."`) whose `#[native_module("jouzu-desktop/native")]` exports a component (`Badge`), a
-module (`Format`) and a class (`Counter`) that `App.tsx` imports from `jouzu-desktop/native`.
+The Jouzu Desktop launcher ported from Tauri 2 + React to [NSH](https://nsh.dev)
+(Native Shell): TSX screens on the native engine, the launcher backend as a
+Rust crate exported through `jouzu-desktop/native`. Baseline: `v1.0.15` of
+`apps/launcher`. See `PORTING.md` for the architecture mapping and the
+deliberate gaps.
 
-```sh
-nsh run                      # this machine's backend; --target ios, android, web, macos, linux, windows or gpui
-nsh check                    # cargo check of the crate, then type checks App.tsx against the declarations generated from it
-nsh test                     # cargo test, then App.test.tsx, headless; --target to run it on a platform
-nsh package --target web     # or ios, android, macos, linux, windows
+## Requirements
+
+- `nsh` 0.4.0 or newer on `PATH` (https://nsh.dev/docs/installation)
+- Rust via rustup; `rust-toolchain.toml` pins stable (NSH needs a recent one)
+
+## Develop
+
+```bash
+nsh run            # Win32 window on Windows, hot reload for TSX
+nsh check          # cargo check + TypeScript
+nsh test           # headless: cargo tests + nsh UI tests
 ```
 
-`nsh` describes the crate's exports with a small program of the crate and builds the app's hosts with it linked in.
-TSX edits are hot updates; Rust edits rebuild and restart the app. The first build writes the crate's TypeScript declarations into
-`.nsh/types/jouzu-desktop/native.d.ts`, doc comments included.
+The Rust backend lives in `src/backend` (ported from `src-tauri`); the console
+binary (`src/bin/console.rs`) builds with `cargo build --bin console` and is
+the terminal entry `launch_jouzu` starts. The TSX screens are in `src/`, the
+UI kit in `src/ui` (contract in `src/ui/README.md`), and the host shims that
+replace the Tauri APIs in `src/host`.
 
-A function or a member runs the way its Rust signature says: one that is not `async` runs inside the TSX call and
-returns its value (`Format.times(2)`, `counter.count`); an `async fn` returns a Promise and runs as a task with NSH's
-services; a module function taking `cx: &mut ModuleCx` reaches the platform in order with the UI and returns a Promise.
-Register more in `src/lib.rs` with `registry.register::<…>()` (components), `registry.module::<…>()` and
-`registry.class::<…>()`.
+## Package
 
-The `nsh` commands build the app's hosts from the NSH crates `Cargo.toml` depends on: crates.io's at the version of the
-`nsh` you run (keep the `nsh-*` dependencies at that version when you upgrade `nsh`), or an NSH checkout's by path.
+```bash
+nsh package --target windows
+```
 
-NSH-generated files stay in `.nsh/`: runner sources in `.nsh/rust/` and default packages in `.nsh/out/`.
-Cargo keeps its normal `target/` directory and respects your existing `CARGO_TARGET_DIR`.
+Packaging the runtime provisioning payloads (`packaging/launcher`) alongside
+the NSH app is not wired yet; the baseline packaging scripts under
+`packaging/` still describe the Tauri layout.

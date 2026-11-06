@@ -21,7 +21,7 @@ export function AgentAction(props: {
     <If when={!props.running && !text() && !!props.settled} else={
       <If when={props.running || !!text()}>
         <If when={!!text()} else={
-          <View class="min-h-6 flex-row items-center gap-2 px-1 py-1" role="status">
+          <View class="min-h-6 flex-row items-center gap-2 px-1 py-1">
             <Icon name="LoaderCircle" size={14} className="animate-spin" />
             <Text class="text-[11px] text-muted-foreground">{props.label}</Text>
             <If when={!!props.elapsed}>
@@ -49,7 +49,7 @@ export function AgentAction(props: {
         </If>
       </If>
     }>
-      <View class={cn("min-h-6 flex-row items-center gap-2 px-1 py-1", props.settled === "failed" ? "text-destructive" : "text-muted-foreground")} role="status">
+      <View class={cn("min-h-6 flex-row items-center gap-2 px-1 py-1", props.settled === "failed" ? "text-destructive" : "text-muted-foreground")}>
         <Icon name={props.settled === "failed" ? "AlertTriangle" : "Square"} size={14} />
         <Text class="text-[11px] font-medium">{props.settled === "failed" ? "Failed" : "Interrupted"}</Text>
       </View>

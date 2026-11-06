@@ -32,7 +32,7 @@ export function TurnSummary(props: { data: TurnSummaryData; workspace?: string; 
         <Each of={props.data.artifacts} key={artifact => artifact.id}>{artifact => <If when={artifact().data} else={
           <Text class="max-w-48 truncate rounded-md border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground">{artifact().path ?? "image"}</Text>
         }>
-          <BaseButton class="overflow-hidden rounded-md border border-border" title={artifact().prompt ?? artifact().path ?? "Generated image"} accessibilityLabel={artifact().prompt ?? "Generated image"} onPress={() => open.set(artifact())}>
+          <BaseButton class="overflow-hidden rounded-md border border-border" accessibilityLabel={artifact().prompt ?? "Generated image"} onPress={() => open.set(artifact())}>
             <Image src={`data:${artifact().mime};base64,${artifact().data}`} accessibilityLabel={artifact().prompt ?? "Generated image"} class="size-20 object-cover" />
           </BaseButton>
         </If>}</Each>

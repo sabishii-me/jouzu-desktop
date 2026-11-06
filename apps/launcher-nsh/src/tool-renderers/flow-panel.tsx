@@ -34,14 +34,14 @@ export function SubagentMenu(props: { agents: readonly FlowSubagent[]; widgets?:
   const active = computed(() => props.agents.filter(agent => agent.state === "running").length);
   return <If when={total() > 0}>
     <View class="relative">
-      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel={`Subagents (${total()})`} accessibilityState={{ expanded: open() }} class={cn("flex-row h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", active() ? "border-primary/40 bg-primary/5" : "border-border")}>
+      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel={`Subagents (${total()})`} class={cn("flex-row h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", active() ? "border-primary/40 bg-primary/5" : "border-border")}>
         <If when={active() > 0} else={<Icon name="Bot" size={14} color={token("muted-foreground")} />}><Icon name="LoaderCircle" size={14} className="animate-spin" color={token("primary")} /></If>
         <Text class="whitespace-nowrap text-xs text-muted-foreground">{total()} subagent{total() === 1 ? "" : "s"}</Text>
         <View style={{ transform: [{ rotate: open() ? "180deg" : "0deg" }] }}><Icon name="ChevronDown" size={12} color={token("muted-foreground")} /></View>
       </BaseButton>
       <If when={open()}>
         <Overlay anchor={trigger ?? null} placement="bottom" align="end" offset={4} margin={8} onPressOutside={() => open.set(false)} onCancel={() => open.set(false)}>
-          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" role="dialog" accessibilityLabel="Subagents">
+          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" accessibilityLabel="Subagents">
             <View class="border-b border-border px-3 py-2"><Text class="text-xs font-semibold">Subagents</Text></View>
             <ScrollArea className="max-h-96 px-3 py-2">
               <Each of={props.agents} key={agent => agent.id}>{agent => <ActivityRow title={agent().title} summary={agent().state === "running" ? "Running" : agent().state === "error" ? "Failed" : "Completed"} state={agent().state} />}</Each>
@@ -66,14 +66,14 @@ export function BackgroundMenu(props: { jobs: readonly FlowBackground[]; widgets
   const active = computed(() => props.jobs.filter(job => job.state === "running").length);
   return <If when={total() > 0}>
     <View class="relative">
-      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel={`Background jobs (${total()})`} accessibilityState={{ expanded: open() }} class={cn("flex-row h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", active() ? "border-primary/40 bg-primary/5" : "border-border")}>
+      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel={`Background jobs (${total()})`} class={cn("flex-row h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", active() ? "border-primary/40 bg-primary/5" : "border-border")}>
         <If when={active() > 0} else={<Icon name="Terminal" size={14} color={token("muted-foreground")} />}><Icon name="LoaderCircle" size={14} className="animate-spin" color={token("primary")} /></If>
         <Text class="whitespace-nowrap text-xs text-muted-foreground">{total()} background job{total() === 1 ? "" : "s"}</Text>
         <View style={{ transform: [{ rotate: open() ? "180deg" : "0deg" }] }}><Icon name="ChevronDown" size={12} color={token("muted-foreground")} /></View>
       </BaseButton>
       <If when={open()}>
         <Overlay anchor={trigger ?? null} placement="bottom" align="end" offset={4} margin={8} onPressOutside={() => open.set(false)} onCancel={() => open.set(false)}>
-          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" role="dialog" accessibilityLabel="Background jobs">
+          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" accessibilityLabel="Background jobs">
             <View class="border-b border-border px-3 py-2"><Text class="text-xs font-semibold">Background jobs</Text></View>
             <ScrollArea className="max-h-96 px-3 py-2">
               <Each of={props.jobs} key="index">{job => <ActivityRow title="Background task" summary={job().command} state={job().state} />}</Each>
@@ -131,21 +131,21 @@ export function FlowMenu(props: {
   const send = (command: string) => { open.set(false); props.onCommand?.(command); };
   return <If when={hasContent()}>
     <View class="relative">
-      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel="Flow" accessibilityState={{ expanded: open() }} class={cn("flex-row h-7 min-w-0 max-w-56 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", live() ? "border-primary/40 bg-primary/5" : "border-border")}>
+      <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} accessibilityLabel="Flow" class={cn("flex-row h-7 min-w-0 max-w-56 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50", live() ? "border-primary/40 bg-primary/5" : "border-border")}>
         <If when={live()} else={<Icon name="ListTodo" size={14} color={token("muted-foreground")} />}><Icon name="LoaderCircle" size={14} className="animate-spin" color={token("primary")} /></If>
         <Text class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{summary()}</Text>
         <View style={{ transform: [{ rotate: open() ? "180deg" : "0deg" }] }}><Icon name="ChevronDown" size={12} color={token("muted-foreground")} /></View>
       </BaseButton>
       <If when={open()}>
         <Overlay anchor={trigger ?? null} placement="bottom" align="end" offset={4} margin={8} onPressOutside={() => open.set(false)} onCancel={() => open.set(false)}>
-          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" role="dialog" accessibilityLabel="Flow details">
+          <View class="w-80 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-xl" accessibilityLabel="Flow details">
             <View class="flex-row items-center gap-2 border-b border-border px-3 py-2">
               <Icon name="ListTodo" size={16} color={token("muted-foreground")} />
               <Text class="text-xs font-semibold">Tasks</Text>
               <If when={tasks().length > 0}><Text class="text-[11px] tabular-nums text-muted-foreground">{completed()}/{tasks().length}</Text></If>
               <Text class="min-w-0 flex-1 truncate text-right text-[11px] text-muted-foreground">{summary()}</Text>
             </View>
-            <If when={!!props.notice}><View class="border-b border-border bg-amber-500/10 px-3 py-2" role="status"><Text class="text-[11px] text-amber-700 dark:text-amber-300">{props.notice}</Text></View></If>
+            <If when={!!props.notice}><View class="border-b border-border bg-amber-500/10 px-3 py-2"><Text class="text-[11px] text-amber-700 dark:text-amber-300">{props.notice}</Text></View></If>
             <If when={!!props.error}><View class="flex-col gap-1 border-b border-destructive/30 bg-destructive/10 px-3 py-2" role="alert">
               <Text class="text-[11px] font-medium text-destructive">Flow state needs recovery</Text>
               <Text class="break-words text-[11px] text-destructive">{props.error}</Text>

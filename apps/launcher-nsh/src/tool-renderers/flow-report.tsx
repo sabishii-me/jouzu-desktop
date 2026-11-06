@@ -53,13 +53,16 @@ function asWait(report: FlowReport): Extract<FlowReport, { kind: "wait" }> | nul
 function workTitle(report: FlowReport): string {
   return report.kind === "work" || report.kind === "alert" ? report.title : "";
 }
+function workState(report: FlowReport): ActivityState {
+  return report.kind === "work" || report.kind === "alert" ? report.state : "idle";
+}
 
 export function FlowReportSummary(props: { text: string }) {
   const report = computed(() => flowReport(props.text));
   return <If when={report()}>{r => (
     <If when={asResult(r())} else={
       <If when={asWait(r())} else={
-        <ActivityRow title={r().kind === "alert" ? "Flow alert" : "Flow work"} summary={workTitle(r())} state={r().state} />
+        <ActivityRow title={r().kind === "alert" ? "Flow alert" : "Flow work"} summary={workTitle(r())} state={workState(r())} />
       }>{wait => <ActivityRow title="Waiting" summary={wait().reason} state={wait().state} defaultOpen={wait().observations.length > 0}>
         <View class="flex-col gap-1"><Each of={wait().observations} key="index">{observation => <Text class="truncate text-xs text-muted-foreground">{observation()}</Text>}</Each></View>
       </ActivityRow>}</If>

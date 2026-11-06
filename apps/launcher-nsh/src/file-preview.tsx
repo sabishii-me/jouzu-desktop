@@ -77,13 +77,13 @@ export function FilePreview(props: { path: string; workspace?: string; onClose: 
     </View>
     <Text class="truncate border-b border-border px-4 py-1 font-mono text-[10px] text-muted-foreground" tooltip={<Text>{props.path}</Text>}>{props.path}</Text>
     <If when={revealError()}><Text role="alert" class="border-b border-border px-4 py-1 text-xs text-destructive">{revealError()}</Text></If>
-    <ScrollArea className="max-h-[60vh] min-h-40 p-4">
+    <ScrollArea className="max-h-[480px] min-h-40 p-4">
       <If when={!preview() && !error()}><Text class="text-sm text-muted-foreground">Opening…</Text></If>
       <If when={error()}><Text role="alert" class="text-sm text-destructive">{error()}</Text></If>
       <If when={preview()?.binary}><Text class="text-sm text-muted-foreground">This file is not text. Use Reveal to open it in its own application.</Text></If>
       <If when={preview()?.truncated}><Text class="text-sm text-muted-foreground">This file is {formatBytes(preview()?.bytes ?? 0)}; too large to preview. Use Reveal to open it.</Text></If>
       <If when={preview() && !preview()!.binary && !preview()!.truncated}>
-        <If when={isMarkdown()} else={<Text class="whitespace-pre-wrap break-words font-mono text-xs leading-5" selectable>{preview()?.text}</Text>}>
+        <If when={isMarkdown()} else={<View selectable><Text class="whitespace-pre-wrap break-words font-mono text-xs leading-5">{preview()?.text}</Text></View>}>
           <ChatMarkdown text={preview()?.text ?? ""} />
         </If>
       </If>

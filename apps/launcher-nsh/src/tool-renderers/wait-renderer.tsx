@@ -21,6 +21,6 @@ export function WaitRenderer(props: ToolRendererProps) {
     <If when={view().handles.length > 0}><View class="mb-1 flex-col gap-1">
       <Each of={view().handles} key={handle => handle}>{handle => <Text class="truncate font-mono text-[11px] text-muted-foreground">{handle()}</Text>}</Each>
     </View></If>
-    <If when={!!text()}><Text class="whitespace-pre-wrap" selectable>{text()}</Text></If>
+    <If when={!!text()}><View selectable><Text class="whitespace-pre-wrap">{text()}</Text></View></If>
   </ActivityRow>;
 }

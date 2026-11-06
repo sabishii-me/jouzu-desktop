@@ -391,7 +391,7 @@ function LocalImage(props: { workspace: string; path: string; name: string; alt:
   });
   return <If when={readyState(state())} else={
     <If when={failedState(state())} else={
-      <View role="status" class="my-2 flex-row items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+      <View class="my-2 flex-row items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
         <JouzuLoader small /><Text class="text-[11px] text-muted-foreground">Loading image…</Text>
       </View>
     }>{failed => <ImageFallbackCard reason={imageCardReason(failed().error.reason)} name={props.name} path={props.path} bytes={failed().error.bytes} detail={imageCardReason(failed().error.reason) === "not-an-image" ? failed().error.message : undefined} />}</If>

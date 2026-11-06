@@ -52,7 +52,7 @@ export function McpMenu(props: { onReload: () => void; onAsk?: () => void }) {
         class={`flex h-7 flex-row items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground hover:bg-muted/50 ${count() ? "border-primary/40 bg-primary/5" : "border-border"}`}
       >
         <Icon name="Plug" size={14} />
-        <Text class="whitespace-nowrap text-xs text-muted-foreground" accessibilityLiveRegion="polite">{count()} MCP</Text>
+        <Text class="whitespace-nowrap text-xs text-muted-foreground">{count()} MCP</Text>
         <Icon name="ChevronDown" size={12} className={`transition-transform ${open() ? "rotate-180" : ""}`} />
       </View>
       <If when={open()}>
@@ -70,7 +70,7 @@ export function McpMenu(props: { onReload: () => void; onAsk?: () => void }) {
               <Text class="text-xs font-semibold">MCP servers</Text>
             </View>
             <If when={loading()}>
-              <View role="status" class="flex-row items-center gap-2 px-3 py-3">
+              <View class="flex-row items-center gap-2 px-3 py-3">
                 <Icon name="LoaderCircle" size={14} className="animate-spin" />
                 <Text class="text-xs text-muted-foreground">Loading…</Text>
               </View>

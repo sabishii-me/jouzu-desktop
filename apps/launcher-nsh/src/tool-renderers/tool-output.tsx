@@ -230,7 +230,7 @@ export function ToolOutput(props: { tool: ToolView }) {
         path: typeof meta?.path === "string" ? meta.path : fallbackPath,
         width,
         height,
-        caption: [model, size, width && height ? `${width}x${height}` : ""].filter(Boolean).join(" · "),
+        caption: [model, size, width && height ? `${width}×${height}` : ""].filter(Boolean).join(" · "),
       };
     });
   });

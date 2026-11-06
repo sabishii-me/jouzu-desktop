@@ -31,7 +31,7 @@ export function ImageViewer(props: { src: string; alt: string; title?: string; a
   const reset = () => scale.set(1);
   return (
     <Overlay style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0 }} onCancel={() => props.onClose()}>
-      <View class="flex-1 flex-col bg-black/90 text-white" role="dialog" accessibilityLabel={props.title ?? "Image viewer"}>
+      <View class="flex-1 flex-col bg-black/90 text-white" accessibilityLabel={props.title ?? "Image viewer"}>
         <View class="flex-row shrink-0 items-center justify-between gap-2 px-3 py-2">
           <Text class="min-w-0 truncate text-sm text-white/80">{props.title}</Text>
           <View class="flex-row shrink-0 items-center gap-0.5">

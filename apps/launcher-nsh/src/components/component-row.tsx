@@ -28,7 +28,7 @@ export function ComponentSection(props: {
       <Button disabled={props.busy || !props.install} onClick={props.install}>{props.installLabel}</Button>
     </View>
     <If when={props.note}>
-      <Text role="status" class="text-xs text-muted-foreground">{props.note}</Text>
+      <Text class="text-xs text-muted-foreground">{props.note}</Text>
     </If>
     <If when={props.error}>
       <Text role="alert" class="text-xs text-destructive">{props.error}</Text>

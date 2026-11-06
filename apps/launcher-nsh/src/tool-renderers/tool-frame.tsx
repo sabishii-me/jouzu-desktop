@@ -67,7 +67,6 @@ export function ToolFrame(props: {
           <BaseButton
             class="flex-row min-w-0 flex-1 items-center gap-2 text-left text-xs disabled:opacity-100"
             onPress={() => { if (expandable) manual.set(!open()); }}
-            accessibilityState={{ expanded: expandable ? open() : undefined }}
             disabled={!expandable}
           >
             {props.icon ?? <StateDot state={props.state} />}

@@ -12,10 +12,10 @@ function StatPopover(props: { label: JSX.Element; children: JSX.Element; align?:
   const open = signal(false);
   let trigger: ViewRef | undefined;
   return <View class="relative min-w-0">
-    <BaseButton ref={node => { trigger = node; }} accessibilityState={{ expanded: open() }} onPress={() => open.update(value => !value)} class="flex-row min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted/60">{props.label}</BaseButton>
+    <BaseButton ref={node => { trigger = node; }} onPress={() => open.update(value => !value)} class="flex-row min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted/60">{props.label}</BaseButton>
     <If when={open()}>
       <Overlay anchor={trigger ?? null} placement="top" align={props.align === "right" ? "end" : "start"} offset={8} margin={8} onPressOutside={() => open.set(false)} onCancel={() => open.set(false)}>
-        <View class="w-72 flex-col rounded-xl border border-border bg-card p-3 text-xs text-foreground shadow-xl" role="dialog">{props.children}</View>
+        <View class="w-72 flex-col rounded-xl border border-border bg-card p-3 text-xs text-foreground shadow-xl">{props.children}</View>
       </Overlay>
     </If>
   </View>;
@@ -23,14 +23,14 @@ function StatPopover(props: { label: JSX.Element; children: JSX.Element; align?:
 function StatRow(props: { label: JSX.Element; value: JSX.Element; mono?: boolean }) {
   return <View class="flex-row items-start justify-between gap-3 py-1">
     <Text class="text-xs text-muted-foreground">{props.label}</Text>
-    <Text class={cn("text-right text-xs", props.mono && "font-mono")} selectable>{props.value}</Text>
+    <Text class={cn("text-right text-xs", props.mono && "font-mono")}>{props.value}</Text>
   </View>;
 }
 function StatCard(props: { title: JSX.Element; value?: JSX.Element; children: JSX.Element }) {
   return <View class="flex-col">
     <View class="flex-row items-start justify-between gap-3 border-b border-border pb-2">
       <Text class="text-xs font-medium">{props.title}</Text>
-      <If when={props.value !== undefined}><Text class="text-xs font-medium tabular-nums" selectable>{props.value}</Text></If>
+      <If when={props.value !== undefined}><Text class="text-xs font-medium tabular-nums">{props.value}</Text></If>
     </View>
     <View class="flex-col pt-1">{props.children}</View>
   </View>;

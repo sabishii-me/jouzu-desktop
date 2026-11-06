@@ -74,6 +74,10 @@ function detailTitle(item: ActivityItem) {
 function thinkingText(item: ActivityItem) {
   return item.kind === "thinking" ? item.text : "";
 }
+
+function asToolItem(item: ActivityItem): Extract<ActivityItem, { kind: "tool" }> | null {
+  return item.kind === "tool" ? item : null;
+}
 /** Thinking and tool calls share one 32 px activity strip; only the expanded
  * item takes vertical space. */
 export function ActivityStrip(props: { items: ActivityItem[] }) {
@@ -86,8 +90,6 @@ export function ActivityStrip(props: { items: ActivityItem[] }) {
     <View class="flex-row flex-wrap items-center gap-1.5" role="group" accessibilityLabel="Activity">
       <Each of={props.items} key={itemKey}>{item => <BaseButton
         accessibilityLabel={itemLabel(item())}
-        title={itemLabel(item())}
-        accessibilityState={{ expanded: itemKey(item()) === openId() }}
         onPress={() => { const id = itemKey(item()); openId.set(id === openId() ? null : id); }}
         class={cn("relative size-8 items-center justify-center rounded-md border",
           itemState(item()) === "running" ? "border-primary/50 text-primary"
@@ -106,7 +108,7 @@ export function ActivityStrip(props: { items: ActivityItem[] }) {
       </View>
       <View class="p-2 text-xs">
         <If when={value().kind === "thinking"} else={
-          <If when={value().kind === "tool" ? value() : null}>{toolItem => <ToolDetailContext.Provider value={true}><ToolRenderer tool={toolItem().tool} /></ToolDetailContext.Provider>}</If>
+          <If when={asToolItem(value())}>{toolItem => <ToolDetailContext.Provider value={true}><ToolRenderer tool={toolItem().tool} /></ToolDetailContext.Provider>}</If>
         }>
           <ChatMarkdown text={thinkingText(value())} />
         </If>

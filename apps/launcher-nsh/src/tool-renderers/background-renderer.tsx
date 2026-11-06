@@ -1,4 +1,4 @@
-import { computed } from "nsh";
+import { View, computed } from "nsh";
 import { ActivityRow } from "./activity-row";
 import { object, type ToolView } from "../chat-projection";
 import { ScrollArea } from "../ui/scroll-area";
@@ -18,6 +18,6 @@ export function BackgroundRenderer(props: ToolRendererProps) {
   const text = computed(() => toolText(props.tool.result));
   const state = computed(() => props.tool.phase === "running" ? "running" as const : props.tool.phase === "error" ? "error" as const : "done" as const);
   return <ActivityRow title="Background task" summary={command()} state={state()} defaultOpen={!!text()}>
-    <If when={!!text()}><ScrollArea className="max-h-72"><Text class="whitespace-pre-wrap text-[11px]" selectable>{text()}</Text></ScrollArea></If>
+    <If when={!!text()}><ScrollArea className="max-h-72"><View selectable><Text class="whitespace-pre-wrap text-[11px]">{text()}</Text></View></ScrollArea></If>
   </ActivityRow>;
 }
