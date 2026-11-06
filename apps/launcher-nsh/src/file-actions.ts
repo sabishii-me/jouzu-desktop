@@ -3,7 +3,7 @@ import { invoke } from "./host/invoke";
 
 /**
  * File actions for paths that appear in the transcript (0057). Revealing is a
- * native command so the path policy cannot be bypassed from the webview, and it
+ * native command so the path policy cannot be bypassed from the script layer, and it
  * never launches file contents.
  */
 

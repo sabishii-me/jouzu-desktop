@@ -36,7 +36,7 @@ function writeModelPreference(value: { provider: string; id: string } | undefine
   try {
     if (value) localStorage.setItem(MODEL_PREFERENCE_KEY, JSON.stringify(value));
     else localStorage.removeItem(MODEL_PREFERENCE_KEY);
-  } catch { /* A webview without storage keeps the selection for this session only. */ }
+  } catch { /* A host without storage keeps the selection for this session only. */ }
 }
 export interface ChatSnapshot {  projection: ChatProjection;
   connected: boolean;
