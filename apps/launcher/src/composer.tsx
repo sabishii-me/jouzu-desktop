@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { Check, ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, ShieldAlert, Square, Video, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, RefreshCw, Send, ShieldAlert, Square, Video, X } from "lucide-react";
 import { IMAGE_ACCEPT, MAX_IMAGES, type ImageAttachment } from "./chat-attachments";
 import type { ChatModel } from "./chat-connection";
 import { Button } from "./components/ui/button";
@@ -62,13 +62,14 @@ function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel,
   </div>;
 }
 
-function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport, compactDisabled, exportDisabled }: {
+function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport, onReloadMcp, compactDisabled, exportDisabled }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAddImage?: () => void;
   onCompact?: () => void;
   onModel: () => void;
   onExport?: () => void;
+  onReloadMcp?: () => void;
   compactDisabled: boolean;
   exportDisabled: boolean;
 }) {
@@ -105,6 +106,10 @@ function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport,
         <Download className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0"><span className="block text-sm">Export conversation</span><span className="block text-xs text-muted-foreground">Save the transcript as an HTML file</span></span>
       </button>
+      <button type="button" role="menuitem" className={item} disabled={!onReloadMcp} onClick={() => { onOpenChange(false); onReloadMcp?.(); }}>
+        <RefreshCw className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0"><span className="block text-sm">Reload MCP</span><span className="block text-xs text-muted-foreground">Rebind MCP servers and extensions</span></span>
+      </button>
     </div>}
   </div>;
 }
@@ -123,6 +128,7 @@ export interface ComposerProps {
   onStop: () => void;
   onCompact?: () => void;
   onExport?: () => void;
+  onReloadMcp?: () => void;
   compatibility?: readonly string[];
   attachments?: readonly ImageAttachment[];
   onAddImages?: (files: File[]) => void;
@@ -160,7 +166,7 @@ function TextGuardControl({ control }: { control: NonNullable<ComposerProps["tex
     </div>}
   </div>;
 }
-export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, onReloadMcp, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -195,7 +201,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
         <div className="flex min-w-0 items-center gap-1">
           {onAddImages && <><input ref={imageInput} type="file" accept={IMAGE_ACCEPT} multiple className="hidden" aria-label="Choose images" onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; onAddImages(files); }} /></>}
           {onAddVideo && <Button type="button" variant="ghost" className="size-8 p-0" aria-label="Add video URL" title="Add video URL" onClick={() => setVideoOpen(value => !value)}><Video className="size-4" /></Button>}
-          <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
+          <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} onReloadMcp={onReloadMcp} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
                     {textguard && <TextGuardControl control={textguard} />}
           {readingImages && <span role="status" className="text-xs text-muted-foreground">Reading images…</span>}
         </div>
@@ -209,4 +215,8 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     </form>
   </div>;
 }
+
+
+
+
 
