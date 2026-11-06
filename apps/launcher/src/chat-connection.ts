@@ -251,9 +251,22 @@ export class ChatConnection {
   }
   async refreshHistory() {
     const state = await this.readState();
-    const history = await this.request("get_messages");
-    if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
-    const projection = historyProjection(history.messages);
+    const sessionPath = this.snapshot.sessionFile;
+    let messages: unknown[];
+    let bytes = 0;
+    if (sessionPath) {
+      try { bytes = await invoke<number>("chat_session_bytes", { sessionPath }); } catch { bytes = 0; }
+    }
+    if (sessionPath && bytes > 20 * 1024 * 1024) {
+      // A full get_messages response for a large JSONL session exceeds the 32 MiB
+      // transport frame and kills the connection. Read the recent page natively.
+      messages = await invoke<unknown[]>("chat_session_messages", { sessionPath, limit: 200 });
+    } else {
+      const history = await this.request("get_messages");
+      if (!object(history) || !Array.isArray(history.messages)) throw new Error("Runtime returned incompatible history.");
+      messages = history.messages;
+    }
+    const projection = historyProjection(messages);
     projection.running = state.isStreaming as boolean;
     const reconciled = projection.running ? projection : interruptUnfinishedTools(projection);
     this.update({ projection: reconciled });
