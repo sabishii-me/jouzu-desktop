@@ -1,24 +1,45 @@
 import { mount, signal, Text, View } from "nsh";
-import { Badge, Counter, Format } from "jouzu-desktop/native";
+import { Backend } from "jouzu-desktop/native";
+import { loadStorage } from "./src/host/storage";
+import { invoke, errorText } from "./src/host/invoke";
+import { JouzuLoader } from "./src/ui/jouzu-loader";
 
-// Its count lives in Rust (`src/lib.rs`).
-const counter = new Counter();
+interface LauncherState {
+  platform: string;
+  recent: { id: string; path: string }[];
+  ready: boolean;
+  bash: boolean;
+  bundled_git: boolean;
+}
 
 function App() {
-  const count = signal(counter.count);
+  const state = signal<LauncherState | null>(null);
+  const error = signal<string | null>(null);
+
+  void (async () => {
+    try {
+      await loadStorage();
+      await Backend.init();
+      state.set(await invoke<LauncherState>("launcher_state"));
+    } catch (failure) {
+      error.set(errorText(failure));
+    }
+  })();
+
   return (
-    <View
-      style={{
-        flex: 1,
-        paddingTop: "env(safe-area-inset-top)",
-        paddingRight: "env(safe-area-inset-right)",
-        paddingBottom: "env(safe-area-inset-bottom)",
-        paddingLeft: "env(safe-area-inset-left)",
-        alignItems: "center", justifyContent: "center", gap: 16,
-      }}
-    >
-      <Text style={{ fontSize: 22 }}>{count() ? `Pressed ${Format.times(count())}` : "Not pressed yet"}</Text>
-      <Badge label="Press me" onPress={() => count.set(counter.increment())} />
+    <View class="flex-1 items-center justify-center gap-4 bg-background p-6">
+      <Text class="text-2xl font-semibold tracking-tight text-foreground">Jouzu Desktop</Text>
+      <If when={error()}>
+        <Text class="text-sm text-destructive">{error()}</Text>
+      </If>
+      <If when={!error() && !state()}>
+        <JouzuLoader />
+      </If>
+      <If when={state()}>
+        <Text class="text-sm text-muted-foreground">
+          {state() ? `${state()!.recent.length} workspace(s) · runtime ${state()!.ready ? "ready" : "missing"}` : ""}
+        </Text>
+      </If>
     </View>
   );
 }

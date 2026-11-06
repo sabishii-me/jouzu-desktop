@@ -1,7 +1,9 @@
 {
   "name": "Jouzu Desktop",
-  "id": "com.example.jouzudesktop",
-  "version": "1.0.0",
+  "id": "com.shisa-ai.jouzu.desktop",
+  "version": "1.0.15",
   "build": 1,
-  "rust": "."
+  "rust": ".",
+  "theme": "theme.json",
+  "appearance": "dark"
 }

@@ -346,6 +346,11 @@ async fn dispatch(command: &str, args: Value) -> Result<String, String> {
             envelope(image_tool::image_models(provider).await)
         }
         "image_tool_ensure" => off_thread(|| envelope(image_tool::image_tool_ensure())).await?,
+        "image_fit_send" => {
+            let data = arg_str(&args, "data")?;
+            let mime_type = arg_str(&args, "mimeType")?;
+            off_thread(move || envelope(crate::image_fit::fit_send(&data, &mime_type))).await?
+        }
 
         // Environment variables -----------------------------------------------------------
         "environment_read" => off_thread(|| envelope(environment::environment_read())).await?,

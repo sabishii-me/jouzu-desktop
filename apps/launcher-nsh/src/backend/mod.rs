@@ -20,6 +20,7 @@ pub mod control;
 pub mod environment;
 pub mod events;
 pub mod git_environment;
+pub mod image_fit;
 pub mod image_tool;
 pub mod jouzu_update;
 pub mod launcher_script;

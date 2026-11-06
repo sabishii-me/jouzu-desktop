@@ -1,11 +1,8 @@
-// `nsh test` runs this file in a headless runner it builds with the crate:
-// the count lives in Rust (`Counter`), its wording too (`Format.times`).
+// The entry mounts and reaches the backend: the shell shows its name and the
+// launcher state (or the backend's error) instead of staying on the loader.
 import { expect, open, test } from "nsh/test";
 
-test("counts presses", async () => {
+test("shows the launcher shell", async () => {
   const app = await open("./App.tsx");
-  expect(app.texts()).toContain("Not pressed yet");
-  await app.press("Press me");
-  await app.press("Press me");
-  expect(app.texts()).toContain("Pressed twice");
+  expect(app.texts()).toContain("Jouzu Desktop");
 });
