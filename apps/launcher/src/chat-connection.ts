@@ -290,6 +290,11 @@ export class ChatConnection {
   }
   newSession() { return this.changeSession("new_session"); }
   resumeSession(sessionPath: string) { return this.changeSession("switch_session", { sessionPath }); }
+  /** Ask the runtime, not the event projection, whether it is processing. */
+  async isStreaming(): Promise<boolean> {
+    const state = await this.request("get_state");
+    return object(state) && state.isStreaming === true;
+  }
   /** Reopen the current session so extensions, skills, MCP servers and catalogs re-bind. */
   async reloadSession() {
     const sessionPath = this.snapshot.sessionFile;

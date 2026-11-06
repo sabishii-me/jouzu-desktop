@@ -514,7 +514,9 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       if (!await ensureSelectedSession(client)) { setNotification("The session is still opening."); return; }
       client = connection.current;
       if (!client) return;
-      const running = client.snapshot.projection.running;
+      let running = client.snapshot.projection.running;
+      try { running = await client.isStreaming(); } catch { /* fall back to the event projection */ }
+      if (connection.current !== client) return;
       await client.sendOrSteer(value, submitted.map(item => item.image), running);
       if (connection.current !== client) return;
       setPendingUser("");
