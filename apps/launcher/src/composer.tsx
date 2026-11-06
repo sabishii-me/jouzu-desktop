@@ -175,7 +175,16 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
   const [modelOpen, setModelOpen] = useState(false);
   const submit = () => { if (connected && !pending && !opening && !unavailable && !readingImages && (draft.trim() || videos.length)) onSend(); };
   const compactDisabled = !connected || pending || opening || unavailable || running;
-  const exportDisabled = !connected || pending || opening || unavailable;
+  const exportDisabled = !connected || pending || opening || unavailable;  const [commandIndex, setCommandIndex] = useState(0);
+  const commands = [
+    { id: "compact", label: "Compact", description: "Summarize earlier conversation", disabled: compactDisabled || !onCompact, run: () => onCompact?.() },
+    { id: "model", label: "Model", description: "Choose this session's model", disabled: !connected, run: () => setModelOpen(true) },
+    { id: "export", label: "Export", description: "Download this session", disabled: exportDisabled || !onExport, run: () => onExport?.() },
+    { id: "mcp-reload", label: "Reload MCP", description: "Rebind MCP servers and extensions", disabled: !onReloadMcp, run: () => onReloadMcp?.() },
+  ];
+  const slashQuery = draft.startsWith("/") && !draft.includes("\n") ? draft.slice(1).trim().toLowerCase() : null;
+  const commandMatches = slashQuery === null ? [] : commands.filter(command => `${command.label} ${command.id} ${command.description}`.toLowerCase().includes(slashQuery));
+  const runCommand = (command: typeof commands[number]) => { if (command.disabled) return; onDraft(""); command.run(); };
   const pasteFiles = (event: ClipboardEvent<HTMLElement>) => {
     if (!onAddImages) return;
     const selected = Array.from(event.clipboardData.files);
@@ -196,7 +205,18 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
       {!!videos.length && <ul aria-label="Attached videos" className="flex flex-wrap gap-2 px-1">{videos.map(url => <li key={url} className="flex max-w-full items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs"><Video className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate" title={url}>{url}</span><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove video ${url}`} onClick={() => onRemoveVideo?.(url)}><X className="size-3" /></Button></li>)}</ul>}
       {videoOpen && <div className="flex items-center gap-2 px-1"><Input aria-label="Video URL" placeholder="https://…/video.mp4" value={videoDraft} onChange={event => setVideoDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } } }} /><Button type="button" onClick={() => { const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } }}>Add</Button></div>}
       {videoError && <p role="alert" className="px-1 text-xs text-destructive">{videoError}</p>}
-      <textarea aria-label="Message Jouzu" placeholder="Message Jouzu…" value={draft} onChange={event => onDraft(event.target.value)} rows={3} className="max-h-60 min-h-16 w-full resize-y bg-transparent px-1 text-sm outline-none" onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
+      {slashQuery !== null && commandMatches.length > 0 && <div role="menu" aria-label="Commands" className="mx-1 mb-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
+        {commandMatches.map((command, index) => <button key={command.id} type="button" role="menuitem" disabled={command.disabled} onMouseEnter={() => setCommandIndex(index)} onClick={() => runCommand(command)} className={`flex w-full items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left ${index === commandIndex ? "bg-accent" : ""} disabled:opacity-45`}><span className="min-w-0"><span className="block text-sm">{command.label}</span><span className="block truncate text-xs text-muted-foreground">{command.description}</span></span><span className="text-[10px] text-muted-foreground">/{command.id}</span></button>)}
+      </div>}
+      <textarea aria-label="Message Jouzu" placeholder="Message Jouzu…" value={draft} onChange={event => { onDraft(event.target.value); setCommandIndex(0); }} rows={3} className="max-h-60 min-h-16 w-full resize-y bg-transparent px-1 text-sm outline-none" onKeyDown={event => {
+        if (slashQuery !== null && commandMatches.length) {
+          if (event.key === "ArrowDown") { event.preventDefault(); setCommandIndex(index => Math.min(index + 1, commandMatches.length - 1)); return; }
+          if (event.key === "ArrowUp") { event.preventDefault(); setCommandIndex(index => Math.max(0, index - 1)); return; }
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); runCommand(commandMatches[Math.min(commandIndex, commandMatches.length - 1)]); return; }
+          if (event.key === "Escape") { event.preventDefault(); onDraft(""); return; }
+        }
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
+      }} />
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
           {onAddImages && <><input ref={imageInput} type="file" accept={IMAGE_ACCEPT} multiple className="hidden" aria-label="Choose images" onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; onAddImages(files); }} /></>}
@@ -215,6 +235,7 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     </form>
   </div>;
 }
+
 
 
 
