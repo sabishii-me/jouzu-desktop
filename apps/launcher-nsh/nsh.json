@@ -1,0 +1,7 @@
+{
+  "name": "Jouzu Desktop",
+  "id": "com.example.jouzudesktop",
+  "version": "1.0.0",
+  "build": 1,
+  "rust": "."
+}

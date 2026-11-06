@@ -1,0 +1,31 @@
+[package]
+name = "nsh-app-jouzu-desktop"
+version = "1.0.15"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+nsh-core = "0.4.0"
+nsh-base = "0.4.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+semver = "1"
+url = "2"
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tempfile = "3"
+tokio = { version = "1", features = ["sync"] }
+
+# Non-blocking runtime pipes and process-group termination for the chat supervisor.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
+[[bin]]
+name = "console"
+path = "src/bin/console.rs"

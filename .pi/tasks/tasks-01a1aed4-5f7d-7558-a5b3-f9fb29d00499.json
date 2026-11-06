@@ -1,0 +1,101 @@
+{
+  "nextId": 6,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Clone repo and check out v1.0.15 baseline",
+      "description": "Clone https://github.com/shisa-ai/jouzu-desktop into F:/devAI/jousu-desktop-nsh, branch port/nsh from tag v1.0.15. Install nsh CLI.",
+      "status": "completed",
+      "activeForm": "Cloning baseline",
+      "metadata": {
+        "executionStats": {
+          "startedAt": 1793934759415,
+          "completedAt": 1793934759415,
+          "durationMs": 0,
+          "inputTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "blocks": [],
+      "blockedBy": [],
+      "order": 1,
+      "createdAt": 1793934728047,
+      "updatedAt": 1793934759433
+    },
+    {
+      "id": "2",
+      "subject": "Design NSH port architecture and scaffold the app",
+      "description": "Read nsh docs (rust, mixed apps, native modules, windows). Decide app layout: NSH app replacing Tauri shell, Rust backend crate reusing src-tauri logic, TSX UI. Scaffold with nsh init and verify it builds/runs headless (nsh test) on Windows.",
+      "status": "completed",
+      "activeForm": "Designing NSH architecture",
+      "metadata": {
+        "executionStats": {
+          "startedAt": 1793934759466,
+          "completedAt": 1793935447319,
+          "durationMs": 687860,
+          "inputTokens": 102456,
+          "outputTokens": 25886
+        }
+      },
+      "blocks": [],
+      "blockedBy": [],
+      "order": 2,
+      "createdAt": 1793934728047,
+      "updatedAt": 1793935447333
+    },
+    {
+      "id": "3",
+      "subject": "Port Rust backend from Tauri to NSH native modules",
+      "description": "Move src-tauri business logic (sessions, chat_process, runtime, artifacts, attachments, etc.) into the NSH app crate, replacing tauri commands/events/AppHandle with NSH native module functions and event delivery. Keep tauri-free logic intact where possible.",
+      "status": "completed",
+      "activeForm": "Porting Rust backend",
+      "metadata": {
+        "executionStats": {
+          "startedAt": 1793935076892,
+          "completedAt": 1793935688938,
+          "durationMs": 612056,
+          "inputTokens": 90357,
+          "outputTokens": 22123
+        }
+      },
+      "blocks": [],
+      "blockedBy": [],
+      "order": 3,
+      "createdAt": 1793934728047,
+      "updatedAt": 1793935688952
+    },
+    {
+      "id": "4",
+      "subject": "Port React UI to NSH TSX screens",
+      "description": "Port launcher UI (React 19 + radix + tailwind) to NSH TSX with signals: launcher page, workspace selection, chat workspace, panels, composer, settings/system sections. Markdown rendering via Rust module if needed.",
+      "status": "in_progress",
+      "activeForm": "Porting UI to NSH TSX",
+      "metadata": {
+        "executionStats": {
+          "startedAt": 1793935453740,
+          "durationMs": 0,
+          "inputTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "blocks": [],
+      "blockedBy": [],
+      "order": 4,
+      "createdAt": 1793934728047,
+      "updatedAt": 1793935453741
+    },
+    {
+      "id": "5",
+      "subject": "Verify ported app: nsh check, nsh test, nsh run",
+      "description": "Type-check, run headless tests, and launch the app on Windows. Document remaining gaps honestly.",
+      "status": "pending",
+      "activeForm": "Verifying ported app",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "order": 5,
+      "createdAt": 1793934728047,
+      "updatedAt": 1793934728047
+    }
+  ]
+}
