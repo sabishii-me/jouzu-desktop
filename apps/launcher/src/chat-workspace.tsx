@@ -1074,9 +1074,10 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
   const hasArchived = sessions.some(session => session.archived);
   const selectedWorkspace = sessions.find(session => normalizedPath(session.path) === selectedKey)?.workspace;
   useEffect(() => { if (selectedSession) selectedRowRef.current?.scrollIntoView({ block: "nearest" }); }, [selectedSession]);
-  const flow = useMemo(() => deriveFlow(snapshot.projection.tools), [snapshot.projection.tools]);
-  const subagents = useMemo(() => deriveSubagents(snapshot.projection.tools), [snapshot.projection.tools]);
-  const flowError = useMemo(() => latestFlowError(snapshot.projection.messages), [snapshot.projection.messages]);
+  const showingAttached = selectedKey === activeSession;
+  const flow = useMemo(() => showingAttached ? deriveFlow(snapshot.projection.tools) : deriveFlow({}), [showingAttached, snapshot.projection.tools]);
+  const subagents = useMemo(() => showingAttached ? deriveSubagents(snapshot.projection.tools) : [], [showingAttached, snapshot.projection.tools]);
+  const flowError = useMemo(() => showingAttached ? latestFlowError(snapshot.projection.messages) : undefined, [showingAttached, snapshot.projection.messages]);
   const textguardWithheld = useMemo(() => Object.values(snapshot.projection.tools).some(tool => {
     const result = JSON.stringify(tool.result ?? "");
     return result.includes("TextGuard withheld") || result.includes("TextGuard advisory");
@@ -1099,7 +1100,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       <div className="mt-1 border-t border-border pt-1"><Button type="button" variant="ghost" className="w-full justify-start" onClick={() => { setPickerOpen(false); onAddFolder(); }}><Plus className="size-4" />Add folder</Button></div>
     </div>}
   </div>;
-  const workspaceError = snapshot.error;
+  const workspaceError = showingAttached ? snapshot.error : null;
   // The runtime's Flow submission budget is per session and never reclaimed; a full
   // store cannot be retried, so the banner offers the only way out.
   const capacityError = isCapacityError(sessionError) || isCapacityError(snapshot.error);
@@ -1275,6 +1276,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
     {textguardPanel}
   </div>;
 }
+
 
 
 
