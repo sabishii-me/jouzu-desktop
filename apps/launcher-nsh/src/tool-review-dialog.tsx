@@ -28,7 +28,7 @@ export function ToolReviewDialog(props: { title: string; body: string; options: 
   const info = () => reviewInfo(props.body);
   const count = () => info()?.images ?? 1;
   return (
-    <View class="w-full flex-col rounded-xl border border-border bg-card p-4 shadow-xl" role="dialog" accessibilityLabel={props.title}>
+    <View class="w-full flex-col rounded-xl border border-border bg-card p-4 shadow-xl" accessibilityLabel={props.title}>
       <View class="flex-row items-center justify-between gap-3">
         <Text class="text-sm font-semibold">{props.title}</Text>
         <If when={!!info()?.tool}>

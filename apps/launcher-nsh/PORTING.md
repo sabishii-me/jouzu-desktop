@@ -48,6 +48,13 @@ plugin setup is replaced by the NSH runner and `App.tsx`.
   not use a WebView; crash logging via the panic hook is kept.
 - **Playwright e2e**: cannot drive a native NSH window; replaced by `nsh test`
   headless tests.
+- **Window focus update checks**: NSH has no window-focus event; the periodic
+  update schedule still runs (`update-schedule.ts`).
+- **Ctrl+, settings shortcut**: not ported (no global key handler yet).
+- **Rename session** uses an in-app dialog instead of `window.prompt`.
+- **Pane resize** uses the gesture responder instead of pointer events.
+- **Custom title bar / tray hide button**: the system title bar is kept; the
+  window controls are the platform's own.
 
 ## Layout
 

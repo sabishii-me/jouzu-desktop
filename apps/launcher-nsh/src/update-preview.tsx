@@ -146,7 +146,7 @@ export function UpdatePreview(props: UpdatePreviewProps) {
             </View>
             <If when={phase() === 'available'} else={
               <If when={phase() === 'error'} else={
-                <View role="status" class="flex-row items-center gap-2">
+                <View class="flex-row items-center gap-2">
                   <If when={working.includes(phase())}>
                     <Icon name="LoaderCircle" size={16} className="animate-spin" />
                   </If>

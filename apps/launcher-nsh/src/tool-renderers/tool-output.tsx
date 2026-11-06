@@ -17,7 +17,7 @@ import { artifactPathFromText } from "./artifact-path";
 
 const MAX_LINES = 2000;
 export const MAX_TOOL_IMAGE_BYTES = 8 * 1024 * 1024;
-const ANSI = /new RegExp(String.fromCharCode(27) + "\[([0-9;]*)m", "g");
+const ANSI = new RegExp(String.fromCharCode(27) + "\\[([0-9;]*)m", "g");
 const ANSI_COLORS: Record<number, string> = {
   30: "text-black", 31: "text-red-500", 32: "text-green-500", 33: "text-yellow-500",
   34: "text-blue-500", 35: "text-purple-500", 36: "text-cyan-500", 37: "text-foreground",
@@ -137,7 +137,7 @@ export function imageBlocks(result: unknown): ToolImageBlock[] {
 function RevealPath(props: { path: string; compact?: boolean; label?: string }) {
   const error = signal<string | null>(null);
   const copied = signal(false);
-  const name = props.path.split(/[\/]/u).pop() ?? props.path;
+  const name = props.path.split(/[\\/]/u).pop() ?? props.path;
   return <View class="flex-row min-w-0 flex-wrap items-center gap-1">
     <Button variant={props.compact ? "ghost" : "outline"} className={props.compact ? "h-7 gap-1 px-2 text-[11px]" : "h-8 gap-1 px-2 text-xs"} title={`Reveal ${name}`} aria-label={props.label ?? "Reveal"} onClick={() => {
       void revealPath(props.path, useWorkspaceRoot()).then(() => error.set(null)).catch(failure => error.set(failure instanceof Error ? failure.message : revealMessage(undefined)));
@@ -151,7 +151,7 @@ function RevealPath(props: { path: string; compact?: boolean; label?: string }) 
 
 function SearchOutput(props: { text: string; pattern?: string; expanded?: boolean }) {
   const view = computed(() => truncatedLines(props.text));
-  const safe = computed(() => props.pattern ? props.pattern.replace(/[.*+?^${}()|[\]\]/g, "\$&") : "");
+  const safe = computed(() => props.pattern ? props.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "");
   return <ScrollArea className={cn(props.expanded ? "max-h-[640px]" : "max-h-96", "rounded-md border border-border/60 bg-background p-2")}>
     <View class="flex-col font-mono text-[11px] leading-5">
       <Each of={view().lines} key="index">{line => <Text class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5">

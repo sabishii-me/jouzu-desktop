@@ -89,7 +89,7 @@ export function ArtifactImage(props: { image: ArtifactImageData; caption?: strin
           </View>
         </View>
         <If when={open()}>
-          <ImageViewer src={src()} alt={props.image.alt} title={props.image.path?.split(/[\/]/u).pop() ?? "Image"} actions={actions()} onClose={() => open.set(false)} />
+          <ImageViewer src={src()} alt={props.image.alt} title={props.image.path?.split(/[\\/]/u).pop() ?? "Image"} actions={actions()} onClose={() => open.set(false)} />
         </If>
       </View>
     }>

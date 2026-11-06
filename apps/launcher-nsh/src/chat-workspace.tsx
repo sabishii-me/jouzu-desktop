@@ -34,7 +34,7 @@ function DialogNode(props: { w: ChatWorkspaceStore }) {
   return (
     <If when={!!w.dialog()}>
       <If when={reviewBody() !== null} else={
-        <View class="flex-col rounded-xl border border-primary bg-card p-4 shadow-2xl" role="dialog" accessibilityLabel={w.dialog()?.title.split("\n")[0] ?? ""}>
+        <View class="flex-col rounded-xl border border-primary bg-card p-4 shadow-2xl" accessibilityLabel={w.dialog()?.title.split("\n")[0] ?? ""}>
           <Text class="font-semibold">{w.dialog()?.title.split("\n")[0] ?? ""}</Text>
           <If when={(w.dialog()?.title.split("\n").length ?? 0) > 1}>
             <Text class="my-2 text-sm">{w.dialog()?.title.split("\n").slice(1).join("\n") ?? ""}</Text>
@@ -458,7 +458,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
             </View>
           </If>
           <If when={!!w.notification()}>
-            <View class="pointer-events-none absolute left-1/2 top-16 z-50 max-w-[640px] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 shadow-xl" role="status">
+            <View class="pointer-events-none absolute left-1/2 top-16 z-50 max-w-[640px] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 shadow-xl">
               <Text class="text-xs text-foreground">{w.notification()}</Text>
             </View>
           </If>
@@ -568,7 +568,7 @@ function MainArea(props: { w: ChatWorkspaceStore; host: ChatWorkspaceProps; outp
             <View class="min-w-[520px] flex-1 flex-col">
               <View class="relative min-h-0 flex-1 flex-col">
                 <If when={!!w.snapshot().gap}>
-                  <Text class="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground" role="status">The transcript was refreshed after a display backlog.</Text>
+                  <Text class="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground">The transcript was refreshed after a display backlog.</Text>
                 </If>
                 <ChatConversation
                   key={w.conversationKey()}
@@ -609,7 +609,7 @@ function MainArea(props: { w: ChatWorkspaceStore; host: ChatWorkspaceProps; outp
             </Each>
           </View>
         }>
-          <View class="min-h-0 flex-1 items-center justify-center" role="status">
+          <View class="min-h-0 flex-1 items-center justify-center">
             <Text class="text-sm text-muted-foreground">Opening session…</Text>
           </View>
         </If>
@@ -617,7 +617,7 @@ function MainArea(props: { w: ChatWorkspaceStore; host: ChatWorkspaceProps; outp
         <HeroArea w={w} host={props.host} composerCommon={composerCommon()} />
       </If>
     }>
-      <View class="min-h-0 flex-1 items-center justify-center" role="status">
+      <View class="min-h-0 flex-1 items-center justify-center">
         <Text class="text-sm text-muted-foreground">Starting session…</Text>
       </View>
     </If>
