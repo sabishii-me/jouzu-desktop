@@ -131,6 +131,25 @@ describe("desktop RPC connection", () => {
     expect(request).not.toHaveBeenCalledWith("get_messages");
     expect(client.snapshot.sessionFile).toBe("C:/sessions/big.jsonl");
   });
+  it("reads a large session through the native tail instead of get_messages", async () => {
+    const client = new ChatConnection(() => {}, () => {});
+    client.snapshot = { ...client.snapshot, connected: true };
+    const request = vi.spyOn(client, "request").mockImplementation(async (command: string) => {
+      if (command === "get_state") return { sessionId: "big", sessionFile: "C:/sessions/big.jsonl", isStreaming: false, model: { name: "model", provider: "catalog", id: "model" } };
+      if (command === "get_messages") throw new Error("JSONL frame exceeds 33554432 bytes");
+      return undefined;
+    });
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === "chat_session_bytes") return 25 * 1024 * 1024;
+      if (command === "chat_session_messages") return [{ role: "user", content: [{ type: "text", text: "recent" }] }];
+      return undefined;
+    });
+
+    await client.refreshHistory();
+
+    expect(request).not.toHaveBeenCalledWith("get_messages");
+    expect(client.snapshot.projection.messages.at(-1)?.content[0]?.text).toBe("recent");
+  });
   it("waits out a long released-runtime cold start", async () => {
     vi.useFakeTimers();
     const requests: Record<string, unknown>[] = [];

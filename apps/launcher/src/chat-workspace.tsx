@@ -516,9 +516,7 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
       if (!await ensureSelectedSession(client)) { setNotification("The session is still opening."); return; }
       client = connection.current;
       if (!client) return;
-      let running = client.snapshot.projection.running;
-      try { running = await client.isStreaming(); } catch { /* fall back to the event projection */ }
-      if (connection.current !== client) return;
+      const running = client.snapshot.projection.running;
       if (running) setQueuedSteers(current => [...current, value]);
       try { await client.sendOrSteer(value, submitted.map(item => item.image), running); }
       catch (error) { if (running) setQueuedSteers(current => { const at = current.lastIndexOf(value); return at < 0 ? current : [...current.slice(0, at), ...current.slice(at + 1)]; }); throw error; }
@@ -1222,8 +1220,6 @@ export function ChatWorkspace({ path, revision = 0, newSession = true, locked = 
         </div>
       </div>}
       {notification && <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-16 z-50 w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl">{notification}</div>}
-      {workspaceError && !notification && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{readableError(workspaceError)}</span>{capacityError ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => void startNewSession()}>New session</Button> : <Button variant="outline" className="h-7 shrink-0 px-2" onClick={onRetry}>Retry</Button>}</div>}
-      {sessionError && <div role="alert" className="fixed left-1/2 top-16 z-50 flex w-max max-w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg border border-destructive/30 bg-popover px-4 py-2 text-xs text-foreground shadow-xl"><span className="min-w-0 break-words">{readableError(sessionError)}{capacityError ? "" : " The transcript is still available; this session was not discarded."}</span>{capacityError ? <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => void startNewSession()}>New session</Button> : <Button variant="outline" className="h-7 shrink-0 px-2" onClick={() => { if (selectedSession) openSession(selectedSession); }}>Retry</Button>}</div>}
       {booting ? <div role="status" className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">Starting session…</div> : hero ? <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-8 sm:px-8">
         <div className="w-full max-w-3xl">
           <div className="mb-7 flex flex-col items-center gap-3 text-center">

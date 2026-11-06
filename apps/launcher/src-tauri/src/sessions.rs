@@ -315,6 +315,14 @@ pub async fn chat_session_messages(
     Ok(messages)
 }
 
+#[tauri::command]
+pub async fn chat_session_bytes(session_path: String) -> Result<u64, String> {
+    let path = validated_session_path(&session_path)?;
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .map_err(|_| "Session size read failed".to_string())
+}
+
 /// Fork at the selected turn: copy the source session up to and including the
 /// message at `message_index` into a new session file with `parentSession`.
 #[tauri::command]
