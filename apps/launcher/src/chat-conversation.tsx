@@ -92,7 +92,13 @@ function contentParts(message: ChatMessage, index: number, projection: ChatProje
 }
 
 function UserContent({ message }: { message: ChatMessage }) {
-  return <>{message.content.map((block, position) => block.type === "text" ? <ChatMarkdown key={position} text={block.text ?? ""} /> : null)}</>;
+  return <>{message.content.map((block, position) => {
+    if (block.type === "text") return <ChatMarkdown key={position} text={block.text ?? ""} />;
+    if (block.type === "image" && typeof block.data === "string" && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(block.mimeType ?? "")) {
+      return <MessageImage key={position} kind="block" source={`data:${block.mimeType};base64,${block.data}`} alt="Conversation attachment" />;
+    }
+    return null;
+  })}</>;
 }
 
 function ChatConversationView({ projection, workspace, busy = false, pendingUser = "", onFork, onOpenArtifacts }: { projection: ChatProjection; workspace?: string; busy?: boolean; pendingUser?: string; onFork?: (prompt: string, index: number) => void; onOpenArtifacts?: () => void }) {
@@ -186,8 +192,7 @@ function ChatConversationView({ projection, workspace, busy = false, pendingUser
       activity.push(...split.activity);
       last = item;
     }
-    if (parts.length) rows.push(<article key={`text-${group[0].index}`} aria-label="assistant message" ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }} className="space-y-2">{parts}</article>);
-    if (activity.length) rows.push(<div key={`activity-${group[0].index}`} ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }}><ActivityStrip items={activity} /></div>);
+    if (parts.length || activity.length) rows.push(<article key={`turn-${group[0].index}`} aria-label="assistant message" ref={node => { if (node) articleRefs.current.set(group[0].index, node); else articleRefs.current.delete(group[0].index); }} className="space-y-2">{parts}{activity.length > 0 && <ActivityStrip items={activity} />}</article>);
     if (last) {
       const nextMessage = projection.messages[last.index + 1];
       const turnEnd = !nextMessage || nextMessage.role === "user";

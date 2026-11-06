@@ -148,7 +148,7 @@ fn terminal_open(app: tauri::AppHandle, path: Option<String>) -> Result<(), Stri
     let root = runtime::application_root(&app)?;
     let managed = runtime::managed_root()?;
     let slot = active_app::resolve_app(&root, &managed)?;
-    let bash = git_environment::find(&root)?;
+    let bash = git_environment::find(&managed)?;
     let host = terminal::host(&root)
         .ok_or("Windows Terminal is unavailable. Install it from the launcher.")?;
     let status = std::process::Command::new(crate::runtime_install::node_executable(&root))
@@ -778,5 +778,6 @@ mod build_check_tests {
         assert_eq!(production_build_check(arguments(&["jouzu-desktop.exe"])), None);
     }
 }
+
 
 

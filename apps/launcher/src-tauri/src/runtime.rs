@@ -64,7 +64,7 @@ fn pick_root(candidates: Vec<PathBuf>) -> Result<PathBuf, String> {
 }
 
 pub fn find_bash(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let root = application_root(app).ok()?;
+    let root = managed_root().ok()?;
     crate::git_environment::find(&root).ok()
 }
 
@@ -172,4 +172,5 @@ mod path_tests {
         );
     }
 }
+
 

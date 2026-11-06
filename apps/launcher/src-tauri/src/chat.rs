@@ -454,7 +454,7 @@ pub fn chat_start(
     let managed = crate::runtime::managed_root()?;
     let lease = crate::update_lock::lock(&managed, false)?;
     let slot = crate::active_app::resolve_app(&root, &managed)?;
-    let bash = crate::git_environment::find(&root)?;
+    let bash = crate::git_environment::find(&managed)?;
     let mut environment: HashMap<String, (std::ffi::OsString, std::ffi::OsString)> =
         std::env::vars_os()
             .filter(|(key, _)| usable_environment_name(key))
@@ -1288,4 +1288,5 @@ mod tests {
         .is_ok());
     }
 }
+
 

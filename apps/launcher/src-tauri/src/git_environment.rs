@@ -33,9 +33,9 @@ pub fn find(root: &Path) -> Result<PathBuf, String> {
     #[cfg(not(windows))]
     {
         let _ = root;
-        for candidate in ["/bin/bash", "/usr/local/bin/bash", "/opt/homebrew/bin/bash"] {
+        for candidate in ["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash", "/opt/homebrew/bin/bash"] {
             let path = PathBuf::from(candidate);
-            if path.is_file() {
+            if path.is_file() && std::process::Command::new(&path).args(["-lc", "exit 0"]).status().map(|status| status.success()).unwrap_or(false) {
                 return Ok(path);
             }
         }
@@ -112,3 +112,4 @@ pub fn report(root: &Path) -> Result<serde_json::Value, String> {
 pub fn install(_root: &Path) -> Result<PathBuf, String> {
     Err("Jouzu uses this platform's bash; there is nothing to install.".into())
 }
+

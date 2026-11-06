@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { Check, ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, Send, ShieldAlert, Square, Video, X } from "lucide-react";
+import { Check, ChevronDown, Cpu, Download, ImagePlus, Minimize2, Plus, RefreshCw, Send, ShieldAlert, Square, Video, X } from "lucide-react";
 import { IMAGE_ACCEPT, MAX_IMAGES, type ImageAttachment } from "./chat-attachments";
 import type { ChatModel } from "./chat-connection";
 import { Button } from "./components/ui/button";
@@ -62,13 +62,14 @@ function ModelMenu({ open, onOpenChange, models, model, onSelect, thinkingLevel,
   </div>;
 }
 
-function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport, compactDisabled, exportDisabled }: {
+function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport, onReloadMcp, compactDisabled, exportDisabled }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAddImage?: () => void;
   onCompact?: () => void;
   onModel: () => void;
   onExport?: () => void;
+  onReloadMcp?: () => void;
   compactDisabled: boolean;
   exportDisabled: boolean;
 }) {
@@ -105,6 +106,10 @@ function AddMenu({ open, onOpenChange, onAddImage, onCompact, onModel, onExport,
         <Download className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0"><span className="block text-sm">Export conversation</span><span className="block text-xs text-muted-foreground">Save the transcript as an HTML file</span></span>
       </button>
+      <button type="button" role="menuitem" className={item} disabled={!onReloadMcp} onClick={() => { onOpenChange(false); onReloadMcp?.(); }}>
+        <RefreshCw className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0"><span className="block text-sm">Reload MCP</span><span className="block text-xs text-muted-foreground">Rebind MCP servers and extensions</span></span>
+      </button>
     </div>}
   </div>;
 }
@@ -123,11 +128,13 @@ export interface ComposerProps {
   onStop: () => void;
   onCompact?: () => void;
   onExport?: () => void;
+  onReloadMcp?: () => void;
   compatibility?: readonly string[];
   attachments?: readonly ImageAttachment[];
   onAddImages?: (files: File[]) => void;
   onRemoveImage?: (id: string) => void;
   videos?: readonly string[];
+  queued?: readonly string[];
   onAddVideo?: (url: string) => string | null;
   onRemoveVideo?: (url: string) => void;
   readingImages?: boolean;
@@ -160,7 +167,7 @@ function TextGuardControl({ control }: { control: NonNullable<ComposerProps["tex
     </div>}
   </div>;
 }
-export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
+export function Composer({ hero = false, textguard, connected, pending, opening = false, unavailable = false, running, draft, onDraft, onSend, onStop, onCompact, onExport, onReloadMcp, compatibility = [], attachments = [], onAddImages, onRemoveImage, readingImages = false, attachmentError, videos = [], queued = [], onAddVideo, onRemoveVideo, models, model, onSelectModel, onRefreshModels, onRetryModels, thinkingLevel, thinkingLevels, onThinkingLevel }: ComposerProps) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -169,7 +176,16 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
   const [modelOpen, setModelOpen] = useState(false);
   const submit = () => { if (connected && !pending && !opening && !unavailable && !readingImages && (draft.trim() || videos.length)) onSend(); };
   const compactDisabled = !connected || pending || opening || unavailable || running;
-  const exportDisabled = !connected || pending || opening || unavailable;
+  const exportDisabled = !connected || pending || opening || unavailable;  const [commandIndex, setCommandIndex] = useState(0);
+  const commands = [
+    { id: "compact", label: "Compact", description: "Summarize earlier conversation", disabled: compactDisabled || !onCompact, run: () => onCompact?.() },
+    { id: "model", label: "Model", description: "Choose this session's model", disabled: !connected, run: () => setModelOpen(true) },
+    { id: "export", label: "Export", description: "Download this session", disabled: exportDisabled || !onExport, run: () => onExport?.() },
+    { id: "mcp-reload", label: "Reload MCP", description: "Rebind MCP servers and extensions", disabled: !onReloadMcp, run: () => onReloadMcp?.() },
+  ];
+  const slashQuery = draft.startsWith("/") && !draft.includes("\n") ? draft.slice(1).trim().toLowerCase() : null;
+  const commandMatches = slashQuery === null ? [] : commands.filter(command => `${command.label} ${command.id} ${command.description}`.toLowerCase().includes(slashQuery));
+  const runCommand = (command: typeof commands[number]) => { if (command.disabled) return; onDraft(""); command.run(); };
   const pasteFiles = (event: ClipboardEvent<HTMLElement>) => {
     if (!onAddImages) return;
     const selected = Array.from(event.clipboardData.files);
@@ -184,18 +200,30 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
   };
   return <div className={hero ? "px-0 pb-0 pt-0" : "px-3 pb-3 pt-2 sm:px-6"}>
     {!!compatibility.length && <p role="status" className="mx-auto mb-2 max-w-3xl text-xs text-muted-foreground">Some runtime events have no display: {compatibility.join(", ")}</p>}
-    <form aria-label="Message composer" onPaste={pasteFiles} className={`mx-auto flex max-w-3xl flex-col gap-2 border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12)] focus-within:ring-1 focus-within:ring-ring ${hero ? "rounded-3xl p-3" : "rounded-2xl p-2.5"}`} onSubmit={event => { event.preventDefault(); submit(); }}>
+    <form aria-label="Message composer" onPaste={pasteFiles} className={`relative mx-auto flex max-w-3xl flex-col gap-2 border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12)] focus-within:ring-1 focus-within:ring-ring ${hero ? "rounded-3xl p-3" : "rounded-2xl p-2.5"}`} onSubmit={event => { event.preventDefault(); submit(); }}>
       {attachmentError && <p role="alert" className="px-1 text-sm text-destructive">{attachmentError}</p>}
       {!!attachments.length && <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-1">{attachments.map(item => <li key={item.id} className="relative max-w-36 rounded-lg border border-border p-1.5"><img src={`data:${item.image.mimeType};base64,${item.image.data}`} alt={`Preview of ${item.name}`} className="h-16 w-24 object-contain" /><div className="flex items-center gap-1"><p className="min-w-0 flex-1 truncate text-xs" title={item.name}>{item.name}</p><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove ${item.name}`} onClick={() => onRemoveImage?.(item.id)}><X className="size-3" /></Button></div></li>)}</ul>}
+      {!!queued.length && <div role="status" aria-label="Queued messages" className="space-y-1 px-1">{queued.map((text, index) => <p key={`${index}-${text}`} className="truncate rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">Queued: {text}</p>)}</div>}
       {!!videos.length && <ul aria-label="Attached videos" className="flex flex-wrap gap-2 px-1">{videos.map(url => <li key={url} className="flex max-w-full items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs"><Video className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate" title={url}>{url}</span><Button type="button" variant="ghost" className="size-6 p-0" aria-label={`Remove video ${url}`} onClick={() => onRemoveVideo?.(url)}><X className="size-3" /></Button></li>)}</ul>}
       {videoOpen && <div className="flex items-center gap-2 px-1"><Input aria-label="Video URL" placeholder="https://…/video.mp4" value={videoDraft} onChange={event => setVideoDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } } }} /><Button type="button" onClick={() => { const error = onAddVideo?.(videoDraft) ?? null; setVideoError(error); if (!error) { setVideoDraft(""); setVideoOpen(false); } }}>Add</Button></div>}
       {videoError && <p role="alert" className="px-1 text-xs text-destructive">{videoError}</p>}
-      <textarea aria-label="Message Jouzu" placeholder="Message Jouzu…" value={draft} onChange={event => onDraft(event.target.value)} rows={3} className="max-h-60 min-h-16 w-full resize-y bg-transparent px-1 text-sm outline-none" onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
+      {slashQuery !== null && commandMatches.length > 0 && <div role="menu" aria-label="Commands" className="absolute bottom-full left-0 right-0 z-40 mb-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
+        {commandMatches.map((command, index) => <button key={command.id} type="button" role="menuitem" disabled={command.disabled} onMouseEnter={() => setCommandIndex(index)} onClick={() => runCommand(command)} className={`flex w-full items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left ${index === commandIndex ? "bg-accent" : ""} disabled:opacity-45`}><span className="min-w-0"><span className="block text-sm">{command.label}</span><span className="block truncate text-xs text-muted-foreground">{command.description}</span></span><span className="text-[10px] text-muted-foreground">/{command.id}</span></button>)}
+      </div>}
+      <textarea aria-label="Message Jouzu" placeholder="Message Jouzu…" value={draft} onChange={event => { onDraft(event.target.value); setCommandIndex(0); }} rows={3} className="max-h-60 min-h-16 w-full resize-y bg-transparent px-1 text-sm outline-none" onKeyDown={event => {
+        if (slashQuery !== null && commandMatches.length) {
+          if (event.key === "ArrowDown") { event.preventDefault(); setCommandIndex(index => Math.min(index + 1, commandMatches.length - 1)); return; }
+          if (event.key === "ArrowUp") { event.preventDefault(); setCommandIndex(index => Math.max(0, index - 1)); return; }
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); runCommand(commandMatches[Math.min(commandIndex, commandMatches.length - 1)]); return; }
+          if (event.key === "Escape") { event.preventDefault(); onDraft(""); return; }
+        }
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
+      }} />
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
           {onAddImages && <><input ref={imageInput} type="file" accept={IMAGE_ACCEPT} multiple className="hidden" aria-label="Choose images" onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; onAddImages(files); }} /></>}
           {onAddVideo && <Button type="button" variant="ghost" className="size-8 p-0" aria-label="Add video URL" title="Add video URL" onClick={() => setVideoOpen(value => !value)}><Video className="size-4" /></Button>}
-          <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
+          <AddMenu open={addOpen} onOpenChange={setAddOpen} onAddImage={onAddImages && !readingImages && attachments.length < MAX_IMAGES ? () => imageInput.current?.click() : undefined} onCompact={onCompact} onModel={() => setModelOpen(true)} onExport={onExport} onReloadMcp={onReloadMcp} compactDisabled={compactDisabled} exportDisabled={exportDisabled || readingImages} />
                     {textguard && <TextGuardControl control={textguard} />}
           {readingImages && <span role="status" className="text-xs text-muted-foreground">Reading images…</span>}
         </div>
@@ -209,4 +237,12 @@ export function Composer({ hero = false, textguard, connected, pending, opening 
     </form>
   </div>;
 }
+
+
+
+
+
+
+
+
 
